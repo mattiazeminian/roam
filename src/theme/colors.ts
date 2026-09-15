@@ -49,6 +49,10 @@ export const colors = {
     pressed: palette.limeDeep,
     // Surfaces and materials for floating controls.
     surfaceElevated: palette.white,
+    // Translucent control fills (iOS system-fill style) so controls sit on
+    // glass without looking like opaque stickers.
+    fill: 'rgba(120, 120, 128, 0.12)',
+    fillPressed: 'rgba(120, 120, 128, 0.20)',
     // Fallback material when the native Liquid Glass API is unavailable.
     glass: 'rgba(255, 255, 255, 0.72)',
     glassBorder: 'rgba(0, 0, 0, 0.06)',
@@ -75,6 +79,8 @@ export const colors = {
     active: palette.lime,
     pressed: palette.limeBright,
     surfaceElevated: palette.grayElevated,
+    fill: 'rgba(120, 120, 128, 0.24)',
+    fillPressed: 'rgba(120, 120, 128, 0.36)',
     glass: 'rgba(28, 28, 30, 0.62)',
     glassBorder: 'rgba(255, 255, 255, 0.10)',
     shadow: 'rgba(0, 0, 0, 0.5)',

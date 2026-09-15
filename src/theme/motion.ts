@@ -7,6 +7,8 @@ export const motion = {
   pressScale: 0.97,
   pressInDuration: 90,
   pressOutDuration: 150,
+  /** Subtle, high-damping settle for press release. No visible bounce. */
+  pressSpring: { damping: 28, stiffness: 320, mass: 0.8 },
   /** General UI transitions. */
   fastDuration: 150,
   mediumDuration: 260,

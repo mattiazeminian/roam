@@ -18,6 +18,12 @@ type TypeToken = Pick<
  * captions are slightly tracked so they read as technical annotations.
  */
 export const typography = {
+  hero: {
+    fontSize: 56,
+    lineHeight: 60,
+    fontWeight: '700',
+    letterSpacing: -1.5,
+  },
   display: {
     fontSize: 48,
     lineHeight: 52,

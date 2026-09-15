@@ -21,7 +21,7 @@ export type MapControlProps = {
  */
 export function MapControl({ symbol, accessibilityLabel, onPress, fallback }: MapControlProps) {
   const theme = useTheme();
-  const press = usePressScale(0.93);
+  const press = usePressScale(0.96);
 
   return (
     <Animated.View style={press.animatedStyle}>

@@ -37,8 +37,8 @@ function resolveColors(theme: ThemeColors, variant: ButtonVariant, disabled: boo
       };
     case 'secondary':
       return {
-        backgroundColor: theme.surface,
-        pressedBackground: theme.disabled,
+        backgroundColor: theme.fill,
+        pressedBackground: theme.fillPressed,
         textColor: 'text' as ColorToken,
       };
     case 'primary':

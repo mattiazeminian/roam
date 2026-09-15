@@ -1,11 +1,11 @@
 import { useCallback } from 'react';
-import { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 
 import { motion } from '@/theme';
 
 /**
- * Tactile press feedback: a short, restrained scale down on touch and a quick
- * return on release. Native-feeling timing, no bounce.
+ * Tactile press feedback: immediate scale-down on touch, then a short
+ * high-damping spring back. Native-feeling, no visible bounce.
  */
 export function usePressScale(pressedScale: number = motion.pressScale) {
   const scale = useSharedValue(1);
@@ -19,7 +19,7 @@ export function usePressScale(pressedScale: number = motion.pressScale) {
   }, [pressedScale, scale]);
 
   const onPressOut = useCallback(() => {
-    scale.value = withTiming(1, { duration: motion.pressOutDuration });
+    scale.value = withSpring(1, { ...motion.pressSpring });
   }, [scale]);
 
   return { animatedStyle, onPressIn, onPressOut };

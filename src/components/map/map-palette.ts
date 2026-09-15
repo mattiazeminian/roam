@@ -10,18 +10,18 @@ import { useColorScheme } from 'react-native';
  */
 export const mapPalette = {
   light: {
-    land: '#F7F7F7',
-    building: '#ECECEC',
-    minorRoad: '#E3E3E3',
-    majorRoad: '#CFCFCF',
-    label: '#9A9A9A',
+    land: '#F3F3F3',
+    building: '#E7E7E7',
+    minorRoad: '#D9D9D9',
+    majorRoad: '#BDBDBD',
+    label: '#8A8A8A',
   },
   dark: {
-    land: '#0B0B0B',
-    building: '#161616',
-    minorRoad: '#242424',
-    majorRoad: '#3A3A3A',
-    label: '#6B6B6B',
+    land: '#0A0A0A',
+    building: '#191919',
+    minorRoad: '#2C2C2C',
+    majorRoad: '#484848',
+    label: '#8A8A8A',
   },
 } as const;
 

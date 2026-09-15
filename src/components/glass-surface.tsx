@@ -1,8 +1,23 @@
-import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
-import type { ReactNode } from 'react';
+import {
+  GlassView as ExpoGlassView,
+  isLiquidGlassAvailable,
+  type GlassViewProps,
+} from 'expo-glass-effect';
+import type { ComponentType, ReactNode } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { radii, useTheme } from '@/theme';
+
+/**
+ * `borderRadius` is a native prop on `GlassView` (it configures the effect's own
+ * corner shape). Passing it only as a style does not reach the native glass, so
+ * the corners stay square. This widens the type to allow the prop.
+ */
+type GlassViewWithRadiusProps = GlassViewProps & {
+  borderRadius?: number;
+};
+
+const GlassView = ExpoGlassView as unknown as ComponentType<GlassViewWithRadiusProps>;
 
 let cachedAvailability: boolean | null = null;
 
@@ -51,7 +66,8 @@ export function GlassSurface({
         glassEffectStyle={glassEffectStyle}
         tintColor={tintColor}
         isInteractive={interactive}
-        style={[styles.base, { borderRadius: radius }, style]}>
+        borderRadius={radius}
+        style={style}>
         {children}
       </GlassView>
     );
@@ -60,7 +76,6 @@ export function GlassSurface({
   return (
     <View
       style={[
-        styles.base,
         styles.fallbackShadow,
         {
           borderRadius: radius,
@@ -77,9 +92,6 @@ export function GlassSurface({
 }
 
 const styles = StyleSheet.create({
-  base: {
-    overflow: 'hidden',
-  },
   fallbackShadow: {
     shadowOpacity: 1,
     shadowRadius: 18,
