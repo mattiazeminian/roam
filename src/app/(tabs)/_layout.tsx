@@ -1,26 +1,31 @@
-import { Tabs } from 'expo-router/js-tabs';
+import { NativeTabs } from 'expo-router/unstable-native-tabs';
 
-import { GlassTabBar } from '@/components/glass-tab-bar';
 import { useTheme } from '@/theme';
 
 /**
- * Home and History live in a native-glass tab bar. Route selection and the
- * active run are pushed above this group as full-screen screens.
+ * Home and History use the platform's native tab bar (UITabBar on iOS), which
+ * provides the standard iOS interaction, safe-area handling and Liquid Glass
+ * material on iOS 26. Route selection and the active run are pushed above this
+ * group as full-screen screens.
  */
 export default function TabsLayout() {
   const theme = useTheme();
 
   return (
-    <Tabs
-      tabBar={(props) => <GlassTabBar {...props} />}
-      screenOptions={{
-        headerShown: false,
-        sceneStyle: { backgroundColor: theme.background },
-        // The custom floating tab bar handles its own layout and insets.
-        tabBarStyle: { height: 0 },
+    <NativeTabs
+      iconColor={{ default: theme.textSecondary, selected: theme.accent }}
+      labelStyle={{
+        default: { color: theme.textSecondary },
+        selected: { color: theme.accent },
       }}>
-      <Tabs.Screen name="index" options={{ title: 'Home' }} />
-      <Tabs.Screen name="history" options={{ title: 'History' }} />
-    </Tabs>
+      <NativeTabs.Trigger name="index">
+        <NativeTabs.Trigger.Icon sf={{ default: 'house', selected: 'house.fill' }} />
+        <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="history">
+        <NativeTabs.Trigger.Icon sf={{ default: 'clock', selected: 'clock.fill' }} />
+        <NativeTabs.Trigger.Label>History</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+    </NativeTabs>
   );
 }
