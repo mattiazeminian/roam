@@ -13,8 +13,8 @@ import { MOCK_ORIGIN, generateRoutes, getLastRoutes } from '@/services/routing';
 import { layout, spacing } from '@/theme';
 
 /**
- * Route Selection — candidate routes drawn on the map with a floating glass
- * selection panel. The map stays the primary surface.
+ * Route Selection — the map is the interface. All candidate routes are drawn
+ * and can be tapped directly; a small surface reflects the current choice.
  */
 export default function RouteSelectionScreen() {
   const insets = useSafeAreaInsets();
@@ -30,8 +30,8 @@ export default function RouteSelectionScreen() {
     [targetKm],
   );
 
-  const [selectedId, setSelectedId] = useState<string>(() => routes[0]?.id ?? '');
-  const selectedRoute = routes.find((route) => route.id === selectedId) ?? routes[0];
+  const [selectedId, setSelectedId] = useState<string>('');
+  const selectedRoute = routes.find((route) => route.id === selectedId);
 
   const handleSelect = useCallback(
     (id: string) => {
@@ -55,6 +55,17 @@ export default function RouteSelectionScreen() {
     });
   }, [selectedRoute, targetKm]);
 
+  // Fit the camera to the whole route system, keeping the bottom surface clear.
+  const mapPadding = useMemo(
+    () => ({
+      top: insets.top + 72,
+      bottom: insets.bottom + 220,
+      left: spacing.huge,
+      right: spacing.huge,
+    }),
+    [insets.top, insets.bottom],
+  );
+
   return (
     <View style={styles.root}>
       <MapSurface style={StyleSheet.absoluteFill}>
@@ -63,11 +74,15 @@ export default function RouteSelectionScreen() {
           routes={routes}
           selectedRouteId={selectedId}
           onSelectRoute={handleSelect}
+          padding={mapPadding}
         />
       </MapSurface>
 
       <View
-        style={[styles.topRow, { top: insets.top + spacing.xs, paddingHorizontal: layout.floatingInset }]}
+        style={[
+          styles.topRow,
+          { top: insets.top + spacing.xs, paddingHorizontal: layout.floatingInset },
+        ]}
         pointerEvents="box-none">
         <MapControl
           symbol="chevron.left"
@@ -77,15 +92,12 @@ export default function RouteSelectionScreen() {
       </View>
 
       <View
-        style={[styles.panel, { bottom: insets.bottom + spacing.md, paddingHorizontal: layout.floatingInset }]}
+        style={[
+          styles.panel,
+          { bottom: insets.bottom + spacing.md, paddingHorizontal: layout.floatingInset },
+        ]}
         pointerEvents="box-none">
-        <RouteInfoPanel
-          targetKm={targetKm}
-          routes={routes}
-          selectedRouteId={selectedId}
-          onSelectRoute={handleSelect}
-          onStart={handleStart}
-        />
+        <RouteInfoPanel route={selectedRoute} routeCount={routes.length} onStart={handleStart} />
       </View>
     </View>
   );

@@ -5,11 +5,16 @@ import type { Coordinate, RouteCandidate } from '@/services/routing';
 import { motion, spacing, useTheme } from '@/theme';
 
 import { LocationMarker } from './location-marker';
-import { boundsOf, project } from './projection';
+import { boundsOf, project, type MapInsets } from './projection';
 import { RoutePath } from './route-path';
 import { SearchPulse } from './search-pulse';
 
-const MAP_PADDING = spacing.huge;
+const DEFAULT_INSETS: MapInsets = {
+  top: spacing.huge,
+  right: spacing.huge,
+  bottom: spacing.huge,
+  left: spacing.huge,
+};
 
 export type RouteOverlayProps = {
   origin: Coordinate;
@@ -20,6 +25,8 @@ export type RouteOverlayProps = {
   searching?: boolean;
   /** Changing this value replays the location marker's entrance animation. */
   recenterSignal?: number;
+  /** Edge insets the camera keeps clear so routes are never hidden behind UI. */
+  padding?: Partial<MapInsets>;
 };
 
 /**
@@ -34,9 +41,12 @@ export function RouteOverlay({
   onSelectRoute,
   searching = false,
   recenterSignal = 0,
+  padding,
 }: RouteOverlayProps) {
   const theme = useTheme();
   const [size, setSize] = useState({ width: 0, height: 0 });
+
+  const insets = useMemo<MapInsets>(() => ({ ...DEFAULT_INSETS, ...padding }), [padding]);
 
   const bounds = useMemo(
     () => boundsOf([origin, ...routes.flatMap((route) => route.geometry)]),
@@ -50,16 +60,16 @@ export function RouteOverlay({
     return routes.map((route, index) => ({
       route,
       index,
-      points: project(route.geometry, bounds, size.width, size.height, MAP_PADDING),
+      points: project(route.geometry, bounds, size.width, size.height, insets),
     }));
-  }, [routes, bounds, size]);
+  }, [routes, bounds, size, insets]);
 
   const originPoint = useMemo(() => {
     if (size.width === 0 || size.height === 0) {
       return null;
     }
-    return project([origin], bounds, size.width, size.height, MAP_PADDING)[0];
-  }, [origin, bounds, size]);
+    return project([origin], bounds, size.width, size.height, insets)[0];
+  }, [origin, bounds, size, insets]);
 
   // Render the selected route last so it sits on top.
   const ordered = [
@@ -84,7 +94,7 @@ export function RouteOverlay({
           haloColor={theme.text}
           baseWidth={3}
           activeWidth={6}
-          baseOpacity={0.45}
+          baseOpacity={0.5}
           activeOpacity={1}
           selected={route.id === selectedRouteId}
           drawDelayMs={index * motion.routeStaggerDuration}

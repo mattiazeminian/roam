@@ -43,9 +43,18 @@ export function boundsOf(coordinates: Coordinate[]): GeoBounds {
   return { minLat, maxLat, minLon, maxLon };
 }
 
+/** Edge insets the map camera must keep clear of overlaying UI. */
+export type MapInsets = {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+};
+
 /**
  * Aspect-preserving equirectangular projection into a view of `width` x
- * `height`, with `padding` inset. This stands in for a real map camera until a
+ * `height`, fitted inside `insets`. Asymmetric insets let the camera keep the
+ * route clear of a bottom surface. This stands in for a real map camera until a
  * map provider is added.
  */
 export function project(
@@ -53,17 +62,20 @@ export function project(
   bounds: GeoBounds,
   width: number,
   height: number,
-  padding: number,
+  insets: MapInsets,
 ): Point[] {
   const lonSpan = bounds.maxLon - bounds.minLon;
   const latSpan = bounds.maxLat - bounds.minLat;
 
-  const availableWidth = Math.max(1, width - padding * 2);
-  const availableHeight = Math.max(1, height - padding * 2);
+  const availableWidth = Math.max(1, width - insets.left - insets.right);
+  const availableHeight = Math.max(1, height - insets.top - insets.bottom);
   const scale = Math.min(availableWidth / lonSpan, availableHeight / latSpan);
 
-  const offsetX = (width - lonSpan * scale) / 2;
-  const offsetY = (height - latSpan * scale) / 2;
+  const contentWidth = lonSpan * scale;
+  const contentHeight = latSpan * scale;
+
+  const offsetX = insets.left + (availableWidth - contentWidth) / 2;
+  const offsetY = insets.top + (availableHeight - contentHeight) / 2;
 
   return coordinates.map((coordinate) => ({
     x: offsetX + (coordinate.longitude - bounds.minLon) * scale,
