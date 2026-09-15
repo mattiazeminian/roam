@@ -1,6 +1,11 @@
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Keyboard, Pressable, StyleSheet, View } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
@@ -13,15 +18,9 @@ import { RouteOverlay } from '@/components/map/route-overlay';
 import { Text } from '@/components/text';
 import { impactLight, successFeedback } from '@/lib/haptics';
 import { MOCK_ORIGIN, findRoutes } from '@/services/routing';
-import { layout, radii, spacing, useTheme } from '@/theme';
+import { layout, motion, radii, spacing, useTheme } from '@/theme';
 
-const GENERATION_MESSAGES = [
-  'Finding your way',
-  'Checking nearby streets',
-  'Looking for a good loop',
-  'Building your route',
-  'Route ready',
-];
+const GENERATION_MESSAGES = ['Finding your way', 'Looking for a good loop', 'Route ready'];
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -37,6 +36,29 @@ export default function HomeScreen() {
   const [statusIndex, setStatusIndex] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [recenterSignal, setRecenterSignal] = useState(0);
+  const generatingRef = useRef(false);
+
+  // Lift the floating controls above the keyboard while editing the distance.
+  const lift = useSharedValue(0);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardWillShow', (event) => {
+      setKeyboardVisible(true);
+      const desired = event.endCoordinates.height + spacing.sm;
+      const current = insets.bottom + layout.tabBarClearance;
+      lift.value = withTiming(Math.max(0, desired - current), { duration: motion.mediumDuration });
+    });
+    const hide = Keyboard.addListener('keyboardWillHide', () => {
+      setKeyboardVisible(false);
+      lift.value = withTiming(0, { duration: motion.mediumDuration });
+    });
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, [insets.bottom, lift]);
+
+  const liftStyle = useAnimatedStyle(() => ({ transform: [{ translateY: -lift.value }] }));
 
   useFocusEffect(
     useCallback(() => {
@@ -61,9 +83,11 @@ export default function HomeScreen() {
   }, []);
 
   const handleFindRoutes = useCallback(async () => {
-    if (isGenerating) {
+    // Ref guard prevents a second run before state updates commit (rapid taps).
+    if (generatingRef.current) {
       return;
     }
+    generatingRef.current = true;
     impactLight();
     setErrorMessage(null);
     setIsGenerating(true);
@@ -80,8 +104,10 @@ export default function HomeScreen() {
       // Fail gracefully: stay on Home with a plain message instead of crashing.
       setIsGenerating(false);
       setErrorMessage('Could not find routes. Try another distance.');
+    } finally {
+      generatingRef.current = false;
     }
-  }, [distanceKm, isGenerating]);
+  }, [distanceKm]);
 
   return (
     <View style={styles.root}>
@@ -93,6 +119,15 @@ export default function HomeScreen() {
           recenterSignal={recenterSignal}
         />
       </MapSurface>
+
+      {keyboardVisible ? (
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => Keyboard.dismiss()}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        />
+      ) : null}
 
       <View
         style={[styles.topRow, { top: insets.top + spacing.xs, paddingHorizontal: layout.floatingInset }]}
@@ -110,13 +145,14 @@ export default function HomeScreen() {
         />
       </View>
 
-      <View
+      <Animated.View
         style={[
           styles.controls,
           {
             bottom: insets.bottom + layout.tabBarClearance,
             paddingHorizontal: layout.floatingInset,
           },
+          liftStyle,
         ]}
         pointerEvents="box-none">
         {isGenerating || errorMessage ? (
@@ -137,7 +173,7 @@ export default function HomeScreen() {
           onPress={handleFindRoutes}
           disabled={isGenerating}
         />
-      </View>
+      </Animated.View>
     </View>
   );
 }

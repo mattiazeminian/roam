@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Keyboard, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -26,16 +26,29 @@ export type DistanceControlProps = {
 };
 
 function clampDistance(valueKm: number) {
-  return Math.min(MAX_DISTANCE_KM, Math.max(MIN_DISTANCE_KM, Math.round(valueKm)));
+  const clamped = Math.min(MAX_DISTANCE_KM, Math.max(MIN_DISTANCE_KM, valueKm));
+  return Math.round(clamped * 10) / 10;
+}
+
+function sanitizeDraft(text: string) {
+  // Numeric keypads use the locale decimal separator (e.g. "," in Italian).
+  let cleaned = text.replace(/,/g, '.').replace(/[^0-9.]/g, '');
+  const firstDot = cleaned.indexOf('.');
+  if (firstDot !== -1) {
+    cleaned = cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '');
+  }
+  return cleaned.slice(0, 4);
 }
 
 /**
- * Soft, tactile distance selection: a hero value with +/- and rounded presets
- * on a floating glass surface. No freeform slider, so the choice is never
- * ambiguous.
+ * Distance selection: a hero value that can be adjusted with +/-, chosen from
+ * presets, or edited directly with a numeric keyboard. No separate screen.
  */
 export function DistanceControl({ valueKm, onChange, disabled = false }: DistanceControlProps) {
   const theme = useTheme();
+  const inputRef = useRef<TextInput>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState('');
 
   const valueProgress = useSharedValue(1);
   const previousValue = useRef(valueKm);
@@ -51,91 +64,174 @@ export function DistanceControl({ valueKm, onChange, disabled = false }: Distanc
     }
   }, [valueKm, valueProgress]);
 
-  const valueStyle = useAnimatedStyle(() => ({
-    opacity: valueProgress.value,
-    transform: [{ translateY: (1 - valueProgress.value) * 8 }],
-  }));
+  const valueStyle = useAnimatedStyle(() => {
+    const progress = valueProgress.value;
+    return {
+      opacity: progress,
+      transform: [{ translateY: (1 - progress) * 10 }, { scale: 0.98 + progress * 0.02 }],
+    };
+  });
+
+  const beginEdit = () => {
+    if (disabled) {
+      return;
+    }
+    setDraft(valueKm.toFixed(1));
+    setIsEditing(true);
+  };
+
+  const handleDraftChange = (text: string) => {
+    const cleaned = sanitizeDraft(text);
+    setDraft(cleaned);
+    const parsed = Number.parseFloat(cleaned);
+    if (Number.isFinite(parsed) && parsed >= MIN_DISTANCE_KM && parsed <= MAX_DISTANCE_KM) {
+      onChange(Math.round(parsed * 10) / 10);
+    }
+  };
+
+  const finishEdit = () => {
+    setIsEditing(false);
+    const parsed = Number.parseFloat(draft);
+    if (!Number.isFinite(parsed)) {
+      return;
+    }
+    onChange(clampDistance(parsed));
+  };
+
+  const exitEdit = () => {
+    if (isEditing) {
+      setIsEditing(false);
+      Keyboard.dismiss();
+    }
+  };
 
   const decrease = () => {
+    exitEdit();
     impactLight();
     onChange(clampDistance(valueKm - DISTANCE_STEP_KM));
   };
   const increase = () => {
+    exitEdit();
     impactLight();
     onChange(clampDistance(valueKm + DISTANCE_STEP_KM));
   };
   const selectPreset = (preset: number) => {
+    exitEdit();
     selectionFeedback();
     onChange(preset);
   };
 
   return (
-    <GlassSurface radius={radii.large} style={styles.surface}>
-      <Text variant="caption" color="textSecondary">
-        DISTANCE
-      </Text>
-
-      <View style={styles.heroRow}>
-        <StepButton
-          label="−"
-          accessibilityLabel="Decrease distance"
-          onPress={decrease}
-          disabled={disabled || valueKm <= MIN_DISTANCE_KM}
-        />
-
-        <View
-          style={styles.value}
-          accessible
-          accessibilityRole="adjustable"
-          accessibilityLabel="Running distance"
-          accessibilityValue={{
-            min: MIN_DISTANCE_KM,
-            max: MAX_DISTANCE_KM,
-            now: valueKm,
-            text: `${valueKm.toFixed(1)} kilometers`,
-          }}
-          accessibilityActions={[
-            { name: 'increment', label: 'Increase distance' },
-            { name: 'decrement', label: 'Decrease distance' },
-          ]}
-          onAccessibilityAction={(event) => {
-            if (event.nativeEvent.actionName === 'increment') {
-              increase();
-            }
-            if (event.nativeEvent.actionName === 'decrement') {
-              decrease();
-            }
-          }}>
-          <Animated.View style={[styles.valueInner, valueStyle]}>
-            <Text variant="display" tabular>
-              {valueKm.toFixed(1)}
-            </Text>
-            <Text variant="title" color="textSecondary" style={styles.unit}>
-              km
-            </Text>
-          </Animated.View>
+    <>
+      <GlassSurface radius={radii.large} style={styles.surface}>
+        <View style={styles.labelRow}>
+          <Text variant="caption" color="textSecondary">
+            DISTANCE
+          </Text>
+          {isEditing ? (
+            <Pressable
+              onPress={() => {
+                finishEdit();
+                Keyboard.dismiss();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Done editing distance"
+              hitSlop={10}>
+              <Text variant="label" color="text" style={styles.doneLabel}>
+                Done
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
 
-        <StepButton
-          label="+"
-          accessibilityLabel="Increase distance"
-          onPress={increase}
-          disabled={disabled || valueKm >= MAX_DISTANCE_KM}
-        />
-      </View>
-
-      <View style={styles.presets}>
-        {DISTANCE_PRESETS.map((preset) => (
-          <PresetButton
-            key={preset}
-            value={preset}
-            selected={valueKm === preset}
-            onPress={() => selectPreset(preset)}
-            disabled={disabled}
+        <View style={styles.heroRow}>
+          <StepButton
+            label="−"
+            accessibilityLabel="Decrease distance"
+            onPress={decrease}
+            disabled={disabled || valueKm <= MIN_DISTANCE_KM}
           />
-        ))}
-      </View>
-    </GlassSurface>
+
+          <View style={styles.value}>
+            {isEditing ? (
+              <View style={styles.valueInner}>
+                <TextInput
+                  ref={inputRef}
+                  value={draft}
+                  onChangeText={handleDraftChange}
+                  onBlur={finishEdit}
+                  onSubmitEditing={finishEdit}
+                  keyboardType="decimal-pad"
+                  returnKeyType="done"
+                  autoFocus
+                  selectTextOnFocus
+                  maxLength={4}
+                  accessibilityLabel="Distance in kilometers"
+                  style={[styles.input, { color: theme.text }]}
+                />
+                <Text variant="title" color="textSecondary" style={styles.unit}>
+                  km
+                </Text>
+              </View>
+            ) : (
+              <Pressable
+                onPress={beginEdit}
+                disabled={disabled}
+                accessibilityRole="adjustable"
+                accessibilityLabel="Running distance"
+                accessibilityHint="Double tap to type an exact distance"
+                accessibilityValue={{
+                  min: MIN_DISTANCE_KM,
+                  max: MAX_DISTANCE_KM,
+                  now: valueKm,
+                  text: `${valueKm.toFixed(1)} kilometers`,
+                }}
+                accessibilityActions={[
+                  { name: 'increment', label: 'Increase distance' },
+                  { name: 'decrement', label: 'Decrease distance' },
+                ]}
+                onAccessibilityAction={(event) => {
+                  if (event.nativeEvent.actionName === 'increment') {
+                    increase();
+                  }
+                  if (event.nativeEvent.actionName === 'decrement') {
+                    decrease();
+                  }
+                }}>
+                <Animated.View style={[styles.valueInner, valueStyle]}>
+                  <Text variant="hero" tabular>
+                    {valueKm.toFixed(1)}
+                  </Text>
+                  <Text variant="title" color="textSecondary" style={styles.unit}>
+                    km
+                  </Text>
+                </Animated.View>
+              </Pressable>
+            )}
+          </View>
+
+          <StepButton
+            label="+"
+            accessibilityLabel="Increase distance"
+            onPress={increase}
+            disabled={disabled || valueKm >= MAX_DISTANCE_KM}
+          />
+        </View>
+
+        <View style={styles.presets}>
+          {DISTANCE_PRESETS.map((preset) => (
+            <PresetButton
+              key={preset}
+              value={preset}
+              selected={valueKm === preset}
+              onPress={() => selectPreset(preset)}
+              disabled={disabled}
+            />
+          ))}
+        </View>
+      </GlassSurface>
+
+    </>
   );
 }
 
@@ -151,7 +247,7 @@ function StepButton({
   disabled: boolean;
 }) {
   const theme = useTheme();
-  const press = usePressScale(0.92);
+  const press = usePressScale(0.96);
 
   return (
     <Animated.View style={press.animatedStyle}>
@@ -166,7 +262,7 @@ function StepButton({
         style={({ pressed }) => [
           styles.step,
           {
-            backgroundColor: pressed && !disabled ? theme.disabled : theme.surface,
+            backgroundColor: pressed && !disabled ? theme.fillPressed : theme.fill,
             opacity: disabled ? 0.5 : 1,
           },
         ]}>
@@ -190,7 +286,7 @@ function PresetButton({
   disabled: boolean;
 }) {
   const theme = useTheme();
-  const press = usePressScale(0.96);
+  const press = usePressScale(0.97);
 
   return (
     <Animated.View style={[styles.presetWrapper, press.animatedStyle]}>
@@ -208,8 +304,8 @@ function PresetButton({
             backgroundColor: selected
               ? theme.selected
               : pressed && !disabled
-                ? theme.disabled
-                : theme.surface,
+                ? theme.fillPressed
+                : theme.fill,
             opacity: disabled ? 0.5 : 1,
           },
         ]}>
@@ -229,6 +325,15 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md,
   },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 18,
+  },
+  doneLabel: {
+    fontWeight: '600',
+  },
   heroRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -242,7 +347,17 @@ const styles = StyleSheet.create({
   valueInner: {
     flexDirection: 'row',
     alignItems: 'baseline',
+    justifyContent: 'center',
     gap: spacing.xxs,
+  },
+  input: {
+    fontSize: 56,
+    lineHeight: 60,
+    fontWeight: '700',
+    letterSpacing: -1.5,
+    textAlign: 'center',
+    padding: 0,
+    minWidth: 120,
   },
   unit: {
     paddingBottom: spacing.xxs,
