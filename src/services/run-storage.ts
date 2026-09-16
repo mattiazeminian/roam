@@ -51,6 +51,20 @@ function parseCoordinates(value: unknown): Coordinate[] {
   return Array.isArray(value) ? value.filter(isCoordinate) : [];
 }
 
+/**
+ * Fix times come back as `(number | null)[]`, index-aligned with coordinates.
+ * Anything non-numeric becomes `null` (unknown) rather than being dropped, so
+ * the alignment the split math relies on is never silently broken.
+ */
+function parseTimestamps(value: unknown): (number | null)[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.map((entry) =>
+    typeof entry === 'number' && Number.isFinite(entry) ? entry : null,
+  );
+}
+
 function parseRoute(value: unknown): RouteCandidate | null {
   if (typeof value !== 'object' || value === null) {
     return null;
@@ -104,6 +118,7 @@ function parseRun(value: unknown): SavedRun | null {
       ? (run.averagePaceMinPerKm as number)
       : null,
     coordinates: parseCoordinates(run.coordinates),
+    timestamps: parseTimestamps(run.timestamps),
     status,
   };
 }

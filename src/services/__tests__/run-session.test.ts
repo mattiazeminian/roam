@@ -11,6 +11,7 @@ import {
   applySample,
   computeRecords,
   createTrackerState,
+  fastestSplit,
   preparePlannedRoute,
   trackerStateFromCheckpoint,
   type PlannedRoute,
@@ -600,5 +601,95 @@ describe('personal records (#12)', () => {
     expect(records.fastest).toBeNull();
     expect(records.fastest5k).toBeNull();
     expect(records.fastest10k).toBeNull();
+  });
+});
+
+describe('timed track and splits (#32)', () => {
+  test('every accepted point gets a fix time, index-aligned with the track', () => {
+    const state = feed([
+      sample({ coordinate: offset(0, 0), timestamp: BASE_TIME }),
+      sample({ coordinate: offset(0, 20), timestamp: BASE_TIME + 5_000 }),
+      sample({ coordinate: offset(0, 50), timestamp: BASE_TIME + 12_000 }),
+    ]);
+    expect(state.timestamps).toEqual([BASE_TIME, BASE_TIME + 5_000, BASE_TIME + 12_000]);
+    expect(state.timestamps).toHaveLength(state.coordinates.length);
+  });
+
+  test('a rejected fix adds neither a coordinate nor a time', () => {
+    const state = applySample(
+      createTrackerState(),
+      sample({ coordinate: offset(0, 0), accuracyMeters: 90, timestamp: BASE_TIME }),
+      null,
+      BASE_TIME + 1,
+    );
+    expect(state.timestamps).toHaveLength(0);
+  });
+
+  function checkpoint(overrides: Partial<SavedRun> = {}): SavedRun {
+    return {
+      id: 'run-1',
+      startedAt: BASE_TIME,
+      endedAt: BASE_TIME + 600_000,
+      route: null,
+      targetDistanceKm: 5,
+      distanceKm: 1.2,
+      durationSeconds: 480,
+      averagePaceMinPerKm: 6.67,
+      coordinates: [offset(0, 0), offset(0, 50), offset(0, 120)],
+      timestamps: [BASE_TIME, BASE_TIME + 10_000, BASE_TIME + 20_000],
+      status: 'active',
+      ...overrides,
+    };
+  }
+
+  test('checkpoint restore keeps times that line up with the track', () => {
+    const run = checkpoint();
+    const state = trackerStateFromCheckpoint(run);
+    expect(state.timestamps).toEqual(run.timestamps);
+  });
+
+  test('checkpoint restore marks times unknown when absent, staying aligned', () => {
+    const legacy = checkpoint();
+    delete legacy.timestamps;
+    const state = trackerStateFromCheckpoint(legacy);
+    expect(state.timestamps).toEqual([null, null, null]);
+    expect(state.timestamps).toHaveLength(state.coordinates.length);
+  });
+
+  test('checkpoint restore marks times unknown when the counts do not match', () => {
+    const mismatched = trackerStateFromCheckpoint(checkpoint({ timestamps: [BASE_TIME] }));
+    expect(mismatched.timestamps).toEqual([null, null, null]);
+  });
+
+  // A straight 6 km track, with the second half run faster than the first.
+  // The window is 2.5 km — comfortably inside the segment grid, so the
+  // measured distance of each 1 km segment (a hair under 1000 m on this
+  // projection) cannot tip the window onto an extra segment.
+  const positions = [0, 1000, 2000, 3000, 4000, 5000, 6000];
+  const track = positions.map((meters) => offset(0, meters));
+  const secondsAt = [0, 100, 200, 300, 380, 460, 540];
+  const times = secondsAt.map((seconds) => BASE_TIME + seconds * 1000);
+  const WINDOW_METERS = 2500;
+
+  test('fastestSplit finds the fastest window covering the distance', () => {
+    const split = fastestSplit(track, times, WINDOW_METERS);
+    // 3→6 km takes 240 s; every other window that spans the distance is slower.
+    expect(split?.durationSeconds).toBe(240);
+    expect(split?.distanceMeters).toBeGreaterThanOrEqual(WINDOW_METERS);
+  });
+
+  test('fastestSplit returns null when the track is shorter than the window', () => {
+    expect(fastestSplit(track, times, 10_000)).toBeNull();
+  });
+
+  test('fastestSplit returns null for a track saved before times existed', () => {
+    expect(fastestSplit(track, track.map(() => null), WINDOW_METERS)).toBeNull();
+  });
+
+  test('fastestSplit skips windows whose endpoints have unknown times', () => {
+    const withGap: (number | null)[] = [...times];
+    withGap[4] = null;
+    // The winning window (3→6 km) does not touch index 4, so it still wins.
+    expect(fastestSplit(track, withGap, WINDOW_METERS)?.durationSeconds).toBe(240);
   });
 });

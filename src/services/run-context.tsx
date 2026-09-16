@@ -203,6 +203,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       durationSeconds: seconds,
       averagePaceMinPerKm: paceMinPerKm(state.distanceMeters, seconds),
       coordinates: state.coordinates,
+      timestamps: state.timestamps,
       status: pausedAt.current === null ? 'active' : 'paused',
     });
   }, [activeSecondsNow, route, targetKm]);
@@ -311,6 +312,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       durationSeconds: seconds,
       averagePaceMinPerKm: paceMinPerKm(state.distanceMeters, seconds),
       coordinates: state.coordinates,
+      timestamps: state.timestamps,
       status: 'finished',
     });
   }, [activeSecondsNow, publish, route, stopWatching, targetKm]);

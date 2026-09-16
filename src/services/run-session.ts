@@ -29,6 +29,13 @@ export type SavedRun = {
   averagePaceMinPerKm: number | null;
   /** The recorded GPS track. */
   coordinates: Coordinate[];
+  /**
+   * Fix time (epoch ms) for each coordinate, index-aligned with it. `null`
+   * where the time is unknown — a run saved before #32, or a point restored
+   * from a legacy checkpoint. Optional so those runs still load; they simply
+   * cannot contribute split records.
+   */
+  timestamps?: (number | null)[];
   status: RunStatus;
 };
 
@@ -92,6 +99,13 @@ const OFF_ROUTE_CONFIRM_FIXES = 3;
 export type TrackerState = {
   /** Accepted GPS track, in order. */
   coordinates: Coordinate[];
+  /**
+   * Fix time for each accepted coordinate, index-aligned with `coordinates`.
+   * `null` marks a point carried over from a legacy checkpoint whose time is
+   * unknown. Kept alongside rather than inside `coordinates` so the many
+   * distance/projection consumers of the track are untouched by #32.
+   */
+  timestamps: (number | null)[];
   /** Distance accumulated from accepted samples, in meters. */
   distanceMeters: number;
   /** Distance along the planned route, in meters. Monotonic. */
@@ -119,6 +133,7 @@ export type TrackerState = {
 export function createTrackerState(): TrackerState {
   return {
     coordinates: [],
+    timestamps: [],
     distanceMeters: 0,
     progressMeters: 0,
     segmentIndex: 0,
@@ -142,13 +157,29 @@ export function createTrackerState(): TrackerState {
  * progress is not restored either — projecting the whole track onto the
  * route from scratch isn't worth it here, and it self-heals within the next
  * few accepted fixes since it only ever moves forward.
+ *
+ * Fix times are restored only when they line up with the coordinates; a legacy
+ * checkpoint has none, and those points are marked unknown so the arrays stay
+ * index-aligned and the track can keep growing (#32).
  */
 export function trackerStateFromCheckpoint(run: SavedRun): TrackerState {
   return {
     ...createTrackerState(),
     coordinates: run.coordinates,
+    timestamps: alignedTimestamps(run.coordinates, run.timestamps),
     distanceMeters: run.distanceKm * 1000,
   };
+}
+
+/** Keeps `timestamps` index-aligned with `coordinates`, unknown where absent. */
+function alignedTimestamps(
+  coordinates: Coordinate[],
+  timestamps: (number | null)[] | undefined,
+): (number | null)[] {
+  if (!timestamps || timestamps.length !== coordinates.length) {
+    return coordinates.map(() => null);
+  }
+  return timestamps;
 }
 
 /** Precomputed planned-route data, so projection does not redo this per sample. */
@@ -290,6 +321,7 @@ export function applySample(
     return {
       ...state,
       coordinates: [...state.coordinates, sample.coordinate],
+      timestamps: [...state.timestamps, sample.timestamp],
       lastSample: sample,
       degradedSignal: false,
       ...projectProgress(state, sample.coordinate, planned),
@@ -341,6 +373,7 @@ export function applySample(
   return {
     ...state,
     coordinates: [...state.coordinates, sample.coordinate],
+    timestamps: [...state.timestamps, sample.timestamp],
     distanceMeters: state.distanceMeters + moved,
     lastSample: sample,
     degradedSignal: false,
@@ -441,6 +474,78 @@ const MIN_RECORD_DISTANCE_KM = 1;
 /** Distance-scoped bests: the run itself has to reach the threshold to count. */
 const FIVE_K_KM = 5;
 const TEN_K_KM = 10;
+
+/**
+ * A distance window within a run: an actual distance at or just over the
+ * window asked for, and the time taken to cover it.
+ */
+export type DistanceSplit = {
+  distanceMeters: number;
+  durationSeconds: number;
+};
+
+/**
+ * The fastest time to cover at least `windowMeters` anywhere in a timed track
+ * (#32).
+ *
+ * Two-pointer, because both cumulative distance and time are non-decreasing
+ * along an accepted track: as the window start moves forward, the earliest end
+ * that still spans `windowMeters` can only move forward too, so the scan is
+ * O(n) rather than O(n²). The minimal end for a given start is also the
+ * fastest, since time increases with distance.
+ *
+ * Returns null when the track is shorter than the window, or when a candidate
+ * window has no usable time for its endpoints — a track saved before #32 has
+ * no times at all. It never extrapolates a missing time.
+ */
+export function fastestSplit(
+  track: Coordinate[],
+  timestamps: (number | null)[],
+  windowMeters: number,
+): DistanceSplit | null {
+  if (windowMeters <= 0 || track.length < 2) {
+    return null;
+  }
+
+  const cumulative = cumulativeDistances(track);
+  if (cumulative[cumulative.length - 1] < windowMeters) {
+    return null;
+  }
+
+  let best: DistanceSplit | null = null;
+  let end = 1;
+
+  for (let start = 0; start < track.length - 1; start += 1) {
+    if (end <= start) {
+      end = start + 1;
+    }
+    while (end < track.length && cumulative[end] - cumulative[start] < windowMeters) {
+      end += 1;
+    }
+    if (end >= track.length) {
+      break;
+    }
+
+    const startTime = timestamps[start];
+    const endTime = timestamps[end];
+    if (startTime === null || startTime === undefined) {
+      continue;
+    }
+    if (endTime === null || endTime === undefined) {
+      continue;
+    }
+
+    const durationSeconds = (endTime - startTime) / 1000;
+    if (durationSeconds <= 0) {
+      continue;
+    }
+    if (!best || durationSeconds < best.durationSeconds) {
+      best = { distanceMeters: cumulative[end] - cumulative[start], durationSeconds };
+    }
+  }
+
+  return best;
+}
 
 export type RunRecords = {
   /** The longest run by recorded distance. */

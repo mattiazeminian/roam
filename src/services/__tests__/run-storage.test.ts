@@ -175,3 +175,28 @@ describe('in-progress checkpoint (#11)', () => {
     expect(runs.map((r) => r.id)).toEqual(['finished-1']);
   });
 });
+
+describe('timed track (#32)', () => {
+  test('fix times round-trip with the track', async () => {
+    const timestamps = [1_700_000_000_000, 1_700_000_010_000];
+    await saveRun(run({ timestamps }));
+    const loaded = await getRun('run-1');
+    expect(loaded?.timestamps).toEqual(timestamps);
+  });
+
+  test('a run saved before times existed still loads, with no times', async () => {
+    const legacy = run();
+    delete legacy.timestamps;
+    await saveRun(legacy);
+    const loaded = await getRun('run-1');
+    expect(loaded?.distanceKm).toBe(1.2);
+    expect(loaded?.timestamps).toBeUndefined();
+  });
+
+  test('a non-numeric time becomes unknown rather than being dropped, keeping alignment', async () => {
+    await saveRun(run({ timestamps: [1_700_000_000_000, null] }));
+    const loaded = await getRun('run-1');
+    expect(loaded?.timestamps).toHaveLength(loaded?.coordinates.length ?? 0);
+    expect(loaded?.timestamps?.[1]).toBeNull();
+  });
+});
