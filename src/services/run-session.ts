@@ -430,36 +430,72 @@ export function compassDirection(degrees: number): string {
   return COMPASS_POINTS[index];
 }
 
+/**
+ * A run must be at least this long to hold any pace record. `averagePaceMinPerKm`
+ * is already null below `MIN_DISTANCE_FOR_PACE_METERS` (50 m), but 50 m is far
+ * too short to call a "best": a 200 m jog would win on pace alone. 1 km is the
+ * shortest thing a runner would recognise as a run rather than a warm-up.
+ */
+const MIN_RECORD_DISTANCE_KM = 1;
+
+/** Distance-scoped bests: the run itself has to reach the threshold to count. */
+const FIVE_K_KM = 5;
+const TEN_K_KM = 10;
+
 export type RunRecords = {
   /** The longest run by recorded distance. */
   longest: SavedRun | null;
-  /** The best (lowest) average pace. */
+  /** The best (lowest) average pace of any run at least `MIN_RECORD_DISTANCE_KM` long. */
   fastest: SavedRun | null;
+  /** The best average pace of any run of at least 5 km. */
+  fastest5k: SavedRun | null;
+  /** The best average pace of any run of at least 10 km. */
+  fastest10k: SavedRun | null;
 };
 
 /**
  * Records derived from saved runs.
  *
- * Only what the stored data actually supports — no records that would need
- * splits, heart rate or elevation series ROAM does not record.
+ * Only what the stored data actually supports. `SavedRun` keeps distance,
+ * duration and average pace, but the track is bare coordinates with no
+ * per-point timestamps — so a true "fastest 5 km" split (the time taken to
+ * cover the first 5 km of a longer run) cannot be computed without inventing
+ * data. The distance-scoped records are therefore *scoped* bests: the best
+ * average pace of any run that was itself at least that long, which is a
+ * weaker but honest claim. Documented so the label is not read as a split.
+ *
+ * A record is null when no run qualifies — never a placeholder.
  */
 export function computeRecords(runs: SavedRun[]): RunRecords {
   let longest: SavedRun | null = null;
   let fastest: SavedRun | null = null;
+  let fastest5k: SavedRun | null = null;
+  let fastest10k: SavedRun | null = null;
+
+  const beats = (candidate: SavedRun, current: SavedRun | null): boolean => {
+    const pace = candidate.averagePaceMinPerKm;
+    if (pace === null) {
+      return false;
+    }
+    return current === null || pace < (current.averagePaceMinPerKm ?? Infinity);
+  };
 
   for (const run of runs) {
     if (run.distanceKm > 0 && (!longest || run.distanceKm > longest.distanceKm)) {
       longest = run;
     }
-    // A pace from a near-zero distance is noise, so those runs cannot hold the
-    // record; `averagePaceMinPerKm` is already null below the usable threshold.
-    const pace = run.averagePaceMinPerKm;
-    if (pace !== null && (!fastest || pace < (fastest.averagePaceMinPerKm ?? Infinity))) {
+    if (run.distanceKm >= MIN_RECORD_DISTANCE_KM && beats(run, fastest)) {
       fastest = run;
+    }
+    if (run.distanceKm >= FIVE_K_KM && beats(run, fastest5k)) {
+      fastest5k = run;
+    }
+    if (run.distanceKm >= TEN_K_KM && beats(run, fastest10k)) {
+      fastest10k = run;
     }
   }
 
-  return { longest, fastest };
+  return { longest, fastest, fastest5k, fastest10k };
 }
 
 /** `Tue 15 Sep · 07:42` — the format History rows use. */

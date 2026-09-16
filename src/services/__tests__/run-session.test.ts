@@ -9,6 +9,7 @@ import { describe, expect, test } from '@jest/globals';
 
 import {
   applySample,
+  computeRecords,
   createTrackerState,
   preparePlannedRoute,
   trackerStateFromCheckpoint,
@@ -524,5 +525,80 @@ describe('route deviation (#9)', () => {
     expect(state.offRoute).toBe(false);
     expect(state.distanceToRouteMeters).toBe(0);
     expect(state.directionToRouteDegrees).toBeNull();
+  });
+});
+
+describe('personal records (#12)', () => {
+  function savedRun(overrides: Partial<SavedRun> = {}): SavedRun {
+    return {
+      id: 'run-1',
+      startedAt: BASE_TIME,
+      endedAt: BASE_TIME + 1_800_000,
+      route: null,
+      targetDistanceKm: 5,
+      distanceKm: 5,
+      durationSeconds: 1800,
+      averagePaceMinPerKm: 6,
+      coordinates: [],
+      status: 'finished',
+      ...overrides,
+    };
+  }
+
+  test('every record is null when there are no runs', () => {
+    expect(computeRecords([])).toEqual({
+      longest: null,
+      fastest: null,
+      fastest5k: null,
+      fastest10k: null,
+    });
+  });
+
+  test('longest is the greatest distance and ignores zero-distance runs', () => {
+    const short = savedRun({ id: 'short', distanceKm: 3 });
+    const long = savedRun({ id: 'long', distanceKm: 8 });
+    const empty = savedRun({ id: 'empty', distanceKm: 0, averagePaceMinPerKm: null });
+    expect(computeRecords([short, long, empty]).longest?.id).toBe('long');
+  });
+
+  test('fastest ignores runs shorter than the record minimum, so a 200m jog cannot hold it', () => {
+    const jog = savedRun({ id: 'jog', distanceKm: 0.2, averagePaceMinPerKm: 3 });
+    const slower = savedRun({ id: 'slower', distanceKm: 3, averagePaceMinPerKm: 6 });
+    const faster = savedRun({ id: 'faster', distanceKm: 2, averagePaceMinPerKm: 5 });
+    const records = computeRecords([jog, slower, faster]);
+    expect(records.fastest?.id).toBe('faster');
+    expect(records.fastest?.distanceKm).toBeGreaterThanOrEqual(1);
+  });
+
+  test('a faster short run wins the overall best but not the 5 km best', () => {
+    const short = savedRun({ id: 'short', distanceKm: 3, averagePaceMinPerKm: 5 });
+    const long = savedRun({ id: 'long', distanceKm: 6, averagePaceMinPerKm: 6 });
+    const records = computeRecords([short, long]);
+    expect(records.fastest?.id).toBe('short');
+    expect(records.fastest5k?.id).toBe('long');
+    expect(records.fastest10k).toBeNull();
+  });
+
+  test('distance-scoped bests require the run itself to reach the threshold', () => {
+    const five = savedRun({ id: 'five', distanceKm: 5, averagePaceMinPerKm: 6 });
+    const nine = savedRun({ id: 'nine', distanceKm: 9, averagePaceMinPerKm: 5.5 });
+    const ten = savedRun({ id: 'ten', distanceKm: 10, averagePaceMinPerKm: 6.5 });
+    const records = computeRecords([five, nine, ten]);
+    expect(records.fastest5k?.id).toBe('nine');
+    expect(records.fastest10k?.id).toBe('ten');
+    expect(records.longest?.id).toBe('ten');
+  });
+
+  test('a run with no usable pace can still be the longest but holds no pace record', () => {
+    const unpaceable = savedRun({
+      id: 'slow-gps',
+      distanceKm: 12,
+      averagePaceMinPerKm: null,
+    });
+    const records = computeRecords([unpaceable]);
+    expect(records.longest?.id).toBe('slow-gps');
+    expect(records.fastest).toBeNull();
+    expect(records.fastest5k).toBeNull();
+    expect(records.fastest10k).toBeNull();
   });
 });

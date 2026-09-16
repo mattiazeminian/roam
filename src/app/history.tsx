@@ -11,6 +11,7 @@ import {
   computeRecords,
   formatDuration,
   formatRunDate,
+  type RunRecords,
   type SavedRun,
 } from '@/services/run-session';
 import { useFormatters, type Formatters } from '@/services/settings-context';
@@ -75,22 +76,7 @@ export default function HistoryScreen() {
               Your runs
             </Text>
 
-            {records.longest || records.fastest ? (
-              <View style={styles.records}>
-                {records.longest ? (
-                  <RecordCell
-                    label="Longest"
-                    value={`${fmt.distance(records.longest.distanceKm * 1000)} ${fmt.unitLabel}`}
-                  />
-                ) : null}
-                {records.fastest ? (
-                  <RecordCell
-                    label="Fastest pace"
-                    value={fmt.paceWithUnit(records.fastest.averagePaceMinPerKm)}
-                  />
-                ) : null}
-              </View>
-            ) : null}
+            <RecordList records={records} fmt={fmt} />
           </View>
         }
         ItemSeparatorComponent={() => <Divider />}
@@ -116,15 +102,83 @@ export default function HistoryScreen() {
   );
 }
 
-function RecordCell({ label, value }: { label: string; value: string }) {
+type RecordRow = {
+  key: string;
+  label: string;
+  value: string;
+  run: SavedRun;
+};
+
+/**
+ * Personal records as plain rows — label, value, and the run they came from.
+ *
+ * The date is part of the record, not decoration: "fastest pace" is only
+ * meaningful if you can see which run it was. A record with no qualifying run
+ * is simply absent rather than shown as a placeholder.
+ */
+function RecordList({ records, fmt }: { records: RunRecords; fmt: Formatters }) {
+  const rows: RecordRow[] = [];
+  if (records.longest) {
+    rows.push({
+      key: 'longest',
+      label: 'Longest',
+      value: `${fmt.distance(records.longest.distanceKm * 1000)} ${fmt.unitLabel}`,
+      run: records.longest,
+    });
+  }
+  if (records.fastest) {
+    rows.push({
+      key: 'fastest',
+      label: 'Fastest pace',
+      value: fmt.paceWithUnit(records.fastest.averagePaceMinPerKm),
+      run: records.fastest,
+    });
+  }
+  if (records.fastest5k) {
+    rows.push({
+      key: 'fastest5k',
+      label: 'Best 5 km',
+      value: fmt.paceWithUnit(records.fastest5k.averagePaceMinPerKm),
+      run: records.fastest5k,
+    });
+  }
+  if (records.fastest10k) {
+    rows.push({
+      key: 'fastest10k',
+      label: 'Best 10 km',
+      value: fmt.paceWithUnit(records.fastest10k.averagePaceMinPerKm),
+      run: records.fastest10k,
+    });
+  }
+
+  if (rows.length === 0) {
+    return null;
+  }
+
   return (
-    <View style={styles.recordCell}>
-      <Text variant="micro" color="textSecondary">
-        {label}
-      </Text>
-      <Text variant="title" color="accentText" tabular>
-        {value}
-      </Text>
+    <View style={styles.records}>
+      {rows.map((row) => {
+        const date = formatRunDate(row.run.startedAt);
+        return (
+          <View
+            key={row.key}
+            accessible
+            accessibilityLabel={`${row.label}: ${row.value}, on ${date}`}
+            style={styles.recordRow}>
+            <Text variant="caption" color="textSecondary">
+              {row.label}
+            </Text>
+            <View style={styles.recordValue}>
+              <Text variant="title" color="accentText" tabular>
+                {row.value}
+              </Text>
+              <Text variant="micro" color="textSecondary" tabular>
+                {date}
+              </Text>
+            </View>
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -186,11 +240,16 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   records: {
-    flexDirection: 'row',
-    gap: spacing.xl,
+    gap: spacing.sm,
   },
-  recordCell: {
-    gap: spacing.xxs,
+  recordRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  recordValue: {
+    alignItems: 'flex-end',
   },
   row: {
     flexDirection: 'row',
