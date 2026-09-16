@@ -49,6 +49,7 @@ export default function RootLayout() {
                 }}
               />
               <Stack.Screen name="history" />
+              <Stack.Screen name="favorites" />
               <Stack.Screen name="run-detail" />
               <Stack.Screen name="settings" />
               {/* Choosing a start place is a modal decision, not a destination. */}

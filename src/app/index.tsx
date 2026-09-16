@@ -132,11 +132,18 @@ export default function HomeScreen() {
             { top: insets.top + spacing.xs, paddingHorizontal: layout.screenMargin },
           ]}
           pointerEvents="box-none">
-          <MapControl
-            symbol="clock.arrow.circlepath"
-            accessibilityLabel="Your runs"
-            onPress={() => router.push('/history')}
-          />
+          <View style={styles.mapControlsGroup}>
+            <MapControl
+              symbol="clock.arrow.circlepath"
+              accessibilityLabel="Your runs"
+              onPress={() => router.push('/history')}
+            />
+            <MapControl
+              symbol="bookmark"
+              accessibilityLabel="Saved routes"
+              onPress={() => router.push('/favorites')}
+            />
+          </View>
           {coordinate ? (
             <MapControl
               symbol="location"
@@ -226,6 +233,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  mapControlsGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   panel: {
     borderTopWidth: StyleSheet.hairlineWidth,

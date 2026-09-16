@@ -31,6 +31,12 @@ export type RouteContextValue = {
   find: (origin: Coordinate, targetKm: number) => Promise<boolean>;
   /** Re-run the last search with the same origin and distance. */
   retry: () => Promise<boolean>;
+  /**
+   * Make a stored route the active candidate, so a saved loop can be started
+   * without re-running a search. There is no origin to retry against, so this
+   * clears any previous request.
+   */
+  loadSaved: (route: RouteCandidate, targetKm: number) => void;
   select: (index: number) => void;
   clearError: () => void;
 };
@@ -113,6 +119,16 @@ export function RouteProvider({ children }: { children: ReactNode }) {
     setSelectedIndex(index);
   }, []);
 
+  const loadSaved = useCallback((route: RouteCandidate, savedTargetKm: number) => {
+    lastRequest.current = null;
+    setCandidates([route]);
+    setSelectedIndex(0);
+    setTargetKm(savedTargetKm);
+    setErrorCode(null);
+    setErrorMessage(null);
+    setStatus("ready");
+  }, []);
+
   const clearError = useCallback(() => {
     setErrorCode(null);
     setErrorMessage(null);
@@ -134,6 +150,7 @@ export function RouteProvider({ children }: { children: ReactNode }) {
       errorMessage,
       find,
       retry,
+      loadSaved,
       select,
       clearError,
     };
@@ -146,6 +163,7 @@ export function RouteProvider({ children }: { children: ReactNode }) {
     errorMessage,
     find,
     retry,
+    loadSaved,
     select,
     clearError,
   ]);

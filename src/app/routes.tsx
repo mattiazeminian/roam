@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -9,9 +9,11 @@ import { MapControl } from '@/components/map-control';
 import { RouteOptions } from '@/components/route-options';
 import { ControlPanel } from '@/components/control-panel';
 import { Text } from '@/components/text';
-import { impactMedium, selectionFeedback } from '@/lib/haptics';
+import { impactMedium, selectionFeedback, successFeedback } from '@/lib/haptics';
 import { useLocation } from '@/services/location-context';
+import { routeIdentity } from '@/services/route-identity';
 import { useRoutes } from '@/services/route-context';
+import { listRoutes, saveRoute } from '@/services/route-storage';
 import { useRun } from '@/services/run-context';
 import { layout, spacing, useTheme } from '@/theme';
 
@@ -32,6 +34,35 @@ export default function RouteSelectionScreen() {
   const { candidates, selectedRoute, selectedIndex, targetKm, status, errorMessage, retry, select } =
     useRoutes();
   const { start } = useRun();
+  const [savedIds, setSavedIds] = useState<ReadonlySet<string>>(new Set());
+
+  // Which routes are already saved. Loaded once — the set only grows while this
+  // screen is open, and a route is never unsaved from here.
+  useEffect(() => {
+    let active = true;
+    void listRoutes()
+      .then((saved) => {
+        if (active) {
+          setSavedIds(new Set(saved.map((entry) => entry.id)));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const selectedIdentity = selectedRoute ? routeIdentity(selectedRoute) : null;
+  const isSaved = selectedIdentity !== null && savedIds.has(selectedIdentity);
+
+  const handleSave = useCallback(async () => {
+    if (!selectedRoute || isSaved) {
+      return;
+    }
+    const saved = await saveRoute(selectedRoute);
+    successFeedback();
+    setSavedIds((current) => new Set(current).add(saved.id));
+  }, [selectedRoute, isSaved]);
 
   const handleSelect = useCallback(
     (index: number) => {
@@ -132,7 +163,20 @@ export default function RouteSelectionScreen() {
                 onSelect={handleSelect}
               />
 
-              <Button label="Start run" variant="accent" onPress={handleStart} />
+              <View style={styles.actions}>
+                <Button
+                  label={isSaved ? 'Saved' : 'Save route'}
+                  variant="secondary"
+                  onPress={() => void handleSave()}
+                  disabled={isSaved || !selectedRoute}
+                />
+                <Button
+                  label="Start run"
+                  variant="accent"
+                  onPress={handleStart}
+                  style={styles.startButton}
+                />
+              </View>
             </>
           )}
         </ControlPanel>
@@ -170,5 +214,13 @@ const styles = StyleSheet.create({
   noticeActions: {
     gap: spacing.xs,
     marginTop: spacing.xs,
+  },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: spacing.sm,
+  },
+  startButton: {
+    flex: 1,
   },
 });
