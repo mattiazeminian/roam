@@ -1,12 +1,13 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { ScrollView, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
 import { Metric, MetricRow } from '@/components/metric';
 import { Text } from '@/components/text';
+import { runShareMessage } from '@/services/run-share';
 import { formatDuration, formatRunDate, type SavedRun } from '@/services/run-session';
 import { useFormatters } from '@/services/settings-context';
 import { getRun } from '@/services/run-storage';
@@ -43,6 +44,17 @@ export default function RunDetailScreen() {
 
   const hasTrack = (run?.coordinates.length ?? 0) >= 2;
 
+  const handleShare = useCallback(async () => {
+    if (!run) {
+      return;
+    }
+    try {
+      await Share.share({ message: runShareMessage(run, fmt) });
+    } catch {
+      // Dismissed, or sharing unavailable.
+    }
+  }, [run, fmt]);
+
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
       <ScrollView
@@ -50,7 +62,16 @@ export default function RunDetailScreen() {
           styles.content,
           { paddingTop: insets.top + spacing.xs, paddingBottom: insets.bottom + spacing.xxl },
         ]}>
-        <MapControl symbol="chevron.left" accessibilityLabel="Back" onPress={() => router.back()} />
+        <View style={styles.headerRow}>
+          <MapControl symbol="chevron.left" accessibilityLabel="Back" onPress={() => router.back()} />
+          {run ? (
+            <MapControl
+              symbol="square.and.arrow.up"
+              accessibilityLabel="Share run"
+              onPress={() => void handleShare()}
+            />
+          ) : null}
+        </View>
 
         {!loaded ? null : !run ? (
           <Text variant="body" color="textSecondary">
@@ -121,7 +142,11 @@ const styles = StyleSheet.create({
   },
   headline: {
     gap: spacing.lg,
-    alignSelf: 'stretch',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   map: {
     alignSelf: 'stretch',

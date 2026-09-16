@@ -1,13 +1,15 @@
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
 import { MapCanvas } from '@/components/map/map-canvas';
+import { MapControl } from '@/components/map-control';
 import { Metric, MetricRow } from '@/components/metric';
 import { Text } from '@/components/text';
 import { useRun } from '@/services/run-context';
+import { runShareMessage } from '@/services/run-share';
 import { formatDuration, formatRunDate } from '@/services/run-session';
 import { useFormatters } from '@/services/settings-context';
 import { layout, radii, spacing, useTheme } from '@/theme';
@@ -60,6 +62,19 @@ export default function RunSummaryScreen() {
     ]);
   }, [discardCompleted]);
 
+  // Sharing needs no save first — the runner can send the result and still
+  // decide whether to keep it. Dismissing the sheet is not an error.
+  const handleShare = useCallback(async () => {
+    if (!completedRun) {
+      return;
+    }
+    try {
+      await Share.share({ message: runShareMessage(completedRun, fmt) });
+    } catch {
+      // Dismissed, or sharing unavailable.
+    }
+  }, [completedRun, fmt]);
+
   if (!completedRun) {
     return <View style={[styles.root, { backgroundColor: theme.background }]} />;
   }
@@ -74,6 +89,14 @@ export default function RunSummaryScreen() {
           styles.content,
           { paddingTop: insets.top + spacing.xxl, paddingBottom: insets.bottom + spacing.lg },
         ]}>
+        <View style={styles.headerRow}>
+          <MapControl
+            symbol="square.and.arrow.up"
+            accessibilityLabel="Share run"
+            onPress={() => void handleShare()}
+          />
+        </View>
+
         <View style={styles.headline}>
           <Text variant="micro" color="textSecondary">
             {formatRunDate(completedRun.startedAt)}
@@ -148,6 +171,11 @@ const styles = StyleSheet.create({
   },
   headline: {
     gap: spacing.lg,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
   },
   map: {
     height: layout.mapPreviewHeight,
