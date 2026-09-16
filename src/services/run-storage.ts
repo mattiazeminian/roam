@@ -108,17 +108,20 @@ function parseRun(value: unknown): SavedRun | null {
   };
 }
 
-export async function saveRun(run: SavedRun): Promise<void> {
-  const directory = ensureDirectory();
-  const file = new File(directory, `${run.id}.json`);
-
-  const payload: SavedRun = {
+function roundedPayload(run: SavedRun): SavedRun {
+  return {
     ...run,
     coordinates: run.coordinates.map(roundCoordinate),
     route: run.route
       ? { ...run.route, geometry: run.route.geometry.map(roundCoordinate) }
       : null,
   };
+}
+
+export async function saveRun(run: SavedRun): Promise<void> {
+  const directory = ensureDirectory();
+  const file = new File(directory, `${run.id}.json`);
+  const payload = roundedPayload(run);
 
   if (!file.exists) {
     file.create();
@@ -166,6 +169,47 @@ export async function getRun(id: string): Promise<SavedRun | null> {
 
 export async function deleteRun(id: string): Promise<void> {
   const file = new File(runsDirectory(), `${id}.json`);
+  if (file.exists) {
+    file.delete();
+  }
+}
+
+const IN_PROGRESS_FILE = 'in-progress-run.json';
+
+/**
+ * Kept outside `runs/` — a fixed filename, not one-per-run — so an
+ * in-progress checkpoint never shows up in `listRuns()` and never needs a
+ * status filter applied at every call site that reads History.
+ */
+function inProgressFile(): File {
+  return new File(Paths.document, IN_PROGRESS_FILE);
+}
+
+/** Overwrites the single in-progress checkpoint. Caller controls frequency. */
+export async function checkpointRun(run: SavedRun): Promise<void> {
+  const file = inProgressFile();
+  const payload = roundedPayload(run);
+  if (!file.exists) {
+    file.create();
+  }
+  file.write(JSON.stringify(payload));
+}
+
+/** The run that was active/paused when the app last stopped running, if any. */
+export async function getInProgressRun(): Promise<SavedRun | null> {
+  const file = inProgressFile();
+  if (!file.exists) {
+    return null;
+  }
+  try {
+    return parseRun(JSON.parse(await file.text()));
+  } catch {
+    return null;
+  }
+}
+
+export async function clearInProgressRun(): Promise<void> {
+  const file = inProgressFile();
   if (file.exists) {
     file.delete();
   }

@@ -16,12 +16,13 @@ import {
   createTrackerState,
   paceMinPerKm,
   preparePlannedRoute,
+  trackerStateFromCheckpoint,
   type PlannedRoute,
   type RunStatus,
   type SavedRun,
   type TrackerState,
 } from './run-session';
-import { saveRun } from './run-storage';
+import { checkpointRun, clearInProgressRun, getInProgressRun, saveRun } from './run-storage';
 
 export type RunSessionStatus = 'idle' | RunStatus;
 
@@ -42,6 +43,14 @@ export type RunSnapshot = {
   degradedSignal: boolean;
   /** Latest accepted position, for the map marker. */
   position: Coordinate | null;
+  /** True once the runner has covered most of the route and returned to the start. */
+  completionSuggested: boolean;
+  /** True once several consecutive fixes have landed outside the route corridor. */
+  offRoute: boolean;
+  /** Perpendicular distance from the route, in meters. */
+  distanceToRouteMeters: number;
+  /** Compass bearing back to the route, or null when on it or there is no route. */
+  directionToRouteDegrees: number | null;
 };
 
 export type RunContextValue = RunSnapshot & {
@@ -56,12 +65,25 @@ export type RunContextValue = RunSnapshot & {
   finish: () => void;
   saveCompleted: () => Promise<void>;
   discardCompleted: () => void;
+  /** Dismisses a completion suggestion without ending the run. */
+  dismissCompletionSuggestion: () => void;
+  /** A run that was active/paused when the app last stopped running, if any. */
+  recoverable: SavedRun | null;
+  resumeRecovered: () => void;
+  discardRecovered: () => void;
 };
 
 const RunContext = createContext<RunContextValue | null>(null);
 
 /** How often the snapshot is published. Matches the 1-second clock. */
 const PUBLISH_INTERVAL_MS = 1000;
+
+/**
+ * Checkpoint every Nth publish tick (~10s at the 1s publish interval) rather
+ * than every tick, so a mid-run crash loses at most a few seconds of progress
+ * without writing to disk once a second for the whole run.
+ */
+const CHECKPOINT_EVERY_N_PUBLISHES = 10;
 
 const EMPTY_SNAPSHOT: RunSnapshot = {
   distanceMeters: 0,
@@ -71,6 +93,10 @@ const EMPTY_SNAPSHOT: RunSnapshot = {
   progressMeters: 0,
   degradedSignal: false,
   position: null,
+  completionSuggested: false,
+  offRoute: false,
+  distanceToRouteMeters: 0,
+  directionToRouteDegrees: null,
 };
 
 export function RunProvider({ children }: { children: ReactNode }) {
@@ -79,6 +105,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
   const [targetKm, setTargetKm] = useState(0);
   const [snapshot, setSnapshot] = useState<RunSnapshot>(EMPTY_SNAPSHOT);
   const [completedRun, setCompletedRun] = useState<SavedRun | null>(null);
+  const [recoverable, setRecoverable] = useState<SavedRun | null>(null);
 
   // Everything below is mutated by GPS callbacks and must not trigger renders.
   const tracker = useRef<TrackerState>(createTrackerState());
@@ -87,23 +114,49 @@ export function RunProvider({ children }: { children: ReactNode }) {
   const startedAt = useRef(0);
   const pausedTotalMs = useRef(0);
   const pausedAt = useRef<number | null>(null);
-  /** Set when the track changed since the last publish, to skip idle updates. */
-  const dirty = useRef(false);
+  /**
+   * Bumped every time a subscription is torn down. A sample/error callback
+   * captures the epoch current at its own creation and checks it before
+   * touching `tracker.current` — without this, a callback already in flight
+   * when `remove()` is called (native teardown is asynchronous) could still
+   * fire once more and write into a *different* run's fresh tracker state if
+   * a new run had already started in the meantime.
+   */
+  const trackingEpoch = useRef(0);
+  /** Set by `onError` (e.g. permission revoked mid-run); folded into degradedSignal. */
+  const trackingError = useRef(false);
+  /** Counts publish ticks so checkpointing runs every Nth tick, not every one. */
+  const checkpointTick = useRef(0);
 
   const stopWatching = useCallback(() => {
+    trackingEpoch.current += 1;
     subscription.current?.remove();
     subscription.current = null;
   }, []);
 
   const startWatching = useCallback(() => {
     stopWatching();
-    subscription.current = location.watchRunPosition((sample) => {
-      const next = applySample(tracker.current, sample, planned.current);
-      if (next !== tracker.current) {
-        tracker.current = next;
-        dirty.current = true;
-      }
-    });
+    const epoch = trackingEpoch.current;
+    trackingError.current = false;
+    subscription.current = location.watchRunPosition(
+      (sample) => {
+        if (epoch !== trackingEpoch.current) {
+          return;
+        }
+        const next = applySample(tracker.current, sample, planned.current);
+        if (next !== tracker.current) {
+          tracker.current = next;
+        }
+      },
+      () => {
+        if (epoch !== trackingEpoch.current) {
+          return;
+        }
+        // Never lose the session over a watch failure — surface it through
+        // the existing "weak signal" UI instead of a new error state.
+        trackingError.current = true;
+      },
+    );
   }, [stopWatching]);
 
   const activeSecondsNow = useCallback(() => {
@@ -124,22 +177,68 @@ export function RunProvider({ children }: { children: ReactNode }) {
       paceMinPerKm: paceMinPerKm(state.distanceMeters, seconds),
       track: state.coordinates,
       progressMeters: state.progressMeters,
-      degradedSignal: state.degradedSignal,
+      degradedSignal: state.degradedSignal || trackingError.current,
       position: state.lastSample?.coordinate ?? null,
+      completionSuggested: state.completionSuggested,
+      offRoute: state.offRoute,
+      distanceToRouteMeters: state.distanceToRouteMeters,
+      directionToRouteDegrees: state.directionToRouteDegrees,
     });
-    dirty.current = false;
   }, [activeSecondsNow]);
 
-  // One timer drives the clock and flushes any accumulated GPS movement.
+  /** Persists the in-progress run so it survives a process kill. */
+  const checkpoint = useCallback(() => {
+    if (startedAt.current === 0) {
+      return;
+    }
+    const state = tracker.current;
+    const seconds = activeSecondsNow();
+    void checkpointRun({
+      id: `run-${startedAt.current}`,
+      startedAt: startedAt.current,
+      endedAt: Date.now(),
+      route,
+      targetDistanceKm: targetKm,
+      distanceKm: state.distanceMeters / 1000,
+      durationSeconds: seconds,
+      averagePaceMinPerKm: paceMinPerKm(state.distanceMeters, seconds),
+      coordinates: state.coordinates,
+      status: pausedAt.current === null ? 'active' : 'paused',
+    });
+  }, [activeSecondsNow, route, targetKm]);
+
+  // One timer drives the clock, flushes any accumulated GPS movement, and
+  // periodically checkpoints — not on every tick; see CHECKPOINT_EVERY_N_PUBLISHES.
   useEffect(() => {
     if (status !== 'active') {
       return;
     }
-    const interval = setInterval(publish, PUBLISH_INTERVAL_MS);
+    const interval = setInterval(() => {
+      publish();
+      checkpointTick.current += 1;
+      if (checkpointTick.current >= CHECKPOINT_EVERY_N_PUBLISHES) {
+        checkpointTick.current = 0;
+        checkpoint();
+      }
+    }, PUBLISH_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [status, publish]);
+  }, [status, publish, checkpoint]);
 
   useEffect(() => stopWatching, [stopWatching]);
+
+  // On launch, offer to recover a run that was active/paused when the app
+  // last stopped running (killed, crashed, or backgrounded and evicted).
+  useEffect(() => {
+    let cancelled = false;
+    void getInProgressRun().then((run) => {
+      if (!cancelled && run) {
+        setRecoverable(run);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const start = useCallback(
     (nextRoute: RouteCandidate | null, nextTargetKm: number) => {
@@ -148,11 +247,12 @@ export function RunProvider({ children }: { children: ReactNode }) {
       startedAt.current = Date.now();
       pausedTotalMs.current = 0;
       pausedAt.current = null;
-      dirty.current = false;
 
+      checkpointTick.current = 0;
       setRoute(nextRoute);
       setTargetKm(nextTargetKm);
       setCompletedRun(null);
+      setRecoverable(null);
       setSnapshot(EMPTY_SNAPSHOT);
       setStatus('active');
       startWatching();
@@ -169,8 +269,10 @@ export function RunProvider({ children }: { children: ReactNode }) {
     // simply ignoring callbacks would keep the GPS radio busy.
     stopWatching();
     publish();
+    checkpointTick.current = 0;
+    checkpoint();
     setStatus('paused');
-  }, [publish, status, stopWatching]);
+  }, [checkpoint, publish, status, stopWatching]);
 
   const resume = useCallback(() => {
     if (status !== 'paused') {
@@ -194,6 +296,10 @@ export function RunProvider({ children }: { children: ReactNode }) {
     const endedAt = Date.now();
 
     publish();
+    // The active/paused phase this checkpoint protects is over — from here
+    // the run is either saved or discarded via the summary screen, not
+    // silently recovered on next launch.
+    void clearInProgressRun();
     setStatus('finished');
     setCompletedRun({
       id: `run-${startedAt.current}`,
@@ -233,6 +339,49 @@ export function RunProvider({ children }: { children: ReactNode }) {
     reset();
   }, [reset]);
 
+  const resumeRecovered = useCallback(() => {
+    if (!recoverable) {
+      return;
+    }
+    const run = recoverable;
+    tracker.current = trackerStateFromCheckpoint(run);
+    planned.current = preparePlannedRoute(run.route);
+    startedAt.current = Date.now() - run.durationSeconds * 1000;
+    pausedTotalMs.current = 0;
+    pausedAt.current = null;
+    checkpointTick.current = 0;
+
+    setRoute(run.route);
+    setTargetKm(run.targetDistanceKm);
+    setCompletedRun(null);
+    setSnapshot({
+      distanceMeters: tracker.current.distanceMeters,
+      activeSeconds: run.durationSeconds,
+      paceMinPerKm: paceMinPerKm(tracker.current.distanceMeters, run.durationSeconds),
+      track: tracker.current.coordinates,
+      progressMeters: 0,
+      degradedSignal: false,
+      position: tracker.current.coordinates.at(-1) ?? null,
+      completionSuggested: false,
+      offRoute: false,
+      distanceToRouteMeters: 0,
+      directionToRouteDegrees: null,
+    });
+    setStatus('active');
+    setRecoverable(null);
+    startWatching();
+  }, [recoverable, startWatching]);
+
+  const discardRecovered = useCallback(() => {
+    setRecoverable(null);
+    void clearInProgressRun();
+  }, []);
+
+  const dismissCompletionSuggestion = useCallback(() => {
+    tracker.current = { ...tracker.current, nearStartStreak: 0, completionSuggested: false };
+    publish();
+  }, [publish]);
+
   const value = useMemo<RunContextValue>(
     () => ({
       ...snapshot,
@@ -246,6 +395,10 @@ export function RunProvider({ children }: { children: ReactNode }) {
       finish,
       saveCompleted,
       discardCompleted,
+      dismissCompletionSuggestion,
+      recoverable,
+      resumeRecovered,
+      discardRecovered,
     }),
     [
       snapshot,
@@ -259,6 +412,10 @@ export function RunProvider({ children }: { children: ReactNode }) {
       finish,
       saveCompleted,
       discardCompleted,
+      dismissCompletionSuggestion,
+      recoverable,
+      resumeRecovered,
+      discardRecovered,
     ],
   );
 

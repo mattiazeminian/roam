@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { useCallback, useState } from 'react';
-import { KeyboardAvoidingView, Pressable, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, KeyboardAvoidingView, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
@@ -14,6 +14,7 @@ import { describeCoordinate } from '@/services/geocoding';
 import { useLocation } from '@/services/location-context';
 import { useRoutes } from '@/services/route-context';
 import type { Coordinate } from '@/services/routing';
+import { useRun } from '@/services/run-context';
 import { useSettings } from '@/services/settings-context';
 import { layout, spacing, useTheme } from '@/theme';
 
@@ -39,6 +40,7 @@ export default function HomeScreen() {
     refresh,
   } = useLocation();
   const { status: routeStatus, errorMessage, find } = useRoutes();
+  const { recoverable, resumeRecovered, discardRecovered } = useRun();
   const { settings, update } = useSettings();
   // Derived rather than an effect: settings load asynchronously, so seeding
   // state from them would mean a setState inside an effect. Until the runner
@@ -67,6 +69,28 @@ export default function HomeScreen() {
     },
     [setOrigin],
   );
+
+  // The app was killed or crashed mid-run. Offer to pick up where it left
+  // off before the runner can start something new over it.
+  useEffect(() => {
+    if (!recoverable) {
+      return;
+    }
+    Alert.alert(
+      'Resume your run?',
+      `ROAM found an interrupted run in progress (${(recoverable.distanceKm).toFixed(2)} km so far). Resume it or discard it.`,
+      [
+        { text: 'Discard', style: 'destructive', onPress: discardRecovered },
+        {
+          text: 'Resume',
+          onPress: () => {
+            resumeRecovered();
+            router.push('/run');
+          },
+        },
+      ],
+    );
+  }, [recoverable, resumeRecovered, discardRecovered]);
 
   const handleFindRoutes = useCallback(async () => {
     if (isFinding || !origin) {

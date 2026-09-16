@@ -102,11 +102,29 @@ export function watchCoordinate(
 }
 
 /**
+ * Options for tracking an active run.
+ *
+ * Foreground-only by design: no background location mode is requested here,
+ * so delivery pauses when the app is backgrounded and resumes on return
+ * (`applySample` in `run-session.ts` is what makes that resumption safe rather
+ * than corrupting distance). Adding background delivery is issue #30's job —
+ * this constant, and `watchRunPosition` accepting an `onError` callback, are
+ * the seam it should extend rather than a foreground/background split that
+ * has to be invented later.
+ */
+const RUN_TRACKING_OPTIONS: Location.LocationOptions = {
+  accuracy: Location.Accuracy.BestForNavigation,
+  distanceInterval: 1,
+  timeInterval: 1000,
+};
+
+/**
  * High-fidelity position updates for an active run.
  *
- * Uses `BestForNavigation` and a 1 m distance filter so the track follows the
- * runner closely; the caller is responsible for rejecting noisy fixes and for
- * throttling anything it pushes into React state.
+ * The caller is responsible for rejecting noisy fixes (see `applySample`) and
+ * for throttling anything it pushes into React state. `onError` fires on a
+ * native failure — most importantly a permission revoked mid-run — so the
+ * caller can surface that rather than silently going quiet.
  */
 export function watchRunPosition(
   onSample: (sample: LocationSample) => void,
@@ -115,13 +133,18 @@ export function watchRunPosition(
   let subscription: Location.LocationSubscription | null = null;
   let removed = false;
 
+  // `watchPositionAsync` reports failure two different ways, and one call
+  // site swallowing either used to mean a permission revoked mid-run went
+  // completely unnoticed: the returned promise rejects only for a failure
+  // during setup (e.g. permission already missing when the watch is
+  // started), while a failure *after* the subscription is already active
+  // (e.g. permission revoked while running) is reported to the third
+  // `errorHandler` argument instead — it does not reject the promise, which
+  // already resolved when tracking began. Both are wired to `onError` here.
   void Location.watchPositionAsync(
-    {
-      accuracy: Location.Accuracy.BestForNavigation,
-      distanceInterval: 1,
-      timeInterval: 1000,
-    },
+    RUN_TRACKING_OPTIONS,
     (location) => onSample(toSample(location)),
+    (reason) => onError?.(reason),
   )
     .then((created) => {
       if (removed) {

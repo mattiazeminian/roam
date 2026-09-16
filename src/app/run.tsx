@@ -1,6 +1,8 @@
 import { router } from 'expo-router';
+import { useKeepAwake } from 'expo-keep-awake';
+import { SymbolView } from 'expo-symbols';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
@@ -14,7 +16,7 @@ import { Text } from '@/components/text';
 import { impactMedium } from '@/lib/haptics';
 import { cumulativeDistances, sliceAlongPath } from '@/services/geo';
 import { useRun } from '@/services/run-context';
-import { formatDuration } from '@/services/run-session';
+import { compassDirection, formatDuration } from '@/services/run-session';
 import { useFormatters } from '@/services/settings-context';
 import { layout, radii, spacing, useTheme } from '@/theme';
 
@@ -38,14 +40,25 @@ export default function ActiveRunScreen() {
     progressMeters,
     degradedSignal,
     position,
+    completionSuggested,
+    offRoute,
+    distanceToRouteMeters,
+    directionToRouteDegrees,
     pause,
     resume,
     finish,
+    dismissCompletionSuggestion,
   } = useRun();
 
   const fmt = useFormatters();
   const [recenterSignal, setRecenterSignal] = useState(0);
   const [followBroken, setFollowBroken] = useState(false);
+
+  // This screen is only ever mounted while a run is active or paused (see the
+  // redirect below), so keeping the screen awake for its whole lifetime is
+  // exactly "while a run is in progress" — no separate active/paused branch
+  // needed.
+  useKeepAwake();
 
   // A finished run hands off to the summary; an idle one means there is no
   // session (a reload, or a deep link), so fall back to Home.
@@ -56,6 +69,18 @@ export default function ActiveRunScreen() {
       router.replace('/');
     }
   }, [status]);
+
+  // Suggest finishing once the runner has covered the loop and returned to
+  // the start; hold-to-finish keeps working regardless of this prompt.
+  useEffect(() => {
+    if (!completionSuggested) {
+      return;
+    }
+    Alert.alert('Finish run?', "Looks like you're back at the start.", [
+      { text: 'Keep going', style: 'cancel', onPress: dismissCompletionSuggestion },
+      { text: 'Finish', onPress: finish },
+    ]);
+  }, [completionSuggested, dismissCompletionSuggestion, finish]);
 
   const completedGeometry = useMemo(() => {
     if (!route || route.geometry.length < 2 || progressMeters <= 0) {
@@ -109,6 +134,25 @@ export default function ActiveRunScreen() {
               <View style={[styles.dot, { backgroundColor: theme.textSecondary }]} />
               <Text variant="micro" color="textSecondary" accessibilityLiveRegion="polite">
                 Weak GPS
+              </Text>
+            </GlassSurface>
+          ) : null}
+
+          {offRoute ? (
+            // Conveyed by icon + text, not colour alone — a glance while
+            // running still needs to work for anyone who can't rely on hue.
+            <GlassSurface radius={radii.pill} style={styles.pill}>
+              <SymbolView
+                name="location.slash"
+                size={layout.iconSizeSmall}
+                tintColor={theme.textSecondary}
+              />
+              <Text variant="micro" color="textSecondary" accessibilityLiveRegion="polite">
+                {`Off route · ${Math.round(distanceToRouteMeters)}m${
+                  directionToRouteDegrees !== null
+                    ? ` ${compassDirection(directionToRouteDegrees)}`
+                    : ''
+                }`}
               </Text>
             </GlassSurface>
           ) : null}

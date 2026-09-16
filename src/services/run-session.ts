@@ -6,9 +6,9 @@
  * which keeps the noise filtering and progress rules testable on their own.
  */
 
-import { cumulativeDistances, haversineMeters, projectOntoPath } from './geo';
+import { bearingDegrees, cumulativeDistances, haversineMeters, projectOntoPath } from './geo';
 import type { LocationSample } from './location';
-import type { Coordinate, RouteCandidate } from './routing';
+import { isValidCoordinate, type Coordinate, type RouteCandidate } from './routing';
 
 export type RunStatus = 'active' | 'paused' | 'finished';
 
@@ -34,7 +34,10 @@ export type SavedRun = {
 
 /**
  * Fixes less precise than this are dropped. iOS reports large radii indoors and
- * in urban canyons, and trusting them inflates distance badly.
+ * in urban canyons, and trusting them inflates distance badly. A fix with no
+ * reported accuracy at all is treated the same way — unknown error is not
+ * safer than known-bad error, and the caller (this module) is the one place
+ * responsible for not trusting noisy fixes.
  */
 const MAX_ACCURACY_METERS = 25;
 
@@ -44,11 +47,47 @@ const MIN_MOVEMENT_METERS = 4;
 /** ~45 km/h. Anything faster is a GPS jump, not a runner. */
 const MAX_SPEED_METERS_PER_SECOND = 12.5;
 
+/**
+ * A fix older than this is treated as stale, not current position. iOS
+ * commonly answers the *first* callback after starting a watch with its last
+ * cached location rather than a fresh read — sometimes minutes old — and
+ * accepting that as the run's starting point (or a mid-run position) would
+ * silently place the runner somewhere they are not. 15s is tight enough to
+ * catch a genuinely cached fix while leaving generous slack for normal
+ * dispatch delay on a fix that really is current.
+ */
+const MAX_SAMPLE_AGE_MS = 15_000;
+
 /** How far off the planned route a fix may be and still count as progress. */
 const ROUTE_CORRIDOR_METERS = 40;
 
 /** Pace is meaningless over a very short distance, so it is withheld until here. */
 const MIN_DISTANCE_FOR_PACE_METERS = 50;
+
+/**
+ * Fraction of the planned distance that must already be covered before a
+ * return to the start can suggest completion. High enough that a runner
+ * merely passing near the start early in a loop route never triggers it.
+ */
+const MIN_COMPLETION_PROGRESS_FRACTION = 0.8;
+
+/** "Back at the start" radius, widened by the fix's own reported accuracy. */
+const COMPLETION_BASE_RADIUS_METERS = 20;
+
+/**
+ * Consecutive qualifying fixes required before suggesting completion, so one
+ * stray point near the start — a GPS bounce, a road crossing — cannot
+ * trigger it on its own.
+ */
+const COMPLETION_CONFIRM_FIXES = 3;
+
+/**
+ * Consecutive fixes outside the route corridor required before raising an
+ * off-route state, so a single stray point off the corridor does not flash
+ * the signal on and off. Clearing is immediate on the other hand — a runner
+ * back on the corridor should see the signal go away right away, not linger.
+ */
+const OFF_ROUTE_CONFIRM_FIXES = 3;
 
 export type TrackerState = {
   /** Accepted GPS track, in order. */
@@ -63,6 +102,18 @@ export type TrackerState = {
   lastSample: LocationSample | null;
   /** True when the most recent fix was rejected for poor accuracy. */
   degradedSignal: boolean;
+  /** Consecutive qualifying fixes near the start once progress is far enough along. */
+  nearStartStreak: number;
+  /** True once a return to the start has been confirmed across several fixes. */
+  completionSuggested: boolean;
+  /** Consecutive fixes outside the route corridor. */
+  offRouteStreak: number;
+  /** True once several consecutive fixes have landed outside the corridor. */
+  offRoute: boolean;
+  /** Perpendicular distance from the route, in meters. 0 when on it or there is no route. */
+  distanceToRouteMeters: number;
+  /** Compass bearing back to the route, or null when on it or there is no route. */
+  directionToRouteDegrees: number | null;
 };
 
 export function createTrackerState(): TrackerState {
@@ -73,6 +124,30 @@ export function createTrackerState(): TrackerState {
     segmentIndex: 0,
     lastSample: null,
     degradedSignal: false,
+    nearStartStreak: 0,
+    completionSuggested: false,
+    offRouteStreak: 0,
+    offRoute: false,
+    distanceToRouteMeters: 0,
+    directionToRouteDegrees: null,
+  };
+}
+
+/**
+ * Rebuilds tracker state from a persisted checkpoint after a process kill.
+ *
+ * `lastSample` is intentionally left null, the same way a resume-from-pause
+ * works: the next accepted fix re-seeds the track instead of computing a
+ * bogus distance/speed across however long the app was closed. Route
+ * progress is not restored either — projecting the whole track onto the
+ * route from scratch isn't worth it here, and it self-heals within the next
+ * few accepted fixes since it only ever moves forward.
+ */
+export function trackerStateFromCheckpoint(run: SavedRun): TrackerState {
+  return {
+    ...createTrackerState(),
+    coordinates: run.coordinates,
+    distanceMeters: run.distanceKm * 1000,
   };
 }
 
@@ -96,17 +171,112 @@ export function preparePlannedRoute(route: RouteCandidate | null): PlannedRoute 
 }
 
 /**
+ * Whether this fix should extend, break, or leave alone the "back at the
+ * start" streak. Uses the runner's current position directly rather than
+ * requiring accepted movement, since a runner who has stopped right at the
+ * finish produces fixes the jitter filter would otherwise never hand to
+ * completion detection.
+ */
+function evaluateCompletion(
+  state: TrackerState,
+  sample: LocationSample,
+  planned: PlannedRoute | null,
+): Pick<TrackerState, 'nearStartStreak' | 'completionSuggested'> {
+  if (state.completionSuggested) {
+    return { nearStartStreak: state.nearStartStreak, completionSuggested: true };
+  }
+  if (!planned || planned.totalMeters <= 0) {
+    return { nearStartStreak: 0, completionSuggested: false };
+  }
+  if (state.progressMeters / planned.totalMeters < MIN_COMPLETION_PROGRESS_FRACTION) {
+    return { nearStartStreak: 0, completionSuggested: false };
+  }
+  const radius = COMPLETION_BASE_RADIUS_METERS + (sample.accuracyMeters ?? 0);
+  if (haversineMeters(planned.path[0], sample.coordinate) > radius) {
+    return { nearStartStreak: 0, completionSuggested: false };
+  }
+  const nearStartStreak = state.nearStartStreak + 1;
+  return { nearStartStreak, completionSuggested: nearStartStreak >= COMPLETION_CONFIRM_FIXES };
+}
+
+/**
+ * Whether this fix is on or off the route corridor, and how far/which way
+ * back to it. Like completion detection, this runs on the runner's raw
+ * position rather than requiring accepted movement, so a stopped runner who
+ * has wandered off the corridor still shows an off-route signal.
+ *
+ * Never touches `progressMeters` — deviation must not inflate distance or
+ * move progress; `projectProgress` already holds it while off corridor.
+ */
+function evaluateOffRoute(
+  state: TrackerState,
+  sample: LocationSample,
+  planned: PlannedRoute | null,
+): Pick<TrackerState, 'offRouteStreak' | 'offRoute' | 'distanceToRouteMeters' | 'directionToRouteDegrees'> {
+  if (!planned) {
+    return { offRouteStreak: 0, offRoute: false, distanceToRouteMeters: 0, directionToRouteDegrees: null };
+  }
+
+  const projection = projectOntoPath(planned.path, sample.coordinate, planned.cumulative, state.segmentIndex);
+  if (!projection) {
+    return {
+      offRouteStreak: state.offRouteStreak,
+      offRoute: state.offRoute,
+      distanceToRouteMeters: state.distanceToRouteMeters,
+      directionToRouteDegrees: state.directionToRouteDegrees,
+    };
+  }
+
+  if (projection.offsetMeters <= ROUTE_CORRIDOR_METERS) {
+    // Back on the corridor clears the signal immediately, not gradually.
+    return { offRouteStreak: 0, offRoute: false, distanceToRouteMeters: projection.offsetMeters, directionToRouteDegrees: null };
+  }
+
+  const a = planned.path[projection.segmentIndex];
+  const b = planned.path[projection.segmentIndex + 1];
+  const nearestPoint = {
+    latitude: a.latitude + (b.latitude - a.latitude) * projection.t,
+    longitude: a.longitude + (b.longitude - a.longitude) * projection.t,
+  };
+
+  const offRouteStreak = state.offRouteStreak + 1;
+  return {
+    offRouteStreak,
+    offRoute: offRouteStreak >= OFF_ROUTE_CONFIRM_FIXES,
+    distanceToRouteMeters: projection.offsetMeters,
+    directionToRouteDegrees: bearingDegrees(sample.coordinate, nearestPoint),
+  };
+}
+
+/**
  * Fold one GPS sample into the tracker state.
  *
  * Returns a new state, or the same reference when the sample was rejected —
  * callers can use identity to skip a re-render.
+ *
+ * `nowMs` defaults to the real clock; tests pass an explicit value so
+ * staleness checks stay deterministic like the rest of this module.
  */
 export function applySample(
   state: TrackerState,
   sample: LocationSample,
   planned: PlannedRoute | null,
+  nowMs: number = Date.now(),
 ): TrackerState {
-  if (sample.accuracyMeters !== null && sample.accuracyMeters > MAX_ACCURACY_METERS) {
+  if (!isValidCoordinate(sample.coordinate)) {
+    // A malformed fix must never reach the math below: NaN propagates
+    // silently through addition rather than throwing, so one bad coordinate
+    // would poison every distance calculation for the rest of the run.
+    return state;
+  }
+
+  if (nowMs - sample.timestamp > MAX_SAMPLE_AGE_MS) {
+    // Stale/cached fix — see MAX_SAMPLE_AGE_MS. Not an accuracy problem, so
+    // it does not touch degradedSignal.
+    return state;
+  }
+
+  if (sample.accuracyMeters === null || sample.accuracyMeters > MAX_ACCURACY_METERS) {
     // Surface the degraded signal rather than silently pretending to track.
     return state.degradedSignal ? state : { ...state, degradedSignal: true };
   }
@@ -123,16 +293,48 @@ export function applySample(
       lastSample: sample,
       degradedSignal: false,
       ...projectProgress(state, sample.coordinate, planned),
+      ...evaluateCompletion(state, sample, planned),
+      ...evaluateOffRoute(state, sample, planned),
     };
+  }
+
+  if (sample.timestamp <= previous.timestamp) {
+    // Out-of-order delivery: the OS can occasionally deliver a fix whose
+    // timestamp is not after the last one. This used to be handled by
+    // clamping elapsed time to zero, which then skipped the speed check below
+    // entirely (that check only ran `if (elapsedSeconds > 0)`) — silently
+    // letting a fix of any size through unfiltered. Rejecting outright closes
+    // that gap, and also protects the "first fix after returning from the
+    // background" case: if that fix's timestamp is older than the last one
+    // seen before backgrounding, it is exactly this scenario. An untrustworthy
+    // fix like this must not extend the completion streak either.
+    return state;
   }
 
   const moved = haversineMeters(previous.coordinate, sample.coordinate);
   if (moved < MIN_MOVEMENT_METERS) {
-    return state.degradedSignal ? { ...state, degradedSignal: false } : state;
+    // A stopped runner produces exactly this: fixes too close together to
+    // register as movement. Completion and off-route still need to see
+    // them — both are about position, not motion.
+    const completion = evaluateCompletion(state, sample, planned);
+    const offRoute = evaluateOffRoute(state, sample, planned);
+    if (
+      !state.degradedSignal &&
+      completion.nearStartStreak === state.nearStartStreak &&
+      completion.completionSuggested === state.completionSuggested &&
+      offRoute.offRouteStreak === state.offRouteStreak &&
+      offRoute.offRoute === state.offRoute
+    ) {
+      return state;
+    }
+    return { ...state, degradedSignal: false, ...completion, ...offRoute };
   }
 
-  const elapsedSeconds = Math.max(0, (sample.timestamp - previous.timestamp) / 1000);
-  if (elapsedSeconds > 0 && moved / elapsedSeconds > MAX_SPEED_METERS_PER_SECOND) {
+  // sample.timestamp > previous.timestamp is now guaranteed, so elapsedSeconds
+  // is always positive here — no separate zero-guard needed.
+  const elapsedSeconds = (sample.timestamp - previous.timestamp) / 1000;
+  if (moved / elapsedSeconds > MAX_SPEED_METERS_PER_SECOND) {
+    // A GPS jump is not trustworthy enough to extend the completion streak.
     return state;
   }
 
@@ -143,6 +345,8 @@ export function applySample(
     lastSample: sample,
     degradedSignal: false,
     ...projectProgress(state, sample.coordinate, planned),
+    ...evaluateCompletion(state, sample, planned),
+    ...evaluateOffRoute(state, sample, planned),
   };
 }
 
@@ -216,6 +420,14 @@ export function formatPace(minPerKm: number | null): string {
   // Rounding 59.6s up must carry into the minutes rather than render 6'60".
   const carried = seconds === 60 ? { m: minutes + 1, s: 0 } : { m: minutes, s: seconds };
   return `${carried.m}'${carried.s.toString().padStart(2, '0')}"`;
+}
+
+const COMPASS_POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+
+/** `45°` → `"NE"`. One of 8 points — precise enough for a glance while running. */
+export function compassDirection(degrees: number): string {
+  const index = Math.round(degrees / 45) % 8;
+  return COMPASS_POINTS[index];
 }
 
 export type RunRecords = {
