@@ -7,7 +7,7 @@ import { Button } from '@/components/button';
 import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
 import { RouteOptions } from '@/components/route-options';
-import { Sheet } from '@/components/sheet';
+import { ControlPanel } from '@/components/control-panel';
 import { Text } from '@/components/text';
 import { impactMedium, selectionFeedback } from '@/lib/haptics';
 import { useLocation } from '@/services/location-context';
@@ -90,7 +90,7 @@ export default function RouteSelectionScreen() {
       </View>
 
       <View style={styles.sheetAnchor}>
-        <Sheet style={styles.sheet}>
+        <ControlPanel style={styles.sheet}>
           {isEmpty ? (
             <View style={styles.notice}>
               <Text variant="title">
@@ -135,7 +135,7 @@ export default function RouteSelectionScreen() {
               <Button label="Start run" variant="accent" onPress={handleStart} />
             </>
           )}
-        </Sheet>
+        </ControlPanel>
       </View>
     </View>
   );
@@ -157,7 +157,6 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
   sheet: {
-    paddingHorizontal: layout.screenMargin,
     gap: spacing.md,
   },
   header: {

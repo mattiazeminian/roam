@@ -9,7 +9,7 @@ import { HoldButton } from '@/components/hold-button';
 import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
 import { Metric, MetricRow } from '@/components/metric';
-import { Sheet } from '@/components/sheet';
+import { ControlPanel } from '@/components/control-panel';
 import { Text } from '@/components/text';
 import { impactMedium } from '@/lib/haptics';
 import { cumulativeDistances, sliceAlongPath } from '@/services/geo';
@@ -124,7 +124,7 @@ export default function ActiveRunScreen() {
       </View>
 
       <View style={styles.sheetAnchor}>
-        <Sheet style={styles.sheet}>
+        <ControlPanel style={styles.sheet}>
           <Metric
             label="Distance"
             value={fmt.distance(distanceMeters)}
@@ -175,7 +175,7 @@ export default function ActiveRunScreen() {
               onComplete={finish}
             />
           </View>
-        </Sheet>
+        </ControlPanel>
       </View>
     </View>
   );
@@ -216,7 +216,6 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
   sheet: {
-    paddingHorizontal: layout.screenMargin,
     gap: spacing.lg,
   },
   controls: {
