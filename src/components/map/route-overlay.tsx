@@ -31,7 +31,7 @@ export type RouteOverlayProps = {
 
 /**
  * Projects route geometry into the map area and draws it. The selected route is
- * lime and dominant; the others are neutral and lighter. Also renders the
+ * the accent and dominant; the others are neutral and lighter. Also renders the
  * current-location marker and the search pulse.
  */
 export function RouteOverlay({

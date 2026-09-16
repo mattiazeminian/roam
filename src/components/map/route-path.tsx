@@ -4,6 +4,7 @@ import Animated, {
   Easing,
   interpolateColor,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withDelay,
   withTiming,
@@ -246,7 +247,7 @@ function RouteHaloJoint({
 /**
  * Draws a polyline without a drawing library. Segments are rotated squares;
  * the visible portion is animated along the geometry so a route draws itself in.
- * The selected route interpolates from neutral to the lime accent.
+ * The selected route interpolates from neutral to the accent.
  */
 export function RoutePath({
   points,
@@ -262,12 +263,14 @@ export function RoutePath({
   drawDelayMs = 0,
   onPress,
 }: RoutePathProps) {
+  const reduceMotion = useReducedMotion();
   const progress = useSharedValue(draw ? 0 : 1);
   const emphasis = useSharedValue(selected ? 1 : 0);
   const { segments, joints } = useMemo(() => buildGeometry(points), [points]);
 
   useEffect(() => {
-    if (draw) {
+    // Reduce Motion: show the final route immediately instead of drawing it in.
+    if (draw && !reduceMotion) {
       progress.value = 0;
       progress.value = withDelay(
         drawDelayMs,
@@ -276,14 +279,14 @@ export function RoutePath({
     } else {
       progress.value = 1;
     }
-  }, [draw, drawDelayMs, progress]);
+  }, [draw, drawDelayMs, progress, reduceMotion]);
 
   useEffect(() => {
     emphasis.value = withTiming(selected ? 1 : 0, {
-      duration: 220,
+      duration: reduceMotion ? 0 : 220,
       easing: Easing.out(Easing.quad),
     });
-  }, [selected, emphasis]);
+  }, [selected, emphasis, reduceMotion]);
 
   const haloWidth = activeWidth + 4;
 

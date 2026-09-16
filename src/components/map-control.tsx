@@ -6,7 +6,7 @@ import Animated from 'react-native-reanimated';
 import { GlassSurface } from '@/components/glass-surface';
 import { usePressScale } from '@/hooks/use-press-scale';
 import { impactLight } from '@/lib/haptics';
-import { radii, useTheme } from '@/theme';
+import { layout, radii, useTheme } from '@/theme';
 
 export type MapControlProps = {
   symbol: ComponentProps<typeof SymbolView>['name'];
@@ -36,7 +36,12 @@ export function MapControl({ symbol, accessibilityLabel, onPress, fallback }: Ma
         accessibilityLabel={accessibilityLabel}
         style={styles.hit}>
         <GlassSurface radius={radii.pill} style={styles.surface}>
-          <SymbolView name={symbol} size={20} tintColor={theme.text} fallback={fallback} />
+          <SymbolView
+            name={symbol}
+            size={layout.iconSize}
+            tintColor={theme.text}
+            fallback={fallback}
+          />
         </GlassSurface>
       </Pressable>
     </Animated.View>
@@ -45,12 +50,12 @@ export function MapControl({ symbol, accessibilityLabel, onPress, fallback }: Ma
 
 const styles = StyleSheet.create({
   hit: {
-    width: 48,
-    height: 48,
+    width: layout.controlSizeCircular,
+    height: layout.controlSizeCircular,
   },
   surface: {
-    width: 48,
-    height: 48,
+    width: layout.controlSizeCircular,
+    height: layout.controlSizeCircular,
     alignItems: 'center',
     justifyContent: 'center',
   },

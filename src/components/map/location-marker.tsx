@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
@@ -14,7 +15,7 @@ const RING = 26;
 const DOT = 12;
 
 /**
- * Small, precise current-location marker: a lime center with a subtle lime
+ * Small, precise current-location marker: an accent center with a subtle accent
  * ring. It eases in once on mount and never pulses on its own.
  */
 export function LocationMarker({
@@ -27,16 +28,20 @@ export function LocationMarker({
   replaySignal?: number;
 }) {
   const theme = useTheme();
+  const reduceMotion = useReducedMotion();
   const entrance = useSharedValue(0);
 
   useEffect(() => {
     entrance.value = 0;
-    entrance.value = withTiming(1, { duration: 320, easing: Easing.out(Easing.cubic) });
-  }, [entrance, replaySignal]);
+    entrance.value = withTiming(1, {
+      duration: reduceMotion ? 0 : 320,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [entrance, replaySignal, reduceMotion]);
 
   const style = useAnimatedStyle(() => ({
     opacity: entrance.value,
-    transform: [{ scale: 0.5 + entrance.value * 0.5 }],
+    transform: [{ scale: reduceMotion ? 1 : 0.5 + entrance.value * 0.5 }],
   }));
 
   return (
@@ -45,8 +50,8 @@ export function LocationMarker({
       accessibilityLabel="Your current location"
       pointerEvents="none"
       style={[styles.container, { left: x - CONTAINER / 2, top: y - CONTAINER / 2 }, style]}>
-      <View style={[styles.ring, { borderColor: theme.accentMuted }]} />
-      <View style={[styles.dot, { backgroundColor: theme.accent, borderColor: theme.background }]} />
+      <View style={[styles.ring, { borderColor: theme.textSecondary }]} />
+      <View style={[styles.dot, { backgroundColor: theme.accent, borderColor: theme.text }]} />
     </Animated.View>
   );
 }

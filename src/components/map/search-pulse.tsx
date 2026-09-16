@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withDelay,
   withRepeat,
@@ -13,19 +14,35 @@ import { useTheme } from '@/theme';
 
 const BASE = 140;
 
-function Ring({ x, y, color, delay }: { x: number; y: number; color: string; delay: number }) {
-  const progress = useSharedValue(0);
+function Ring({
+  x,
+  y,
+  color,
+  delay,
+  reduceMotion,
+}: {
+  x: number;
+  y: number;
+  color: string;
+  delay: number;
+  reduceMotion: boolean;
+}) {
+  const progress = useSharedValue(reduceMotion ? 0.35 : 0);
 
   useEffect(() => {
+    if (reduceMotion) {
+      progress.value = 0.35;
+      return;
+    }
     progress.value = withDelay(
       delay,
       withRepeat(withTiming(1, { duration: 1500, easing: Easing.out(Easing.quad) }), -1, false),
     );
-  }, [delay, progress]);
+  }, [delay, progress, reduceMotion]);
 
   const style = useAnimatedStyle(() => ({
     transform: [{ scale: 0.2 + progress.value * 0.9 }],
-    opacity: 0.35 * (1 - progress.value),
+    opacity: 0.4 * (1 - progress.value),
   }));
 
   return (
@@ -42,11 +59,12 @@ function Ring({ x, y, color, delay }: { x: number; y: number; color: string; del
  */
 export function SearchPulse({ x, y }: { x: number; y: number }) {
   const theme = useTheme();
+  const reduceMotion = useReducedMotion();
 
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      <Ring x={x} y={y} color={theme.accent} delay={0} />
-      <Ring x={x} y={y} color={theme.accent} delay={750} />
+      <Ring x={x} y={y} color={theme.accent} delay={0} reduceMotion={reduceMotion} />
+      <Ring x={x} y={y} color={theme.accent} delay={750} reduceMotion={reduceMotion} />
     </View>
   );
 }

@@ -1,33 +1,25 @@
-import { useColorScheme } from 'react-native';
-
 /**
  * Map-specific neutrals.
  *
  * The map is intentionally exempt from the UI color tokens (see
- * docs/map-style.md): it needs its own very light land, subtle roads and
- * restrained labels so the route stays visually dominant. This is the only
- * place raw map colors live. Route and marker colors still come from the theme.
+ * docs/map-style.md): it needs its own land, subtle roads and restrained labels
+ * so the route stays visually dominant. This is the only place raw map colors
+ * live. Route and marker colors still come from the theme.
+ *
+ * Land sits a touch above the page ground so the map reads as a surface rather
+ * than as a hole in the screen, and roads stay quiet enough that an accented route
+ * drawn over them is never in competition.
  */
 export const mapPalette = {
-  light: {
-    land: '#F3F3F3',
-    building: '#E7E7E7',
-    minorRoad: '#D9D9D9',
-    majorRoad: '#BDBDBD',
-    label: '#8A8A8A',
-  },
-  dark: {
-    land: '#0A0A0A',
-    building: '#191919',
-    minorRoad: '#2C2C2C',
-    majorRoad: '#484848',
-    label: '#8A8A8A',
-  },
+  land: '#000000',
+  building: '#141414',
+  minorRoad: '#242424',
+  majorRoad: '#3A3A3C',
+  label: 'rgba(235, 235, 245, 0.60)',
 } as const;
 
-export type MapColors = Record<keyof typeof mapPalette.light, string>;
+export type MapColors = typeof mapPalette;
 
 export function useMapPalette(): MapColors {
-  const scheme = useColorScheme();
-  return mapPalette[scheme === 'dark' ? 'dark' : 'light'];
+  return mapPalette;
 }
