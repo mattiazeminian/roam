@@ -1,5 +1,5 @@
 /**
- * Tests for the GPS tracking math added/fixed in issue #8.
+ * Tests for the GPS tracking math added/fixed in issues #8–#11.
  *
  * `applySample` is pure and synchronous (see the header comment on
  * run-session.ts), so every scenario here is expressed as a sequence of
@@ -425,5 +425,104 @@ describe('completion detection (#10)', () => {
       sample({ coordinate: offset(14, 0), timestamp: BASE_TIME + 430_000 }),
     ]);
     expect(state.completionSuggested).toBe(true);
+  });
+});
+
+describe('route deviation (#9)', () => {
+  // A straight south-to-north path: projection onto it is unambiguous
+  // (nothing retraces itself), so an east/west offset is exactly the
+  // perpendicular distance from the route.
+  const planned = preparePlannedRoute({
+    id: 'straight',
+    distanceKm: 1,
+    estimatedMinutes: 10,
+    geometry: [offset(0, 0), offset(1000, 0)],
+    characteristics: [],
+  }) as PlannedRoute;
+
+  function feedWithRoute(samples: LocationSample[]) {
+    let state = createTrackerState();
+    for (const s of samples) {
+      state = applySample(state, s, planned, s.timestamp + 1);
+    }
+    return state;
+  }
+
+  test('a single fix outside the corridor does not raise the signal', () => {
+    const state = feedWithRoute([
+      sample({ coordinate: offset(0, 0), timestamp: BASE_TIME }),
+      sample({ coordinate: offset(100, 0), timestamp: BASE_TIME + 20_000 }),
+      sample({ coordinate: offset(100, 100), timestamp: BASE_TIME + 40_000 }),
+    ]);
+    expect(state.offRoute).toBe(false);
+    expect(state.distanceToRouteMeters).toBeCloseTo(100, 0);
+  });
+
+  test('three consecutive fixes outside the corridor raise it, and returning clears it immediately', () => {
+    const offline = feedWithRoute([
+      sample({ coordinate: offset(0, 0), timestamp: BASE_TIME }),
+      sample({ coordinate: offset(100, 0), timestamp: BASE_TIME + 20_000 }),
+      sample({ coordinate: offset(100, 100), timestamp: BASE_TIME + 40_000 }), // streak 1
+      sample({ coordinate: offset(140, 100), timestamp: BASE_TIME + 60_000 }), // streak 2
+      sample({ coordinate: offset(180, 100), timestamp: BASE_TIME + 80_000 }), // streak 3
+    ]);
+    expect(offline.offRoute).toBe(true);
+    expect(offline.distanceToRouteMeters).toBeCloseTo(100, 0);
+    // The runner is 100m east of the route, so the way back is due west (270°).
+    expect(offline.directionToRouteDegrees).toBeCloseTo(270, 0);
+
+    const back = applySample(
+      offline,
+      sample({ coordinate: offset(220, 0), timestamp: BASE_TIME + 100_000 }),
+      planned,
+      BASE_TIME + 100_001,
+    );
+    // Clears on the first fix back inside the corridor, not gradually.
+    expect(back.offRoute).toBe(false);
+    expect(back.directionToRouteDegrees).toBeNull();
+  });
+
+  test('the bearing points back toward the route from whichever side the runner is on', () => {
+    const west = feedWithRoute([
+      sample({ coordinate: offset(0, 0), timestamp: BASE_TIME }),
+      sample({ coordinate: offset(100, 0), timestamp: BASE_TIME + 20_000 }),
+      sample({ coordinate: offset(100, -100), timestamp: BASE_TIME + 40_000 }),
+    ]);
+    // West of the route: the route is to the east.
+    expect(west.directionToRouteDegrees).toBeCloseTo(90, 0);
+  });
+
+  test('deviation holds route progress instead of advancing or resetting it', () => {
+    const onRoute = feedWithRoute([
+      sample({ coordinate: offset(0, 0), timestamp: BASE_TIME }),
+      sample({ coordinate: offset(100, 0), timestamp: BASE_TIME + 20_000 }),
+    ]);
+    expect(onRoute.progressMeters).toBeCloseTo(100, 0);
+
+    const wandering = feedWithRoute([
+      sample({ coordinate: offset(0, 0), timestamp: BASE_TIME }),
+      sample({ coordinate: offset(100, 0), timestamp: BASE_TIME + 20_000 }),
+      sample({ coordinate: offset(100, 100), timestamp: BASE_TIME + 40_000 }),
+      sample({ coordinate: offset(140, 100), timestamp: BASE_TIME + 60_000 }),
+      sample({ coordinate: offset(180, 100), timestamp: BASE_TIME + 80_000 }),
+    ]);
+    // Held at the last on-corridor projection — never advanced by off-route
+    // movement, and never reset to zero.
+    expect(wandering.progressMeters).toBeCloseTo(100, 0);
+    // The real movement still counts as distance; it is progress that is held.
+    expect(wandering.distanceMeters).toBeGreaterThan(onRoute.distanceMeters);
+    expect(wandering.offRoute).toBe(true);
+  });
+
+  test('with no planned route there is no off-route signal', () => {
+    const state = applySample(
+      createTrackerState(),
+      sample({ coordinate: offset(0, 0), timestamp: BASE_TIME }),
+      null,
+      BASE_TIME + 1,
+    );
+    expect(state.offRoute).toBe(false);
+    expect(state.distanceToRouteMeters).toBe(0);
+    expect(state.directionToRouteDegrees).toBeNull();
   });
 });
