@@ -78,6 +78,13 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Kicks off the permission check and first fix against the external
+    // location API on mount — exactly the "subscribe to an external system"
+    // case the rule describes as correct. The lint rule flags it because
+    // `start`'s first statement (`setStatus('requesting')`) runs synchronously
+    // before its first `await`; that call is redundant with the initial state
+    // on mount and only does real work on a later `refresh()`.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void start();
     return () => {
       subscription.current?.remove();

@@ -8,6 +8,11 @@ export function useColorScheme() {
   const [hasHydrated, setHasHydrated] = useState(false);
 
   useEffect(() => {
+    // The standard static-rendering hydration flag: this must run exactly
+    // once after mount, since the client and server render intentionally
+    // differ on the first pass. There is no external-system event to key off
+    // instead — mounting on the client *is* the event.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHasHydrated(true);
   }, []);
 
