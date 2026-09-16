@@ -514,3 +514,109 @@ describe('path attributes (#14)', () => {
     expect(routes[0].characteristics).toContain('Mostly footways & paths');
   });
 });
+
+describe('routeThroughWaypoints (#16)', () => {
+  let fetchMock: jest.Mock;
+
+  beforeEach(() => {
+    fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const WAYPOINTS = [
+    { latitude: 40.752, longitude: -73.981 },
+    { latitude: 40.745, longitude: -73.979 },
+  ];
+
+  function sentBody(): { coordinates: [number, number][] } {
+    const call = fetchMock.mock.calls[0] as [string, { body: string }];
+    return JSON.parse(call[1].body);
+  }
+
+  test('sends origin → waypoints → origin, closed, as [longitude, latitude]', async () => {
+    const { routeThroughWaypoints } = loadRouting('test-key');
+    fetchMock.mockResolvedValue(jsonResponse(orsFixture(5000)) as never);
+
+    await routeThroughWaypoints({ origin: ORIGIN, waypoints: WAYPOINTS });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const { coordinates } = sentBody();
+    expect(coordinates).toEqual([
+      [ORIGIN.longitude, ORIGIN.latitude],
+      [-73.981, 40.752],
+      [-73.979, 40.745],
+      [ORIGIN.longitude, ORIGIN.latitude],
+    ]);
+    expect(coordinates[0]).toEqual(coordinates[coordinates.length - 1]);
+  });
+
+  test('returns a candidate that carries the waypoints and the path labels', async () => {
+    const { routeThroughWaypoints } = loadRouting('test-key');
+    fetchMock.mockResolvedValue(jsonResponse(orsFixture(4200, 20, ORS_EXTRAS)) as never);
+
+    const route = await routeThroughWaypoints({
+      origin: ORIGIN,
+      waypoints: WAYPOINTS,
+      paceMinPerKm: 6,
+    });
+
+    expect(route.distanceKm).toBeCloseTo(4.2, 1);
+    expect(route.estimatedMinutes).toBe(25); // 4.2 km at 6 min/km
+    expect(route.waypoints).toEqual(WAYPOINTS);
+    expect(route.geometry.length).toBeGreaterThan(3);
+    expect(route.characteristics).toContain('Loop');
+    expect(route.characteristics).toContain('Mostly footways & paths');
+  });
+
+  test('drops invalid waypoints rather than sending them', async () => {
+    const { routeThroughWaypoints } = loadRouting('test-key');
+    fetchMock.mockResolvedValue(jsonResponse(orsFixture(5000)) as never);
+
+    await routeThroughWaypoints({
+      origin: ORIGIN,
+      waypoints: [WAYPOINTS[0], { latitude: 999, longitude: 0 }],
+    });
+
+    // origin + one surviving waypoint + origin
+    expect(sentBody().coordinates).toHaveLength(3);
+  });
+
+  test('rejects an empty or wholly invalid waypoint list without calling out', async () => {
+    const { routeThroughWaypoints } = loadRouting('test-key');
+    await expect(
+      routeThroughWaypoints({ origin: ORIGIN, waypoints: [] }),
+    ).rejects.toMatchObject({ code: 'invalid-waypoints' });
+    await expect(
+      routeThroughWaypoints({ origin: ORIGIN, waypoints: [{ latitude: Number.NaN, longitude: 0 }] }),
+    ).rejects.toMatchObject({ code: 'invalid-waypoints' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects an invalid origin without calling out', async () => {
+    const { routeThroughWaypoints } = loadRouting('test-key');
+    await expect(
+      routeThroughWaypoints({ origin: { latitude: 999, longitude: 0 }, waypoints: WAYPOINTS }),
+    ).rejects.toMatchObject({ code: 'invalid-origin' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('throws missing-key when no key is configured', async () => {
+    const { routeThroughWaypoints } = loadRouting(undefined);
+    await expect(
+      routeThroughWaypoints({ origin: ORIGIN, waypoints: WAYPOINTS }),
+    ).rejects.toMatchObject({ code: 'missing-key' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('a rate-limited response surfaces as rate-limit', async () => {
+    const { routeThroughWaypoints } = loadRouting('test-key');
+    fetchMock.mockResolvedValue(jsonResponse({}, 429) as never);
+    await expect(
+      routeThroughWaypoints({ origin: ORIGIN, waypoints: WAYPOINTS }),
+    ).rejects.toMatchObject({ code: 'rate-limit' });
+  });
+});

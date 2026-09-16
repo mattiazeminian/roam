@@ -36,6 +36,13 @@ export type RouteCandidate = {
    * these. Absent when the provider returned no path data at all.
    */
   attributes?: RouteAttributes;
+  /**
+   * Ordered intermediate points the route was recalculated through (#16).
+   * Additive: a route generated without them has none, and every existing
+   * consumer keeps working. The start/finish are not included — `geometry`
+   * already begins and ends at them.
+   */
+  waypoints?: Coordinate[];
 };
 
 /**
@@ -68,6 +75,8 @@ export type RoutingErrorCode =
   | 'network'
   | 'no-routes'
   | 'invalid-origin'
+  /** The waypoint list for a recalculation was empty or wholly invalid (#16). */
+  | 'invalid-waypoints'
   /** Every candidate produced was rejected by the hard tolerance ceiling —
    *  distinct from `no-routes`, where the provider produced nothing at all. */
   | 'no-close-route';
@@ -358,11 +367,12 @@ type RawCandidate = {
  *   distance correction has already been applied. Never use this for ranking
  *   or tolerance checks; use the caller's original target for that.
  */
-async function requestLoop(
-  origin: Coordinate,
-  requestedLengthM: number,
-  variant: { seed: number; points: number },
-): Promise<RawCandidate> {
+/**
+ * The one place a directions request is actually sent and parsed. Both the
+ * generated loop and a waypoint recalculation go through here, so status
+ * handling, geometry cleanup and attribute parsing cannot drift between them.
+ */
+async function sendDirections(body: Record<string, unknown>): Promise<RawCandidate> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -375,22 +385,7 @@ async function requestLoop(
         'Content-Type': 'application/json',
         Accept: 'application/geo+json',
       },
-      body: JSON.stringify({
-        coordinates: [[origin.longitude, origin.latitude]],
-        elevation: true,
-        // Per-segment path data (#14). Only the two dimensions ROAM actually
-        // presents are requested: `steepness` would duplicate the climb figure
-        // already shown, and `suitability` is a 0–10 score, which is exactly
-        // the kind of composite verdict this feature must not surface.
-        extra_info: ['waytype', 'surface'],
-        options: {
-          round_trip: {
-            length: Math.round(requestedLengthM),
-            points: variant.points,
-            seed: variant.seed,
-          },
-        },
-      }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
   } catch {
@@ -438,6 +433,106 @@ async function requestLoop(
     distanceM,
     ascentM,
     attributes: pathAttributesFromExtras(feature?.properties?.extras),
+  };
+}
+
+/**
+ * The per-segment dimensions ROAM requests. Only these two: `steepness` would
+ * duplicate the climb figure already shown, and `suitability` is a 0–10 score,
+ * i.e. exactly the composite verdict this app must not surface (#14).
+ */
+const REQUESTED_EXTRA_INFO = ['waytype', 'surface'];
+
+/**
+ * @param requestedLengthM The length sent to ORS in the request — after the
+ *   distance correction has already been applied. Never use this for ranking
+ *   or tolerance checks; use the caller's original target for that.
+ */
+async function requestLoop(
+  origin: Coordinate,
+  requestedLengthM: number,
+  variant: { seed: number; points: number },
+): Promise<RawCandidate> {
+  return sendDirections({
+    coordinates: [[origin.longitude, origin.latitude]],
+    elevation: true,
+    extra_info: REQUESTED_EXTRA_INFO,
+    options: {
+      round_trip: {
+        length: Math.round(requestedLengthM),
+        points: variant.points,
+        seed: variant.seed,
+      },
+    },
+  });
+}
+
+export type WaypointsRequest = {
+  /** Where the loop starts and ends. */
+  origin: Coordinate;
+  /** Ordered intermediate points the loop must pass through. */
+  waypoints: Coordinate[];
+  /** Minutes per kilometer used for the time estimate. See PACE_MIN_PER_KM. */
+  paceMinPerKm?: number;
+};
+
+/**
+ * Recalculate a loop so that it passes through `waypoints` (#16).
+ *
+ * Deliberately NOT built on ORS's `round_trip`: that option takes a single
+ * coordinate plus `length`/`points`/`seed`, and has no way to express *these
+ * specific* via-points — which is the entire point of an edit. Instead the
+ * coordinates are sent explicitly as `origin → waypoints → origin`, so the
+ * returned loop physically visits each one. The consequence is that distance is
+ * whatever the street network yields through those points, not a requested
+ * length; a caller that cares about distance ranks or re-requests, rather than
+ * this function pretending it can hit a target.
+ *
+ * Invalid waypoints are dropped rather than sent; an empty list is an explicit
+ * error, not an empty route.
+ */
+export async function routeThroughWaypoints({
+  origin,
+  waypoints,
+  paceMinPerKm = PACE_MIN_PER_KM,
+}: WaypointsRequest): Promise<RouteCandidate> {
+  if (!ORS_API_KEY) {
+    throw new RoutingError(
+      'missing-key',
+      'No routing API key is configured. Add EXPO_PUBLIC_ORS_API_KEY.',
+    );
+  }
+  if (!isValidCoordinate(origin)) {
+    throw new RoutingError('invalid-origin', 'Your location is not available yet.');
+  }
+
+  const valid = waypoints.filter(isValidCoordinate);
+  if (valid.length === 0) {
+    throw new RoutingError('invalid-waypoints', 'Add at least one point to route through.');
+  }
+
+  const coordinates = [
+    [origin.longitude, origin.latitude],
+    ...valid.map((point) => [point.longitude, point.latitude]),
+    [origin.longitude, origin.latitude],
+  ];
+
+  const result = await sendDirections({
+    coordinates,
+    elevation: true,
+    extra_info: REQUESTED_EXTRA_INFO,
+  });
+
+  const distanceKm = roundTo(result.distanceM / 1000, 1);
+  return {
+    id: 'route-edited',
+    distanceKm,
+    estimatedMinutes: Math.max(1, Math.round(distanceKm * paceMinPerKm)),
+    geometry: result.geometry,
+    characteristics: ['Loop', ...characteristicLabelsFor(result.attributes)],
+    ascentMeters: result.ascentM,
+    attributes: result.attributes,
+    waypoints: valid,
   };
 }
 
