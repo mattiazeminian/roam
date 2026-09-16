@@ -1,11 +1,17 @@
 /**
  * Routing service.
  *
- * This module is the seam between ROAM and route generation. Today it returns
- * deterministic mock loops; later a real routing service (e.g. Mapbox) can
- * replace `findRoutes` without changing the screens, which only depend on the
- * `RouteCandidate` shape and the `generateRoutes` / `findRoutes` functions.
+ * The seam between ROAM and route generation. Screens depend only on the
+ * `RouteCandidate` shape and `findRoutes`; nothing above this module knows that
+ * OpenRouteService exists.
+ *
+ * Route data is never fabricated. Distance comes from the provider's own
+ * summary, and geometry is the provider's polyline. When the provider cannot
+ * produce routes, this module throws a `RoutingError` so the UI can explain
+ * what happened instead of showing invented data.
  */
+
+import { pathLengthMeters } from './geo';
 
 export type Coordinate = {
   latitude: number;
@@ -14,44 +20,70 @@ export type Coordinate = {
 
 export type RouteCandidate = {
   id: string;
+  /** Distance in kilometers, from the provider's route summary. */
   distanceKm: number;
+  /** Running-time estimate derived from `PACE_MIN_PER_KM` (see below). */
   estimatedMinutes: number;
   /** Loop geometry as a closed list of coordinates (first === last). */
   geometry: Coordinate[];
+  /** Short factual descriptors. Only values actually derived from the route. */
   characteristics: string[];
+  /** Total climb in meters, when the provider returned elevation data. */
+  ascentMeters?: number;
 };
 
 export type RouteRequest = {
   origin: Coordinate;
   targetKm: number;
+  /** Minutes per kilometer used for the time estimate. See PACE_MIN_PER_KM. */
+  paceMinPerKm?: number;
 };
+
+export type RoutingErrorCode =
+  | 'missing-key'
+  | 'auth'
+  | 'rate-limit'
+  | 'network'
+  | 'no-routes'
+  | 'invalid-origin';
+
+/** A routing failure the UI is expected to explain to the user. */
+export class RoutingError extends Error {
+  readonly code: RoutingErrorCode;
+
+  constructor(code: RoutingErrorCode, message: string) {
+    super(message);
+    this.name = 'RoutingError';
+    this.code = code;
+  }
+}
+
+const ORS_API_KEY = process.env.EXPO_PUBLIC_ORS_API_KEY ?? '';
+const ORS_ENDPOINT = 'https://api.openrouteservice.org/v2/directions/foot-walking/geojson';
 
 /**
- * Placeholder current location until real location services are added.
- * (Lisbon — an arbitrary, well-known coordinate.)
+ * Pedestrian routing is the closest profile to running that ORS offers. Its
+ * `summary.duration` is therefore a *walking* estimate, which would badly
+ * overstate the time for a runner, so duration is derived from a running pace
+ * instead of being read from the response.
+ *
+ * This is a stated assumption, not provider data. It defaults to a moderate
+ * pace and is overridden by the runner's own setting.
  */
-export const MOCK_ORIGIN: Coordinate = {
-  latitude: 38.7223,
-  longitude: -9.1393,
-};
-
-/** Mock service latency, in milliseconds. */
-const MOCK_GENERATION_DELAY_MS = 700;
-
-/** Assumed pace used to derive an estimated duration. */
 const PACE_MIN_PER_KM = 6.6;
 
-const ROUTE_VARIANTS = [
-  { factor: 1.02, characteristics: ['Loop', 'Quiet streets'] },
-  { factor: 1.08, characteristics: ['Loop', 'Riverside'] },
-  { factor: 0.96, characteristics: ['Loop', 'Low traffic'] },
+/**
+ * Each candidate is a separate round-trip request. ORS returns one loop per
+ * call, and varying both the seed and the point count is what produces
+ * genuinely different geometry rather than three near-identical loops.
+ */
+const CANDIDATE_VARIANTS = [
+  { seed: 1, points: 4 },
+  { seed: 7, points: 5 },
+  { seed: 13, points: 6 },
 ] as const;
 
-const EARTH_RADIUS_M = 6_371_000;
-const METERS_PER_DEGREE_LAT = 111_320;
-
-/** Used when a caller passes an unusable target distance. */
-const FALLBACK_TARGET_KM = 5;
+const REQUEST_TIMEOUT_MS = 20_000;
 
 /** A coordinate is renderable only if it holds two finite, in-range numbers. */
 export function isValidCoordinate(value: unknown): value is Coordinate {
@@ -106,117 +138,176 @@ export function sanitizeGeometry(geometry: Coordinate[]): Coordinate[] {
   return cleaned;
 }
 
-/** Small deterministic PRNG so the same request yields the same routes. */
-function createRandom(seed: number) {
-  let state = Math.floor(seed) % 2_147_483_647;
-  if (state <= 0) {
-    state += 2_147_483_646;
-  }
-  return () => {
-    state = (state * 16_807) % 2_147_483_647;
-    return (state - 1) / 2_147_483_646;
-  };
-}
-
-function toRadians(degrees: number) {
-  return (degrees * Math.PI) / 180;
-}
-
-/** Local planar offset (meters) converted back to a coordinate. */
-function offsetCoordinate(origin: Coordinate, eastMeters: number, northMeters: number): Coordinate {
-  const latitude = origin.latitude + northMeters / METERS_PER_DEGREE_LAT;
-  const longitude =
-    origin.longitude + eastMeters / (METERS_PER_DEGREE_LAT * Math.cos(toRadians(origin.latitude)));
-  return { latitude, longitude };
-}
-
-function haversineMeters(a: Coordinate, b: Coordinate) {
-  const dLat = toRadians(b.latitude - a.latitude);
-  const dLon = toRadians(b.longitude - a.longitude);
-  const lat1 = toRadians(a.latitude);
-  const lat2 = toRadians(b.latitude);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-  return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)));
-}
-
-function loopLengthMeters(points: Coordinate[]) {
-  let total = 0;
-  for (let i = 0; i < points.length - 1; i += 1) {
-    total += haversineMeters(points[i], points[i + 1]);
-  }
-  return total;
-}
-
-/**
- * Build an irregular closed loop around the origin whose perimeter approximates
- * the requested distance. Pure and deterministic for a given seed.
- */
-function generateLoop(origin: Coordinate, targetKm: number, seed: number): Coordinate[] {
-  const random = createRandom(seed);
-  const vertexCount = 8;
-
-  const offsets: { east: number; north: number }[] = [];
-  for (let i = 0; i < vertexCount; i += 1) {
-    const angle = (i / vertexCount) * Math.PI * 2 + (random() - 0.5) * 0.35;
-    const radius = 600 * (0.75 + random() * 0.5);
-    offsets.push({ east: Math.cos(angle) * radius, north: Math.sin(angle) * radius });
-  }
-  offsets.push(offsets[0]);
-
-  const unscaled = offsets.map((offset) => offsetCoordinate(origin, offset.east, offset.north));
-  const perimeter = loopLengthMeters(unscaled) || 1;
-  const scale = (targetKm * 1000) / perimeter;
-
-  return offsets.map((offset) =>
-    offsetCoordinate(origin, offset.east * scale, offset.north * scale),
-  );
-}
-
 function roundTo(value: number, decimals: number) {
   const factor = 10 ** decimals;
   return Math.round(value * factor) / factor;
 }
 
+type OrsFeature = {
+  geometry?: { coordinates?: unknown };
+  properties?: {
+    summary?: { distance?: unknown; duration?: unknown; ascent?: unknown };
+    ascent?: unknown;
+  };
+};
+
+/** ORS returns positions as [longitude, latitude], the opposite of our model. */
+function toCoordinates(raw: unknown): Coordinate[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const points: Coordinate[] = [];
+  for (const entry of raw) {
+    if (!Array.isArray(entry) || entry.length < 2) {
+      continue;
+    }
+    const [longitude, latitude] = entry;
+    if (typeof longitude !== 'number' || typeof latitude !== 'number') {
+      continue;
+    }
+    points.push({ latitude, longitude });
+  }
+  return points;
+}
+
+async function requestLoop(
+  origin: Coordinate,
+  targetKm: number,
+  variant: (typeof CANDIDATE_VARIANTS)[number],
+): Promise<{ geometry: Coordinate[]; distanceM: number; ascentM?: number }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(ORS_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        Authorization: ORS_API_KEY,
+        'Content-Type': 'application/json',
+        Accept: 'application/geo+json',
+      },
+      body: JSON.stringify({
+        coordinates: [[origin.longitude, origin.latitude]],
+        elevation: true,
+        options: {
+          round_trip: {
+            length: Math.round(targetKm * 1000),
+            points: variant.points,
+            seed: variant.seed,
+          },
+        },
+      }),
+      signal: controller.signal,
+    });
+  } catch {
+    throw new RoutingError('network', 'Could not reach the routing service.');
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    throw new RoutingError('auth', 'The routing API key was rejected.');
+  }
+  if (response.status === 429) {
+    throw new RoutingError('rate-limit', 'Too many route requests. Try again shortly.');
+  }
+  if (!response.ok) {
+    throw new RoutingError('network', 'The routing service returned an error.');
+  }
+
+  let payload: { features?: OrsFeature[] };
+  try {
+    payload = (await response.json()) as { features?: OrsFeature[] };
+  } catch {
+    throw new RoutingError('network', 'The routing service returned an unreadable response.');
+  }
+
+  const feature = payload.features?.[0];
+  const geometry = sanitizeGeometry(toCoordinates(feature?.geometry?.coordinates));
+  if (geometry.length < 4) {
+    throw new RoutingError('no-routes', 'The routing service returned no usable loop.');
+  }
+
+  // Prefer the provider's own summary; fall back to measuring the returned
+  // polyline so the displayed distance always describes the drawn geometry.
+  const summaryDistance = feature?.properties?.summary?.distance;
+  const distanceM =
+    typeof summaryDistance === 'number' && Number.isFinite(summaryDistance) && summaryDistance > 0
+      ? summaryDistance
+      : pathLengthMeters(geometry);
+
+  const rawAscent = feature?.properties?.ascent ?? feature?.properties?.summary?.ascent;
+  const ascentM = typeof rawAscent === 'number' && Number.isFinite(rawAscent) ? rawAscent : undefined;
+
+  return { geometry, distanceM, ascentM };
+}
+
+function describe(ascentMeters?: number): string[] {
+  const characteristics = ['Loop'];
+  if (typeof ascentMeters === 'number' && ascentMeters >= 10) {
+    characteristics.push(`${Math.round(ascentMeters)} m climb`);
+  }
+  return characteristics;
+}
+
 /**
- * Pure, synchronous route generation. Used directly by the Route Selection
- * screen (deterministic, so it matches the result produced by `findRoutes`).
+ * Find round-trip running routes of approximately `targetKm` starting and
+ * ending at `origin`.
+ *
+ * Each variant is one request, issued in parallel. A partial failure still
+ * yields routes; only a total failure throws.
  */
-export function generateRoutes({ origin, targetKm }: RouteRequest): RouteCandidate[] {
-  const target = Number.isFinite(targetKm) && targetKm > 0 ? targetKm : FALLBACK_TARGET_KM;
-  const safeOrigin = isValidCoordinate(origin) ? origin : MOCK_ORIGIN;
-  const baseSeed = Math.round(target * 1000);
+export async function findRoutes({
+  origin,
+  targetKm,
+  paceMinPerKm = PACE_MIN_PER_KM,
+}: RouteRequest): Promise<RouteCandidate[]> {
+  if (!ORS_API_KEY) {
+    throw new RoutingError(
+      'missing-key',
+      'No routing API key is configured. Add EXPO_PUBLIC_ORS_API_KEY.',
+    );
+  }
+  if (!isValidCoordinate(origin)) {
+    throw new RoutingError('invalid-origin', 'Your location is not available yet.');
+  }
+  if (!Number.isFinite(targetKm) || targetKm <= 0) {
+    throw new RoutingError('no-routes', 'Choose a distance before finding routes.');
+  }
 
-  return ROUTE_VARIANTS.map((variant, index) => {
-    const rawKm = roundTo(target * variant.factor, 1);
-    const distanceKm = Number.isFinite(rawKm) && rawKm > 0 ? rawKm : target;
-    const geometry = sanitizeGeometry(generateLoop(safeOrigin, distanceKm, baseSeed + index * 97));
+  const settled = await Promise.allSettled(
+    CANDIDATE_VARIANTS.map((variant) => requestLoop(origin, targetKm, variant)),
+  );
 
-    return {
+  const routes: RouteCandidate[] = [];
+  for (const [index, result] of settled.entries()) {
+    if (result.status !== 'fulfilled') {
+      continue;
+    }
+    const { geometry, distanceM, ascentM } = result.value;
+    const distanceKm = roundTo(distanceM / 1000, 1);
+    routes.push({
       id: `route-${index + 1}`,
       distanceKm,
-      estimatedMinutes: Math.max(1, Math.round(distanceKm * PACE_MIN_PER_KM)),
+      estimatedMinutes: Math.max(1, Math.round(distanceKm * paceMinPerKm)),
       geometry,
-      characteristics: [...variant.characteristics],
-    };
-  }).filter((route) => route.geometry.length >= 4);
-}
-
-let lastResult: { targetKm: number; routes: RouteCandidate[] } | null = null;
-
-/**
- * Replaceable async seam. A real implementation would call a routing API here.
- */
-export async function findRoutes(request: RouteRequest): Promise<RouteCandidate[]> {
-  await new Promise((resolve) => setTimeout(resolve, MOCK_GENERATION_DELAY_MS));
-  const routes = generateRoutes(request);
-  lastResult = { targetKm: request.targetKm, routes };
-  return routes;
-}
-
-/** Returns the most recent result when it matches the requested distance. */
-export function getLastRoutes(targetKm: number): RouteCandidate[] | null {
-  if (!lastResult || Math.abs(lastResult.targetKm - targetKm) > 0.001) {
-    return null;
+      characteristics: describe(ascentM),
+      ascentMeters: ascentM,
+    });
   }
-  return lastResult.routes;
+
+  if (routes.length === 0) {
+    // Surface the most specific failure rather than a generic one, so an
+    // expired key or a rate limit is not reported as "no routes here".
+    const firstError = settled.find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    )?.reason;
+    if (firstError instanceof RoutingError) {
+      throw firstError;
+    }
+    throw new RoutingError('no-routes', 'No running loops were found near you.');
+  }
+
+  return routes;
 }

@@ -1,180 +1,189 @@
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Keyboard, Pressable, StyleSheet, View } from 'react-native';
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
+import { router } from 'expo-router';
+import { SymbolView } from 'expo-symbols';
+import { useCallback, useState } from 'react';
+import { KeyboardAvoidingView, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
 import { DEFAULT_DISTANCE_KM, DistanceControl } from '@/components/distance-control';
-import { GenerationStatus } from '@/components/generation-status';
-import { GlassSurface } from '@/components/glass-surface';
+import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
-import { MapSurface } from '@/components/map/map-surface';
-import { RouteOverlay } from '@/components/map/route-overlay';
 import { Text } from '@/components/text';
-import { impactLight, successFeedback } from '@/lib/haptics';
-import { MOCK_ORIGIN, findRoutes } from '@/services/routing';
-import { layout, motion, radii, spacing, useTheme } from '@/theme';
-
-const GENERATION_MESSAGES = ['Finding your way', 'Looking for a good loop', 'Route ready'];
-
-const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+import { errorFeedback, impactLight, selectionFeedback, successFeedback } from '@/lib/haptics';
+import { describeCoordinate } from '@/services/geocoding';
+import { useLocation } from '@/services/location-context';
+import { useRoutes } from '@/services/route-context';
+import type { Coordinate } from '@/services/routing';
+import { useSettings } from '@/services/settings-context';
+import { layout, spacing, useTheme } from '@/theme';
 
 /**
- * Home — the map, the current location and the distance choice. One decision:
- * how far to run. Controls float over the map on native glass.
+ * Home — the map, and one decision: how far.
+ *
+ * The controls are a fixed region of the screen, not a sheet floating over the
+ * map. A sheet's shape — rounded top corners, a shadow, a glass material —
+ * promises that it can be dismissed, and these controls never can. Splitting
+ * the screen instead means the map is never occluded by something pretending
+ * to be temporary, and the panel can simply be part of the layout.
  */
 export default function HomeScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const [distanceKm, setDistanceKm] = useState<number>(DEFAULT_DISTANCE_KM);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [statusIndex, setStatusIndex] = useState(0);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const {
+    status: locationStatus,
+    coordinate,
+    origin,
+    originLabel,
+    hasCustomOrigin,
+    setOrigin,
+    refresh,
+  } = useLocation();
+  const { status: routeStatus, errorMessage, find } = useRoutes();
+  const { settings, update } = useSettings();
+  // Derived rather than an effect: settings load asynchronously, so seeding
+  // state from them would mean a setState inside an effect. Until the runner
+  // picks a distance this session, the remembered one is shown.
+  const [chosenKm, setChosenKm] = useState<number | null>(null);
+  const distanceKm = chosenKm ?? settings.defaultDistanceKm ?? DEFAULT_DISTANCE_KM;
   const [recenterSignal, setRecenterSignal] = useState(0);
-  const generatingRef = useRef(false);
 
-  // Lift the floating controls above the keyboard while editing the distance.
-  const lift = useSharedValue(0);
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
-  useEffect(() => {
-    const show = Keyboard.addListener('keyboardWillShow', (event) => {
-      setKeyboardVisible(true);
-      const desired = event.endCoordinates.height + spacing.sm;
-      const current = insets.bottom + layout.tabBarClearance;
-      lift.value = withTiming(Math.max(0, desired - current), { duration: motion.mediumDuration });
-    });
-    const hide = Keyboard.addListener('keyboardWillHide', () => {
-      setKeyboardVisible(false);
-      lift.value = withTiming(0, { duration: motion.mediumDuration });
-    });
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, [insets.bottom, lift]);
+  const isFinding = routeStatus === 'finding';
+  const hasError = routeStatus === 'error';
+  // Only a missing device position blocks the flow — a chosen start place works
+  // even when the device cannot locate itself.
+  const locationBlocked = origin === null && locationStatus !== 'requesting';
 
-  const liftStyle = useAnimatedStyle(() => ({ transform: [{ translateY: -lift.value }] }));
-
-  useFocusEffect(
-    useCallback(() => {
-      setIsGenerating(false);
-    }, []),
+  // Dropping the pin sets the start immediately; the name is filled in after,
+  // so a slow or failed lookup never delays the interaction.
+  const handleOriginMoved = useCallback(
+    (nextOrigin: Coordinate) => {
+      selectionFeedback();
+      setOrigin({ label: 'Dropped pin', coordinate: nextOrigin });
+      void describeCoordinate(nextOrigin).then((name) => {
+        if (name) {
+          setOrigin({ label: name, coordinate: nextOrigin });
+        }
+      });
+    },
+    [setOrigin],
   );
 
-  useEffect(() => {
-    if (!isGenerating) {
-      return;
-    }
-    setStatusIndex(0);
-    const interval = setInterval(() => {
-      setStatusIndex((index) => Math.min(index + 1, GENERATION_MESSAGES.length - 2));
-    }, 300);
-    return () => clearInterval(interval);
-  }, [isGenerating]);
-
-  const handleDistanceChange = useCallback((value: number) => {
-    setErrorMessage(null);
-    setDistanceKm(value);
-  }, []);
-
   const handleFindRoutes = useCallback(async () => {
-    // Ref guard prevents a second run before state updates commit (rapid taps).
-    if (generatingRef.current) {
+    if (isFinding || !origin) {
       return;
     }
-    generatingRef.current = true;
     impactLight();
-    setErrorMessage(null);
-    setIsGenerating(true);
 
-    try {
-      await Promise.all([findRoutes({ origin: MOCK_ORIGIN, targetKm: distanceKm }), delay(1100)]);
-
-      setStatusIndex(GENERATION_MESSAGES.length - 1);
-      successFeedback();
-      await delay(220);
-
-      router.push({ pathname: '/routes', params: { distance: distanceKm.toFixed(1) } });
-    } catch {
-      // Fail gracefully: stay on Home with a plain message instead of crashing.
-      setIsGenerating(false);
-      setErrorMessage('Could not find routes. Try another distance.');
-    } finally {
-      generatingRef.current = false;
+    const found = await find(origin, distanceKm);
+    if (!found) {
+      // The visible message carries the failure; the haptic reinforces it.
+      errorFeedback();
+      return;
     }
-  }, [distanceKm]);
+    successFeedback();
+    // Remember the distance so the next run opens where this one left off.
+    update({ defaultDistanceKm: distanceKm });
+    router.push('/routes');
+  }, [origin, distanceKm, find, isFinding, update]);
 
   return (
-    <View style={styles.root}>
-      <MapSurface style={StyleSheet.absoluteFill}>
-        <RouteOverlay
-          origin={MOCK_ORIGIN}
+    // The panel is in normal flow, so the standard iOS keyboard behaviour works
+    // — the map gives up height and the controls ride up with the keyboard.
+    <KeyboardAvoidingView
+      style={[styles.root, { backgroundColor: theme.background }]}
+      behavior="padding">
+      <View style={styles.mapRegion}>
+        <MapCanvas
+          origin={origin}
           routes={[]}
-          searching={isGenerating}
+          cameraMode="center"
+          searching={isFinding}
           recenterSignal={recenterSignal}
+          onOriginMoved={handleOriginMoved}
         />
-      </MapSurface>
 
-      {keyboardVisible ? (
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={() => Keyboard.dismiss()}
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-        />
-      ) : null}
-
-      <View
-        style={[styles.topRow, { top: insets.top + spacing.xs, paddingHorizontal: layout.floatingInset }]}
-        pointerEvents="box-none">
-        <GlassSurface radius={radii.pill} style={styles.locationPill}>
-          <View style={[styles.locationDot, { backgroundColor: theme.accent }]} />
-          <Text variant="caption" color="textSecondary" style={styles.locationLabel}>
-            Current location
-          </Text>
-        </GlassSurface>
-        <MapControl
-          symbol="location"
-          accessibilityLabel="Recenter on current location"
-          onPress={() => setRecenterSignal((value) => value + 1)}
-        />
+        <View
+          style={[
+            styles.mapControls,
+            { top: insets.top + spacing.xs, paddingHorizontal: layout.screenMargin },
+          ]}
+          pointerEvents="box-none">
+          <MapControl
+            symbol="clock.arrow.circlepath"
+            accessibilityLabel="Your runs"
+            onPress={() => router.push('/history')}
+          />
+          {coordinate ? (
+            <MapControl
+              symbol="location"
+              accessibilityLabel="Recenter on current location"
+              onPress={() => setRecenterSignal((value) => value + 1)}
+            />
+          ) : null}
+        </View>
       </View>
 
-      <Animated.View
+      <View
         style={[
-          styles.controls,
+          styles.panel,
           {
-            bottom: insets.bottom + layout.tabBarClearance,
-            paddingHorizontal: layout.floatingInset,
+            backgroundColor: theme.background,
+            borderTopColor: theme.borderSubtle,
+            paddingBottom: insets.bottom + spacing.lg,
           },
-          liftStyle,
-        ]}
-        pointerEvents="box-none">
-        {isGenerating || errorMessage ? (
-          <View style={styles.statusWrap} pointerEvents="none">
-            <GenerationStatus message={errorMessage ?? GENERATION_MESSAGES[statusIndex]} />
-          </View>
+        ]}>
+        {locationBlocked ? (
+          <Pressable
+            onPress={locationStatus === 'denied' ? undefined : refresh}
+            accessibilityRole={locationStatus === 'denied' ? 'text' : 'button'}>
+            <Text variant="label" color="textSecondary">
+              {locationStatus === 'denied'
+                ? 'Location is off. ROAM needs it to find routes near you — turn it on in Settings.'
+                : 'Location is unavailable. Tap to try again.'}
+            </Text>
+          </Pressable>
         ) : null}
 
-        <DistanceControl
-          valueKm={distanceKm}
-          onChange={handleDistanceChange}
-          disabled={isGenerating}
-        />
+        {hasError && errorMessage ? (
+          <Text variant="label" color="textSecondary" accessibilityLiveRegion="polite">
+            {errorMessage}
+          </Text>
+        ) : null}
+
+        {/* Where the run starts, and the way to change it. Deliberately not
+            accented: the accent is reserved for the value and the action, so
+            it keeps meaning something. */}
+        <Pressable
+          onPress={() => router.push('/location-search')}
+          accessibilityRole="button"
+          accessibilityLabel={`Starting from ${originLabel}. Change starting point.`}
+          style={({ pressed }) => [styles.originRow, pressed && styles.pressed]}>
+          <SymbolView
+            name={hasCustomOrigin ? 'mappin.circle.fill' : 'location.fill'}
+            size={layout.iconSizeSmall}
+            tintColor={theme.textSecondary}
+          />
+          <Text variant="label" color="textTertiary" numberOfLines={1} style={styles.originLabel}>
+            {originLabel}
+          </Text>
+          <SymbolView
+            name="chevron.right"
+            size={layout.iconSizeSmall}
+            tintColor={theme.textSecondary}
+          />
+        </Pressable>
+
+        <DistanceControl valueKm={distanceKm} onChange={setChosenKm} disabled={isFinding} />
 
         <Button
-          label={isGenerating ? 'Finding your way' : 'Find routes'}
+          label={isFinding ? 'Finding your way' : hasError ? 'Try again' : 'Find routes'}
           variant="accent"
           onPress={handleFindRoutes}
-          disabled={isGenerating}
+          disabled={isFinding || !origin}
+          loading={isFinding}
         />
-      </Animated.View>
-    </View>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -182,7 +191,11 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  topRow: {
+  mapRegion: {
+    flex: 1,
+    overflow: 'hidden',
+  },
+  mapControls: {
     position: 'absolute',
     left: 0,
     right: 0,
@@ -190,29 +203,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  locationPill: {
+  panel: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: layout.screenMargin,
+    paddingTop: spacing.lg,
+    gap: spacing.md,
+  },
+  originRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
+    minHeight: layout.minTouchTarget,
+    marginBottom: -spacing.xs,
   },
-  locationDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+  pressed: {
+    opacity: 0.6,
   },
-  locationLabel: {
-    fontWeight: '600',
-  },
-  controls: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    gap: spacing.sm,
-  },
-  statusWrap: {
-    alignItems: 'center',
-    marginBottom: spacing.xxs,
+  originLabel: {
+    flex: 1,
   },
 });
