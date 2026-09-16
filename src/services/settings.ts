@@ -19,12 +19,19 @@ export type Settings = {
   typicalPaceMinPerKm: number;
   /** Distance Home opens with. */
   defaultDistanceKm: number;
+  /**
+   * Whether the one-time introduction has been seen. Until it has, ROAM does
+   * not ask for location, so the system dialog is never the first thing a new
+   * runner meets (#19).
+   */
+  hasCompletedOnboarding: boolean;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
   unit: 'km',
   typicalPaceMinPerKm: 6.6,
   defaultDistanceKm: 5,
+  hasCompletedOnboarding: false,
 };
 
 export const MIN_PACE_MIN_PER_KM = 3;
@@ -56,6 +63,7 @@ function parseSettings(value: unknown): Settings {
     defaultDistanceKm: Number.isFinite(raw.defaultDistanceKm)
       ? clamp(raw.defaultDistanceKm as number, 1, 42)
       : DEFAULT_SETTINGS.defaultDistanceKm,
+    hasCompletedOnboarding: raw.hasCompletedOnboarding === true,
   };
 }
 

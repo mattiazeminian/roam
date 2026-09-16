@@ -83,11 +83,13 @@ function renderRoutes() {
 }
 
 async function flush() {
-  // Macrotasks, not microtasks: the provider chains several awaits before it
-  // commits state, and React only applies the result inside `act`.
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  act(() => {});
+  // A macrotask, not a microtask: the provider chains several awaits before it
+  // commits state. Kept inside `act` so those updates are not reported as
+  // happening outside it.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 }
 
 /** Populates the provider with the two mocked candidates. */

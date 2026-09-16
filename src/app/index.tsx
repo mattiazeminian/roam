@@ -43,13 +43,22 @@ export default function HomeScreen() {
   } = useLocation();
   const { status: routeStatus, errorMessage, find } = useRoutes();
   const { recoverable, resumeRecovered, discardRecovered } = useRun();
-  const { settings, update } = useSettings();
+  const { settings, loaded: settingsLoaded, update } = useSettings();
   // Derived rather than an effect: settings load asynchronously, so seeding
   // state from them would mean a setState inside an effect. Until the runner
   // picks a distance this session, the remembered one is shown.
   const [chosenKm, setChosenKm] = useState<number | null>(null);
   const distanceKm = chosenKm ?? settings.defaultDistanceKm ?? DEFAULT_DISTANCE_KM;
   const [recenterSignal, setRecenterSignal] = useState(0);
+
+  // A new install meets the introduction first — before Home, and before any
+  // location permission dialog (#19). `replace` so back cannot return here.
+  const needsOnboarding = settingsLoaded && !settings.hasCompletedOnboarding;
+  useEffect(() => {
+    if (needsOnboarding) {
+      router.replace('/onboarding');
+    }
+  }, [needsOnboarding]);
 
   const isFinding = routeStatus === 'finding';
   const hasError = routeStatus === 'error';

@@ -35,6 +35,12 @@ export default function RootLayout() {
                 contentStyle: { backgroundColor: theme.background },
               }}>
               <Stack.Screen name="index" />
+              {/* The introduction replaces Home, so there is no back gesture
+                  into a half-started app (#19). */}
+              <Stack.Screen
+                name="onboarding"
+                options={{ animation: 'fade', animationDuration: motion.mediumDuration, gestureEnabled: false }}
+              />
               <Stack.Screen
                 name="routes"
                 options={{ animation: 'fade', animationDuration: motion.mediumDuration }}

@@ -11,6 +11,7 @@ import {
 
 import * as location from './location';
 import type { Coordinate } from './routing';
+import { useSettings } from './settings-context';
 
 export type LocationStatus = 'requesting' | 'available' | 'denied' | 'unavailable';
 
@@ -54,6 +55,8 @@ const LocationContext = createContext<LocationContextValue | null>(null);
  * a first fix, then keeps it updated. Never falls back to a fake location.
  */
 export function LocationProvider({ children }: { children: ReactNode }) {
+  const { settings, loaded } = useSettings();
+  const onboardingComplete = loaded && settings.hasCompletedOnboarding;
   const [status, setStatus] = useState<LocationStatus>('requesting');
   const [coordinate, setCoordinate] = useState<Coordinate | null>(null);
   const [override, setOverride] = useState<OriginOverride | null>(null);
@@ -86,6 +89,14 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Held back until the introduction has been seen, so the system location
+    // dialog never arrives before ROAM has explained why it wants location
+    // (#19). Once onboarding is done this is the same start-on-mount it always
+    // was — and the requirement it replaced (asking on launch) is exactly what
+    // made the dialog the first thing a new runner saw.
+    if (!onboardingComplete) {
+      return;
+    }
     // Kicks off the permission check and first fix against the external
     // location API on mount — exactly the "subscribe to an external system"
     // case the rule describes as correct. The lint rule flags it because
@@ -98,7 +109,7 @@ export function LocationProvider({ children }: { children: ReactNode }) {
       subscription.current?.remove();
       subscription.current = null;
     };
-  }, [start]);
+  }, [start, onboardingComplete]);
 
   const value = useMemo<LocationContextValue>(
     () => ({
