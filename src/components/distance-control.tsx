@@ -1,19 +1,21 @@
+import { SymbolView } from 'expo-symbols';
 import { useEffect, useRef, useState } from 'react';
 import { Keyboard, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import Animated, {
   Easing,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
 
-import { GlassSurface } from '@/components/glass-surface';
 import { Text } from '@/components/text';
 import { usePressScale } from '@/hooks/use-press-scale';
 import { impactLight, selectionFeedback } from '@/lib/haptics';
-import { layout, motion, radii, spacing, useTheme } from '@/theme';
+import { distancePresets, displayToKm, kmToDisplay } from '@/services/settings';
+import { useFormatters } from '@/services/settings-context';
+import { layout, motion, radii, spacing, typography, useTheme } from '@/theme';
 
-export const DISTANCE_PRESETS = [3, 5, 7, 10] as const;
 export const MIN_DISTANCE_KM = 1;
 export const MAX_DISTANCE_KM = 42;
 export const DISTANCE_STEP_KM = 1;
@@ -41,11 +43,24 @@ function sanitizeDraft(text: string) {
 }
 
 /**
- * Distance selection: a hero value that can be adjusted with +/-, chosen from
- * presets, or edited directly with a numeric keyboard. No separate screen.
+ * Distance selection.
+ *
+ * The value is the hero and sits on the sheet's left axis; the steppers are a
+ * compact pair on the opposite side. They used to flank the number as two large
+ * circles, which made three controls compete for one decision and read like a
+ * web spinner rather than an iOS control.
+ *
+ * Three ways in, no instructional text: tap the number to type it, step by one,
+ * or take a preset.
  */
 export function DistanceControl({ valueKm, onChange, disabled = false }: DistanceControlProps) {
   const theme = useTheme();
+  const fmt = useFormatters();
+  // The stored value is always kilometers; only what is shown changes with the
+  // unit, so switching units can never alter the route that gets requested.
+  const shown = kmToDisplay(valueKm, fmt.unit);
+  const presets = distancePresets(fmt.unit);
+  const reduceMotion = useReducedMotion();
   const inputRef = useRef<TextInput>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState('');
@@ -56,19 +71,23 @@ export function DistanceControl({ valueKm, onChange, disabled = false }: Distanc
   useEffect(() => {
     if (previousValue.current !== valueKm) {
       previousValue.current = valueKm;
-      valueProgress.value = 0;
-      valueProgress.value = withTiming(1, {
-        duration: motion.fastDuration,
-        easing: Easing.out(Easing.quad),
-      });
+      if (reduceMotion) {
+        valueProgress.value = 1;
+      } else {
+        valueProgress.value = 0;
+        valueProgress.value = withTiming(1, {
+          duration: motion.fastDuration,
+          easing: Easing.out(Easing.quad),
+        });
+      }
     }
-  }, [valueKm, valueProgress]);
+  }, [valueKm, valueProgress, reduceMotion]);
 
   const valueStyle = useAnimatedStyle(() => {
     const progress = valueProgress.value;
     return {
-      opacity: progress,
-      transform: [{ translateY: (1 - progress) * 10 }, { scale: 0.98 + progress * 0.02 }],
+      opacity: 0.55 + progress * 0.45,
+      transform: [{ translateY: (1 - progress) * 6 }],
     };
   });
 
@@ -76,7 +95,7 @@ export function DistanceControl({ valueKm, onChange, disabled = false }: Distanc
     if (disabled) {
       return;
     }
-    setDraft(valueKm.toFixed(1));
+    setDraft(shown.toFixed(1));
     setIsEditing(true);
   };
 
@@ -84,8 +103,12 @@ export function DistanceControl({ valueKm, onChange, disabled = false }: Distanc
     const cleaned = sanitizeDraft(text);
     setDraft(cleaned);
     const parsed = Number.parseFloat(cleaned);
-    if (Number.isFinite(parsed) && parsed >= MIN_DISTANCE_KM && parsed <= MAX_DISTANCE_KM) {
-      onChange(Math.round(parsed * 10) / 10);
+    if (!Number.isFinite(parsed)) {
+      return;
+    }
+    const km = displayToKm(parsed, fmt.unit);
+    if (km >= MIN_DISTANCE_KM && km <= MAX_DISTANCE_KM) {
+      onChange(Math.round(km * 10) / 10);
     }
   };
 
@@ -95,7 +118,7 @@ export function DistanceControl({ valueKm, onChange, disabled = false }: Distanc
     if (!Number.isFinite(parsed)) {
       return;
     }
-    onChange(clampDistance(parsed));
+    onChange(clampDistance(displayToKm(parsed, fmt.unit)));
   };
 
   const exitEdit = () => {
@@ -118,136 +141,141 @@ export function DistanceControl({ valueKm, onChange, disabled = false }: Distanc
   const selectPreset = (preset: number) => {
     exitEdit();
     selectionFeedback();
-    onChange(preset);
+    onChange(clampDistance(displayToKm(preset, fmt.unit)));
   };
 
   return (
-    <>
-      <GlassSurface radius={radii.large} style={styles.surface}>
-        <View style={styles.labelRow}>
-          <Text variant="caption" color="textSecondary">
-            DISTANCE
-          </Text>
-          {isEditing ? (
-            <Pressable
-              onPress={() => {
-                finishEdit();
-                Keyboard.dismiss();
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Done editing distance"
-              hitSlop={10}>
-              <Text variant="label" color="text" style={styles.doneLabel}>
-                Done
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
+    <View style={styles.root}>
+      <View style={styles.headerRow}>
+        <Text variant="micro" color="textSecondary">
+          Distance
+        </Text>
 
-        <View style={styles.heroRow}>
-          <StepButton
-            label="−"
-            accessibilityLabel="Decrease distance"
-            onPress={decrease}
-            disabled={disabled || valueKm <= MIN_DISTANCE_KM}
-          />
-
-          <View style={styles.value}>
-            {isEditing ? (
-              <View style={styles.valueInner}>
-                <TextInput
-                  ref={inputRef}
-                  value={draft}
-                  onChangeText={handleDraftChange}
-                  onBlur={finishEdit}
-                  onSubmitEditing={finishEdit}
-                  keyboardType="decimal-pad"
-                  returnKeyType="done"
-                  autoFocus
-                  selectTextOnFocus
-                  maxLength={4}
-                  accessibilityLabel="Distance in kilometers"
-                  style={[styles.input, { color: theme.text }]}
-                />
-                <Text variant="title" color="textSecondary" style={styles.unit}>
-                  km
-                </Text>
-              </View>
-            ) : (
-              <Pressable
-                onPress={beginEdit}
-                disabled={disabled}
-                accessibilityRole="adjustable"
-                accessibilityLabel="Running distance"
-                accessibilityHint="Double tap to type an exact distance"
-                accessibilityValue={{
-                  min: MIN_DISTANCE_KM,
-                  max: MAX_DISTANCE_KM,
-                  now: valueKm,
-                  text: `${valueKm.toFixed(1)} kilometers`,
-                }}
-                accessibilityActions={[
-                  { name: 'increment', label: 'Increase distance' },
-                  { name: 'decrement', label: 'Decrease distance' },
-                ]}
-                onAccessibilityAction={(event) => {
-                  if (event.nativeEvent.actionName === 'increment') {
-                    increase();
-                  }
-                  if (event.nativeEvent.actionName === 'decrement') {
-                    decrease();
-                  }
-                }}>
-                <Animated.View style={[styles.valueInner, valueStyle]}>
-                  <Text variant="hero" tabular>
-                    {valueKm.toFixed(1)}
-                  </Text>
-                  <Text variant="title" color="textSecondary" style={styles.unit}>
-                    km
-                  </Text>
-                </Animated.View>
-              </Pressable>
-            )}
-          </View>
-
-          <StepButton
-            label="+"
-            accessibilityLabel="Increase distance"
-            onPress={increase}
-            disabled={disabled || valueKm >= MAX_DISTANCE_KM}
-          />
-        </View>
-
-        <View style={styles.presets}>
-          {DISTANCE_PRESETS.map((preset) => (
-            <PresetButton
-              key={preset}
-              value={preset}
-              selected={valueKm === preset}
-              onPress={() => selectPreset(preset)}
-              disabled={disabled}
+        {isEditing ? (
+          <Pressable
+            onPress={() => {
+              finishEdit();
+              Keyboard.dismiss();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Done editing distance"
+            hitSlop={12}>
+            <Text variant="heading" color="accent">
+              Done
+            </Text>
+          </Pressable>
+        ) : (
+          <View style={styles.steppers}>
+            <StepButton
+              symbol="minus"
+              accessibilityLabel="Decrease distance"
+              onPress={decrease}
+              disabled={disabled || valueKm <= MIN_DISTANCE_KM}
             />
-          ))}
-        </View>
-      </GlassSurface>
+            <StepButton
+              symbol="plus"
+              accessibilityLabel="Increase distance"
+              onPress={increase}
+              disabled={disabled || valueKm >= MAX_DISTANCE_KM}
+            />
+          </View>
+        )}
+      </View>
 
-    </>
+      {isEditing ? (
+        <View style={styles.valueRow}>
+          <TextInput
+            ref={inputRef}
+            value={draft}
+            onChangeText={handleDraftChange}
+            onBlur={finishEdit}
+            onSubmitEditing={finishEdit}
+            keyboardType="decimal-pad"
+            returnKeyType="done"
+            autoFocus
+            selectTextOnFocus
+            maxLength={4}
+            maxFontSizeMultiplier={1}
+            accessibilityLabel={`Distance in ${fmt.unitSpoken}`}
+            style={[styles.input, { color: theme.accent }]}
+          />
+          <Text variant="title" color="textSecondary" style={styles.unit}>
+            {fmt.unitLabel}
+          </Text>
+        </View>
+      ) : (
+        <Pressable
+          onPress={beginEdit}
+          disabled={disabled}
+          accessibilityRole="adjustable"
+          accessibilityLabel="Running distance"
+          accessibilityHint="Double tap to type an exact distance"
+          accessibilityValue={{
+            min: MIN_DISTANCE_KM,
+            max: MAX_DISTANCE_KM,
+            now: valueKm,
+            text: `${shown.toFixed(1)} ${fmt.unitSpoken}`,
+          }}
+          accessibilityActions={[
+            { name: 'increment', label: 'Increase distance' },
+            { name: 'decrement', label: 'Decrease distance' },
+          ]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'increment') {
+              increase();
+            }
+            if (event.nativeEvent.actionName === 'decrement') {
+              decrease();
+            }
+          }}>
+          <Animated.View style={[styles.valueRow, valueStyle]}>
+            <Text variant="metric" color="accent" tabular>
+              {shown.toFixed(1)}
+            </Text>
+            <Text variant="title" color="textSecondary" style={styles.unit}>
+              {fmt.unitLabel}
+            </Text>
+          </Animated.View>
+        </Pressable>
+      )}
+
+      <View style={styles.presets}>
+        {presets.map((preset) => (
+          <PresetButton
+            key={preset}
+            value={preset}
+            unitLabel={fmt.unitLabel}
+            selected={Math.abs(shown - preset) < 0.05}
+            onPress={() => selectPreset(preset)}
+            disabled={disabled}
+          />
+        ))}
+      </View>
+    </View>
   );
 }
 
+/**
+ * A stepper.
+ *
+ * The glyph is an SF Symbol rather than a "+"/"−" text character: text is laid
+ * out on a baseline inside a line box, so centering the box does not centre the
+ * mark, and the two glyphs have different optical centres from each other. A
+ * symbol is centred on its own frame and matches the rest of the app's icons.
+ */
 function StepButton({
-  label,
+  symbol,
   accessibilityLabel,
   onPress,
   disabled,
 }: {
-  label: string;
+  symbol: 'plus' | 'minus';
   accessibilityLabel: string;
   onPress: () => void;
   disabled: boolean;
 }) {
   const theme = useTheme();
-  const press = usePressScale(0.96);
+  const press = usePressScale(0.94);
 
   return (
     <Animated.View style={press.animatedStyle}>
@@ -259,16 +287,21 @@ function StepButton({
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
         accessibilityState={{ disabled }}
+        // The visible circle is 40pt; hitSlop brings the target to 44pt.
+        hitSlop={4}
         style={({ pressed }) => [
           styles.step,
           {
             backgroundColor: pressed && !disabled ? theme.fillPressed : theme.fill,
-            opacity: disabled ? 0.5 : 1,
+            opacity: disabled ? 0.35 : 1,
           },
         ]}>
-        <Text variant="title" color={disabled ? 'textDisabled' : 'text'}>
-          {label}
-        </Text>
+        <SymbolView
+          name={symbol}
+          size={layout.iconSize}
+          weight="semibold"
+          tintColor={disabled ? theme.textDisabled : theme.text}
+        />
       </Pressable>
     </Animated.View>
   );
@@ -276,11 +309,13 @@ function StepButton({
 
 function PresetButton({
   value,
+  unitLabel,
   selected,
   onPress,
   disabled,
 }: {
   value: number;
+  unitLabel: string;
   selected: boolean;
   onPress: () => void;
   disabled: boolean;
@@ -296,24 +331,23 @@ function PresetButton({
         onPressOut={press.onPressOut}
         disabled={disabled}
         accessibilityRole="button"
-        accessibilityLabel={`${value} kilometers`}
+        accessibilityLabel={`${value} ${unitLabel}`}
         accessibilityState={{ selected, disabled }}
         style={({ pressed }) => [
           styles.preset,
           {
             backgroundColor: selected
-              ? theme.selected
+              ? theme.accent
               : pressed && !disabled
                 ? theme.fillPressed
                 : theme.fill,
-            opacity: disabled ? 0.5 : 1,
+            opacity: disabled ? 0.35 : 1,
           },
         ]}>
-        <Text
-          variant="label"
-          color={selected ? 'accentForeground' : 'text'}
-          style={styles.presetLabel}>
-          {`${value} km`}
+        {/* Tertiary rather than secondary: on the translucent fill, secondary
+            grey lands at ~4.3:1 and misses AA. */}
+        <Text variant="label" color={selected ? 'accentForeground' : 'textTertiary'}>
+          {`${value} ${unitLabel}`}
         </Text>
       </Pressable>
     </Animated.View>
@@ -321,68 +355,52 @@ function PresetButton({
 }
 
 const styles = StyleSheet.create({
-  surface: {
-    padding: spacing.lg,
-    gap: spacing.md,
+  root: {
+    gap: spacing.sm,
   },
-  labelRow: {
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    minHeight: 18,
+    minHeight: 40,
   },
-  doneLabel: {
-    fontWeight: '600',
-  },
-  heroRow: {
+  steppers: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  value: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  valueInner: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'center',
-    gap: spacing.xxs,
-  },
-  input: {
-    fontSize: 56,
-    lineHeight: 60,
-    fontWeight: '700',
-    letterSpacing: -1.5,
-    textAlign: 'center',
-    padding: 0,
-    minWidth: 120,
-  },
-  unit: {
-    paddingBottom: spacing.xxs,
+    gap: spacing.xs,
   },
   step: {
-    width: 48,
-    height: 48,
+    width: 40,
+    height: 40,
     borderRadius: radii.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  valueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: spacing.xs,
+  },
+  input: {
+    ...typography.metric,
+    padding: 0,
+    minWidth: 150,
+  },
+  unit: {
+    paddingBottom: spacing.xs,
+  },
   presets: {
     flexDirection: 'row',
     gap: spacing.xs,
+    marginTop: spacing.xxs,
   },
   presetWrapper: {
     flex: 1,
   },
   preset: {
-    height: layout.controlHeight - 8,
+    height: layout.controlHeightCompact,
     borderRadius: radii.small,
+    borderCurve: 'continuous',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  presetLabel: {
-    fontWeight: '600',
   },
 });

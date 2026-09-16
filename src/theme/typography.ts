@@ -14,64 +14,89 @@ type TypeToken = Pick<
 >;
 
 /**
- * A deliberately small scale. Large sizes are tight and confident; labels and
- * captions are slightly tracked so they read as technical annotations.
+ * A deliberately small scale.
+ *
+ * ROAM is a product about numbers — distance, time, pace — so the scale is
+ * built around them: a display tier for the value the runner reads at a
+ * glance, and a quiet `micro` label that names it. Everything else stays out
+ * of the way. Large sizes carry negative tracking so they read as one shape
+ * rather than as loose digits.
  */
 export const typography = {
+  /** The single number a screen is about: distance while running. */
+  metric: {
+    fontSize: 64,
+    lineHeight: 66,
+    fontWeight: '700',
+    letterSpacing: -2.5,
+  },
   hero: {
     fontSize: 56,
-    lineHeight: 60,
+    lineHeight: 58,
     fontWeight: '700',
-    letterSpacing: -1.5,
+    letterSpacing: -2,
   },
+  /** Secondary metrics sitting under a `metric`: time, pace. */
   display: {
-    fontSize: 48,
-    lineHeight: 52,
-    fontWeight: '600',
+    fontSize: 34,
+    lineHeight: 38,
+    fontWeight: '700',
     letterSpacing: -1,
   },
   large: {
-    fontSize: 32,
-    lineHeight: 38,
-    fontWeight: '600',
-    letterSpacing: -0.5,
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '700',
+    letterSpacing: -0.6,
   },
   title: {
-    fontSize: 24,
-    lineHeight: 30,
+    fontSize: 22,
+    lineHeight: 28,
     fontWeight: '600',
-    letterSpacing: -0.25,
+    letterSpacing: -0.4,
   },
   heading: {
-    fontSize: 18,
-    lineHeight: 24,
+    fontSize: 17,
+    lineHeight: 22,
     fontWeight: '600',
-    letterSpacing: 0,
+    letterSpacing: -0.2,
   },
   body: {
     fontSize: 16,
-    lineHeight: 24,
+    lineHeight: 22,
     fontWeight: '400',
-    letterSpacing: 0,
+    letterSpacing: -0.2,
   },
   label: {
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '500',
-    letterSpacing: 0.5,
+    letterSpacing: 0,
   },
   caption: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '500',
+    letterSpacing: 0,
+  },
+  /**
+   * The only uppercase in the product: the small label naming a value. Tracked
+   * out because uppercase at this size needs the air to stay readable.
+   */
+  micro: {
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: '500',
-    letterSpacing: 0.75,
+    fontWeight: '600',
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
   },
 } as const satisfies Record<string, TypeToken>;
 
 export type TypographyVariant = keyof typeof typography;
 
 /**
- * Tabular figures keep distance, time and pace columns aligned.
+ * Tabular figures keep distance, time and pace columns aligned, and stop a
+ * running clock from shifting width as the digits change.
  */
 export const tabularFigures: TextStyle = {
   fontVariant: ['tabular-nums'],

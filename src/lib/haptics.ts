@@ -32,3 +32,15 @@ export function impactMedium() {
 export function successFeedback() {
   run(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
 }
+
+export function warningFeedback() {
+  run(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning));
+}
+
+/**
+ * Paired with a visible message, never on its own — haptics must not be the
+ * only signal that something failed.
+ */
+export function errorFeedback() {
+  run(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error));
+}

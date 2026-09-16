@@ -12,14 +12,18 @@ export const borderWidths = {
 } as const;
 
 /**
- * Soft iOS geometry. Small controls and buttons use `small`, floating surfaces
- * use `medium`/`large`, and `pill` is reserved for genuinely round controls.
+ * Restrained iOS geometry. Buttons and inline controls use `small`, cards use
+ * `medium`, the bottom sheet uses `large` on its top corners only, and `pill`
+ * is reserved for genuinely round controls — chips and circular map buttons.
+ *
+ * Deliberately tighter than before: large radii on large surfaces read as
+ * bubbly rather than premium.
  */
 export const radii = {
   none: 0,
-  small: 16,
-  medium: 20,
-  large: 28,
+  small: 12,
+  medium: 16,
+  large: 20,
   pill: 999,
 } as const;
 

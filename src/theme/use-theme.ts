@@ -1,12 +1,9 @@
-import { useColorScheme } from '@/hooks/use-color-scheme';
-
-import { colors, type ColorSchemeName, type ThemeColors } from './colors';
+import { colors, type ThemeColors } from './colors';
 
 /**
- * Resolves the semantic color tokens for the current color scheme.
+ * ROAM renders dark in every appearance. See `colors.ts` for why the accent
+ * depends on it.
  */
 export function useTheme(): ThemeColors {
-  const scheme = useColorScheme();
-  const name: ColorSchemeName = scheme === 'dark' ? 'dark' : 'light';
-  return colors[name];
+  return colors;
 }
