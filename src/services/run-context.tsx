@@ -1,0 +1,274 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+
+import * as location from './location';
+import type { Coordinate, RouteCandidate } from './routing';
+import {
+  applySample,
+  createTrackerState,
+  paceMinPerKm,
+  preparePlannedRoute,
+  type PlannedRoute,
+  type RunStatus,
+  type SavedRun,
+  type TrackerState,
+} from './run-session';
+import { saveRun } from './run-storage';
+
+export type RunSessionStatus = 'idle' | RunStatus;
+
+/**
+ * The snapshot the UI renders. Published on a timer rather than per GPS fix, so
+ * the number of re-renders is bounded by the clock and not by how chatty the
+ * location provider happens to be.
+ */
+export type RunSnapshot = {
+  distanceMeters: number;
+  activeSeconds: number;
+  paceMinPerKm: number | null;
+  /** The runner's recorded track. */
+  track: Coordinate[];
+  /** Distance covered along the planned route, in meters. */
+  progressMeters: number;
+  /** True while fixes are too imprecise to trust. */
+  degradedSignal: boolean;
+  /** Latest accepted position, for the map marker. */
+  position: Coordinate | null;
+};
+
+export type RunContextValue = RunSnapshot & {
+  status: RunSessionStatus;
+  route: RouteCandidate | null;
+  targetKm: number;
+  /** Set once a run is finished, until it is saved or discarded. */
+  completedRun: SavedRun | null;
+  start: (route: RouteCandidate | null, targetKm: number) => void;
+  pause: () => void;
+  resume: () => void;
+  finish: () => void;
+  saveCompleted: () => Promise<void>;
+  discardCompleted: () => void;
+};
+
+const RunContext = createContext<RunContextValue | null>(null);
+
+/** How often the snapshot is published. Matches the 1-second clock. */
+const PUBLISH_INTERVAL_MS = 1000;
+
+const EMPTY_SNAPSHOT: RunSnapshot = {
+  distanceMeters: 0,
+  activeSeconds: 0,
+  paceMinPerKm: null,
+  track: [],
+  progressMeters: 0,
+  degradedSignal: false,
+  position: null,
+};
+
+export function RunProvider({ children }: { children: ReactNode }) {
+  const [status, setStatus] = useState<RunSessionStatus>('idle');
+  const [route, setRoute] = useState<RouteCandidate | null>(null);
+  const [targetKm, setTargetKm] = useState(0);
+  const [snapshot, setSnapshot] = useState<RunSnapshot>(EMPTY_SNAPSHOT);
+  const [completedRun, setCompletedRun] = useState<SavedRun | null>(null);
+
+  // Everything below is mutated by GPS callbacks and must not trigger renders.
+  const tracker = useRef<TrackerState>(createTrackerState());
+  const planned = useRef<PlannedRoute | null>(null);
+  const subscription = useRef<location.LocationSubscription | null>(null);
+  const startedAt = useRef(0);
+  const pausedTotalMs = useRef(0);
+  const pausedAt = useRef<number | null>(null);
+  /** Set when the track changed since the last publish, to skip idle updates. */
+  const dirty = useRef(false);
+
+  const stopWatching = useCallback(() => {
+    subscription.current?.remove();
+    subscription.current = null;
+  }, []);
+
+  const startWatching = useCallback(() => {
+    stopWatching();
+    subscription.current = location.watchRunPosition((sample) => {
+      const next = applySample(tracker.current, sample, planned.current);
+      if (next !== tracker.current) {
+        tracker.current = next;
+        dirty.current = true;
+      }
+    });
+  }, [stopWatching]);
+
+  const activeSecondsNow = useCallback(() => {
+    if (startedAt.current === 0) {
+      return 0;
+    }
+    const pausedSoFar =
+      pausedTotalMs.current + (pausedAt.current === null ? 0 : Date.now() - pausedAt.current);
+    return Math.max(0, (Date.now() - startedAt.current - pausedSoFar) / 1000);
+  }, []);
+
+  const publish = useCallback(() => {
+    const state = tracker.current;
+    const seconds = activeSecondsNow();
+    setSnapshot({
+      distanceMeters: state.distanceMeters,
+      activeSeconds: seconds,
+      paceMinPerKm: paceMinPerKm(state.distanceMeters, seconds),
+      track: state.coordinates,
+      progressMeters: state.progressMeters,
+      degradedSignal: state.degradedSignal,
+      position: state.lastSample?.coordinate ?? null,
+    });
+    dirty.current = false;
+  }, [activeSecondsNow]);
+
+  // One timer drives the clock and flushes any accumulated GPS movement.
+  useEffect(() => {
+    if (status !== 'active') {
+      return;
+    }
+    const interval = setInterval(publish, PUBLISH_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [status, publish]);
+
+  useEffect(() => stopWatching, [stopWatching]);
+
+  const start = useCallback(
+    (nextRoute: RouteCandidate | null, nextTargetKm: number) => {
+      tracker.current = createTrackerState();
+      planned.current = preparePlannedRoute(nextRoute);
+      startedAt.current = Date.now();
+      pausedTotalMs.current = 0;
+      pausedAt.current = null;
+      dirty.current = false;
+
+      setRoute(nextRoute);
+      setTargetKm(nextTargetKm);
+      setCompletedRun(null);
+      setSnapshot(EMPTY_SNAPSHOT);
+      setStatus('active');
+      startWatching();
+    },
+    [startWatching],
+  );
+
+  const pause = useCallback(() => {
+    if (status !== 'active') {
+      return;
+    }
+    pausedAt.current = Date.now();
+    // Suspending the subscription is what actually stops battery drain;
+    // simply ignoring callbacks would keep the GPS radio busy.
+    stopWatching();
+    publish();
+    setStatus('paused');
+  }, [publish, status, stopWatching]);
+
+  const resume = useCallback(() => {
+    if (status !== 'paused') {
+      return;
+    }
+    if (pausedAt.current !== null) {
+      pausedTotalMs.current += Date.now() - pausedAt.current;
+      pausedAt.current = null;
+    }
+    // Drop the last fix so the jump across the paused gap is not counted as
+    // distance; the next fix re-seeds the track instead.
+    tracker.current = { ...tracker.current, lastSample: null };
+    startWatching();
+    setStatus('active');
+  }, [startWatching, status]);
+
+  const finish = useCallback(() => {
+    stopWatching();
+    const state = tracker.current;
+    const seconds = activeSecondsNow();
+    const endedAt = Date.now();
+
+    publish();
+    setStatus('finished');
+    setCompletedRun({
+      id: `run-${startedAt.current}`,
+      startedAt: startedAt.current,
+      endedAt,
+      route,
+      targetDistanceKm: targetKm,
+      distanceKm: state.distanceMeters / 1000,
+      durationSeconds: seconds,
+      averagePaceMinPerKm: paceMinPerKm(state.distanceMeters, seconds),
+      coordinates: state.coordinates,
+      status: 'finished',
+    });
+  }, [activeSecondsNow, publish, route, stopWatching, targetKm]);
+
+  const reset = useCallback(() => {
+    tracker.current = createTrackerState();
+    planned.current = null;
+    startedAt.current = 0;
+    pausedTotalMs.current = 0;
+    pausedAt.current = null;
+    setSnapshot(EMPTY_SNAPSHOT);
+    setRoute(null);
+    setTargetKm(0);
+    setCompletedRun(null);
+    setStatus('idle');
+  }, []);
+
+  const saveCompleted = useCallback(async () => {
+    if (completedRun) {
+      await saveRun(completedRun);
+    }
+    reset();
+  }, [completedRun, reset]);
+
+  const discardCompleted = useCallback(() => {
+    reset();
+  }, [reset]);
+
+  const value = useMemo<RunContextValue>(
+    () => ({
+      ...snapshot,
+      status,
+      route,
+      targetKm,
+      completedRun,
+      start,
+      pause,
+      resume,
+      finish,
+      saveCompleted,
+      discardCompleted,
+    }),
+    [
+      snapshot,
+      status,
+      route,
+      targetKm,
+      completedRun,
+      start,
+      pause,
+      resume,
+      finish,
+      saveCompleted,
+      discardCompleted,
+    ],
+  );
+
+  return <RunContext.Provider value={value}>{children}</RunContext.Provider>;
+}
+
+export function useRun(): RunContextValue {
+  const value = useContext(RunContext);
+  if (!value) {
+    throw new Error('useRun must be used inside <RunProvider>');
+  }
+  return value;
+}

@@ -1,0 +1,134 @@
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { MapCanvas } from '@/components/map/map-canvas';
+import { MapControl } from '@/components/map-control';
+import { Metric, MetricRow } from '@/components/metric';
+import { Text } from '@/components/text';
+import { formatDuration, formatRunDate, type SavedRun } from '@/services/run-session';
+import { useFormatters } from '@/services/settings-context';
+import { getRun } from '@/services/run-storage';
+import { layout, radii, spacing, useTheme } from '@/theme';
+
+/** Run detail — the recorded route, and the numbers that describe it. */
+export default function RunDetailScreen() {
+  const insets = useSafeAreaInsets();
+  const theme = useTheme();
+  const { id } = useLocalSearchParams<{ id?: string }>();
+  const fmt = useFormatters();
+  const [run, setRun] = useState<SavedRun | null>(null);
+  // With no id there is nothing to wait for, so this starts resolved rather
+  // than being flipped by a synchronous setState inside the effect.
+  const [loaded, setLoaded] = useState(!id);
+
+  useEffect(() => {
+    let active = true;
+    if (!id) {
+      return;
+    }
+    void getRun(id)
+      .then((stored) => {
+        if (active) {
+          setRun(stored);
+          setLoaded(true);
+        }
+      })
+      .catch(() => active && setLoaded(true));
+    return () => {
+      active = false;
+    };
+  }, [id]);
+
+  const hasTrack = (run?.coordinates.length ?? 0) >= 2;
+
+  return (
+    <View style={[styles.root, { backgroundColor: theme.background }]}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: insets.top + spacing.xs, paddingBottom: insets.bottom + spacing.xxl },
+        ]}>
+        <MapControl symbol="chevron.left" accessibilityLabel="Back" onPress={() => router.back()} />
+
+        {!loaded ? null : !run ? (
+          <Text variant="body" color="textSecondary">
+            This run could not be loaded.
+          </Text>
+        ) : (
+          <>
+            <View style={styles.headline}>
+              <Text variant="micro" color="textSecondary">
+                {formatRunDate(run.startedAt)}
+              </Text>
+
+              <Metric
+                label="Distance"
+                value={fmt.distance(run.distanceKm * 1000)}
+                unit={fmt.unitLabel}
+                emphasis="hero"
+                accessibilityLabel={`${fmt.distance(run.distanceKm * 1000)} ${fmt.unitSpoken}`}
+              />
+
+              <MetricRow>
+                <Metric
+                  fill
+                  label="Time"
+                  value={formatDuration(run.durationSeconds)}
+                  accessibilityLabel={`Time ${formatDuration(run.durationSeconds)}`}
+                />
+                <Metric
+                  fill
+                  label="Pace"
+                  value={fmt.paceWithUnit(run.averagePaceMinPerKm)}
+                  accessibilityLabel={fmt.paceSpoken(run.averagePaceMinPerKm)}
+                />
+              </MetricRow>
+            </View>
+
+            {hasTrack ? (
+              <View style={[styles.map, { borderColor: theme.borderSubtle }]}>
+                <MapCanvas
+                  origin={run.coordinates[run.coordinates.length - 1]}
+                  routes={run.route ? [run.route] : []}
+                  selectedRouteId={run.route?.id}
+                  track={run.coordinates}
+                  cameraMode="fit"
+                  padding={{ top: 32, bottom: 32, left: 32, right: 32 }}
+                />
+              </View>
+            ) : (
+              <Text variant="body" color="textSecondary">
+                No GPS track was recorded for this run.
+              </Text>
+            )}
+          </>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+  content: {
+    paddingHorizontal: layout.screenMargin,
+    gap: spacing.lg,
+    alignItems: 'flex-start',
+  },
+  headline: {
+    gap: spacing.lg,
+    alignSelf: 'stretch',
+  },
+  map: {
+    alignSelf: 'stretch',
+    height: layout.mapPreviewHeight,
+    borderRadius: radii.medium,
+    borderCurve: 'continuous',
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+  },
+});
