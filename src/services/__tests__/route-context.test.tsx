@@ -83,8 +83,9 @@ function renderRoutes() {
 }
 
 async function flush() {
-  // A macrotask, not a microtask: the provider's async work chains several
-  // awaits, and React only commits the resulting state inside `act`.
+  // Macrotasks, not microtasks: the provider chains several awaits before it
+  // commits state, and React only applies the result inside `act`.
+  await new Promise((resolve) => setTimeout(resolve, 0));
   await new Promise((resolve) => setTimeout(resolve, 0));
   act(() => {});
 }

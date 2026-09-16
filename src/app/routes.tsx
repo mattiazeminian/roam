@@ -12,6 +12,7 @@ import { Text } from '@/components/text';
 import { impactMedium, selectionFeedback, successFeedback } from '@/lib/haptics';
 import { useLocation } from '@/services/location-context';
 import { routeIdentity } from '@/services/route-identity';
+import { loadRoutePopularity, type RoutePopularity } from '@/services/route-popularity';
 import { useRoutes } from '@/services/route-context';
 import { listRoutes, saveRoute } from '@/services/route-storage';
 import { useRun } from '@/services/run-context';
@@ -55,6 +56,7 @@ export default function RouteSelectionScreen() {
   const { start } = useRun();
   const [editing, setEditing] = useState(false);
   const [savedIds, setSavedIds] = useState<ReadonlySet<string>>(new Set());
+  const [popularity, setPopularity] = useState<RoutePopularity>(new Map());
 
   // Which routes are already saved. Loaded once — the set only grows while this
   // screen is open, and a route is never unsaved from here.
@@ -64,6 +66,23 @@ export default function RouteSelectionScreen() {
       .then((saved) => {
         if (active) {
           setSavedIds(new Set(saved.map((entry) => entry.id)));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // The runner's own run counts, so a route they have finished before is marked
+  // (#15). Loaded once; a run finishing while this screen is open is not a case
+  // that can happen.
+  useEffect(() => {
+    let active = true;
+    void loadRoutePopularity()
+      .then((counts) => {
+        if (active) {
+          setPopularity(counts);
         }
       })
       .catch(() => {});
@@ -250,6 +269,7 @@ export default function RouteSelectionScreen() {
                 routes={candidates}
                 selectedIndex={selectedIndex}
                 onSelect={handleSelect}
+                popularity={popularity}
               />
 
               <View style={styles.actions}>
