@@ -37,6 +37,8 @@ export default function HomeScreen() {
     originLabel,
     hasCustomOrigin,
     setOrigin,
+    finish,
+    clearFinish,
     refresh,
   } = useLocation();
   const { status: routeStatus, errorMessage, find } = useRoutes();
@@ -98,7 +100,7 @@ export default function HomeScreen() {
     }
     impactLight();
 
-    const found = await find(origin, distanceKm);
+    const found = await find(origin, distanceKm, finish?.coordinate ?? null);
     if (!found) {
       // The visible message carries the failure; the haptic reinforces it.
       errorFeedback();
@@ -108,7 +110,7 @@ export default function HomeScreen() {
     // Remember the distance so the next run opens where this one left off.
     update({ defaultDistanceKm: distanceKm });
     router.push('/routes');
-  }, [origin, distanceKm, find, isFinding, update]);
+  }, [origin, distanceKm, finish, find, isFinding, update]);
 
   return (
     // The panel is in normal flow, so the standard iOS keyboard behaviour works
@@ -206,6 +208,52 @@ export default function HomeScreen() {
 
         <DistanceControl valueKm={distanceKm} onChange={setChosenKm} disabled={isFinding} />
 
+        {/* Where the run ends. Loops by default; a chosen finish makes it a
+            one-way, and can be cleared back to a loop. */}
+        <View style={styles.finishRow}>
+          <Pressable
+            onPress={() => router.push('/location-search?mode=finish')}
+            accessibilityRole="button"
+            accessibilityLabel={
+              finish
+                ? `Finishing at ${finish.label}. Change finish point.`
+                : 'Loop, finishing back where you started. Choose a finish point.'
+            }
+            style={({ pressed }) => [
+              styles.originRow,
+              styles.finishTarget,
+              pressed && styles.pressed,
+            ]}>
+            <SymbolView
+              name={finish ? 'flag' : 'arrow.triangle.2.circlepath'}
+              size={layout.iconSizeSmall}
+              tintColor={theme.textSecondary}
+            />
+            <Text variant="label" color="textTertiary" numberOfLines={1} style={styles.originLabel}>
+              {finish ? `Finish · ${finish.label}` : 'Loop · back to start'}
+            </Text>
+            <SymbolView
+              name="chevron.right"
+              size={layout.iconSizeSmall}
+              tintColor={theme.textSecondary}
+            />
+          </Pressable>
+          {finish ? (
+            <Pressable
+              onPress={clearFinish}
+              accessibilityRole="button"
+              accessibilityLabel="Make it a loop instead"
+              hitSlop={spacing.sm}
+              style={({ pressed }) => (pressed ? styles.pressed : undefined)}>
+              <SymbolView
+                name="xmark.circle.fill"
+                size={layout.iconSizeSmall}
+                tintColor={theme.textSecondary}
+              />
+            </Pressable>
+          ) : null}
+        </View>
+
         <Button
           label={isFinding ? 'Finding your way' : hasError ? 'Try again' : 'Find routes'}
           variant="accent"
@@ -256,6 +304,14 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   originLabel: {
+    flex: 1,
+  },
+  finishRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  finishTarget: {
     flex: 1,
   },
 });

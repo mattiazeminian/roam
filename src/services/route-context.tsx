@@ -11,6 +11,7 @@ import {
 import { useSettings } from "./settings-context";
 import {
   findRoutes,
+  findRoutesBetween,
   RoutingError,
   type Coordinate,
   type RouteCandidate,
@@ -27,8 +28,11 @@ export type RouteContextValue = {
   targetKm: number | null;
   errorCode: RoutingErrorCode | null;
   errorMessage: string | null;
-  /** Run a search. Resolves true when at least one route was found. */
-  find: (origin: Coordinate, targetKm: number) => Promise<boolean>;
+  /**
+   * Run a search. Resolves true when at least one route was found. With a
+   * `finish` it plans a one-way route there; without one, a loop (#17).
+   */
+  find: (origin: Coordinate, targetKm: number, finish?: Coordinate | null) => Promise<boolean>;
   /** Re-run the last search with the same origin and distance. */
   retry: () => Promise<boolean>;
   /**
@@ -60,19 +64,21 @@ export function RouteProvider({ children }: { children: ReactNode }) {
   const [errorCode, setErrorCode] = useState<RoutingErrorCode | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const lastRequest = useRef<{ origin: Coordinate; targetKm: number } | null>(
-    null,
-  );
+  const lastRequest = useRef<{
+    origin: Coordinate;
+    targetKm: number;
+    finish: Coordinate | null;
+  } | null>(null);
   // Guards against a second search starting before `status` commits.
   const inFlight = useRef(false);
 
   const find = useCallback(
-    async (origin: Coordinate, requestedKm: number) => {
+    async (origin: Coordinate, requestedKm: number, finish: Coordinate | null = null) => {
       if (inFlight.current) {
         return false;
       }
       inFlight.current = true;
-      lastRequest.current = { origin, targetKm: requestedKm };
+      lastRequest.current = { origin, targetKm: requestedKm, finish };
 
       setStatus("finding");
       setErrorCode(null);
@@ -80,11 +86,18 @@ export function RouteProvider({ children }: { children: ReactNode }) {
       setTargetKm(requestedKm);
 
       try {
-        const routes = await findRoutes({
-          origin,
-          targetKm: requestedKm,
-          paceMinPerKm: settings.typicalPaceMinPerKm,
-        });
+        const routes = finish
+          ? await findRoutesBetween({
+              origin,
+              finish,
+              targetKm: requestedKm,
+              paceMinPerKm: settings.typicalPaceMinPerKm,
+            })
+          : await findRoutes({
+              origin,
+              targetKm: requestedKm,
+              paceMinPerKm: settings.typicalPaceMinPerKm,
+            });
         setCandidates(routes);
         setSelectedIndex(0);
         setStatus("ready");
@@ -112,7 +125,7 @@ export function RouteProvider({ children }: { children: ReactNode }) {
     if (!request) {
       return false;
     }
-    return find(request.origin, request.targetKm);
+    return find(request.origin, request.targetKm, request.finish);
   }, [find]);
 
   const select = useCallback((index: number) => {

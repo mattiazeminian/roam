@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
@@ -15,16 +15,21 @@ import { layout, radii, spacing, useTheme } from '@/theme';
 const DEBOUNCE_MS = 320;
 
 /**
- * Choose where a run starts.
+ * Choose where a run starts — or, in finish mode, where it ends.
  *
  * A run does not have to begin where you are standing — you might be planning
  * one for a park across town. Picking a place here replaces the origin every
- * other screen plans from.
+ * other screen plans from. The same screen picks a finish (#17), which turns
+ * the route into a one-way; the only real difference is which slot it writes
+ * to, so there is no reason for a second screen.
  */
 export default function LocationSearchScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const { coordinate, originLabel, hasCustomOrigin, setOrigin, resetOrigin } = useLocation();
+  const { mode } = useLocalSearchParams<{ mode?: string }>();
+  const isFinish = mode === 'finish';
+  const { coordinate, originLabel, hasCustomOrigin, setOrigin, resetOrigin, setFinish } =
+    useLocation();
 
   const [query, setQuery] = useState('');
   const [places, setPlaces] = useState<Place[]>([]);
@@ -88,10 +93,14 @@ export default function LocationSearchScreen() {
   const choose = useCallback(
     (place: Place) => {
       selectionFeedback();
-      setOrigin({ label: place.name, coordinate: place.coordinate });
+      if (isFinish) {
+        setFinish({ label: place.name, coordinate: place.coordinate });
+      } else {
+        setOrigin({ label: place.name, coordinate: place.coordinate });
+      }
       router.back();
     },
-    [setOrigin],
+    [isFinish, setFinish, setOrigin],
   );
 
   const chooseCurrent = useCallback(() => {
@@ -106,7 +115,7 @@ export default function LocationSearchScreen() {
     <View style={[styles.root, { backgroundColor: theme.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + spacing.xs }]}>
         <View style={styles.headerRow}>
-          <Text variant="title">Start from</Text>
+          <Text variant="title">{isFinish ? 'Finish at' : 'Start from'}</Text>
           <Pressable
             onPress={() => router.back()}
             accessibilityRole="button"
@@ -129,7 +138,7 @@ export default function LocationSearchScreen() {
             autoCorrect={false}
             returnKeyType="search"
             clearButtonMode="while-editing"
-            accessibilityLabel="Search for a starting place"
+            accessibilityLabel={isFinish ? 'Search for a finish place' : 'Search for a starting place'}
             style={[styles.input, { color: theme.text }]}
           />
           {searching ? <ActivityIndicator color={theme.textSecondary} /> : null}
@@ -144,34 +153,38 @@ export default function LocationSearchScreen() {
         contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + spacing.xxl }]}
         ListHeaderComponent={
           <>
-            <Pressable
-              onPress={chooseCurrent}
-              accessibilityRole="button"
-              accessibilityState={{ selected: !hasCustomOrigin }}
-              accessibilityLabel="Use my current location"
-              disabled={!coordinate}
-              style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
-              <SymbolView
-                name="location.fill"
-                size={layout.iconSize}
-                tintColor={coordinate ? theme.accent : theme.textDisabled}
-              />
-              <View style={styles.rowText}>
-                <Text variant="body" color={coordinate ? 'text' : 'textDisabled'}>
-                  Current location
-                </Text>
-                {!coordinate ? (
-                  <Text variant="caption" color="textSecondary">
-                    Location is unavailable
+            {/* A finish equal to the start would be a zero-length "loop", so
+                the current-location shortcut only makes sense for a start. */}
+            {!isFinish ? (
+              <Pressable
+                onPress={chooseCurrent}
+                accessibilityRole="button"
+                accessibilityState={{ selected: !hasCustomOrigin }}
+                accessibilityLabel="Use my current location"
+                disabled={!coordinate}
+                style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
+                <SymbolView
+                  name="location.fill"
+                  size={layout.iconSize}
+                  tintColor={coordinate ? theme.accent : theme.textDisabled}
+                />
+                <View style={styles.rowText}>
+                  <Text variant="body" color={coordinate ? 'text' : 'textDisabled'}>
+                    Current location
                   </Text>
+                  {!coordinate ? (
+                    <Text variant="caption" color="textSecondary">
+                      Location is unavailable
+                    </Text>
+                  ) : null}
+                </View>
+                {!hasCustomOrigin ? (
+                  <SymbolView name="checkmark" size={layout.iconSizeSmall} tintColor={theme.accent} />
                 ) : null}
-              </View>
-              {!hasCustomOrigin ? (
-                <SymbolView name="checkmark" size={layout.iconSizeSmall} tintColor={theme.accent} />
-              ) : null}
-            </Pressable>
+              </Pressable>
+            ) : null}
 
-            {hasCustomOrigin ? (
+            {!isFinish && hasCustomOrigin ? (
               <>
                 <Divider />
                 <View style={styles.current}>

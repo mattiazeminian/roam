@@ -35,6 +35,13 @@ export type LocationContextValue = {
   hasCustomOrigin: boolean;
   setOrigin: (override: OriginOverride) => void;
   resetOrigin: () => void;
+  /**
+   * Where a run ends, when the runner chose a finish. Null means a loop —
+   * back to the start — which is the default (#17).
+   */
+  finish: OriginOverride | null;
+  setFinish: (override: OriginOverride) => void;
+  clearFinish: () => void;
   /** Re-check permission and restart tracking. */
   refresh: () => void;
 };
@@ -50,6 +57,7 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<LocationStatus>('requesting');
   const [coordinate, setCoordinate] = useState<Coordinate | null>(null);
   const [override, setOverride] = useState<OriginOverride | null>(null);
+  const [finish, setFinish] = useState<OriginOverride | null>(null);
   const subscription = useRef<location.LocationSubscription | null>(null);
 
   const start = useCallback(async () => {
@@ -101,11 +109,14 @@ export function LocationProvider({ children }: { children: ReactNode }) {
       hasCustomOrigin: override !== null,
       setOrigin: setOverride,
       resetOrigin: () => setOverride(null),
+      finish,
+      setFinish,
+      clearFinish: () => setFinish(null),
       refresh: () => {
         void start();
       },
     }),
-    [status, coordinate, override, start],
+    [status, coordinate, override, finish, start],
   );
 
   return <LocationContext.Provider value={value}>{children}</LocationContext.Provider>;

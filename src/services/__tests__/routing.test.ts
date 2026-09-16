@@ -83,6 +83,28 @@ function jsonResponse(body: unknown, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
 }
 
+/**
+ * An ORS response with several features, for the `alternative_routes` request
+ * a one-way route makes (#17). `open` leaves the geometry unclosed, which is
+ * what a point-to-point route actually is.
+ */
+function orsMultiFixture(distancesM: number[], { open = false } = {}) {
+  const features = distancesM.map((distanceM) => {
+    const coordinates: [number, number][] = [];
+    for (let i = 0; i < 6; i += 1) {
+      coordinates.push([ORIGIN.longitude + i * 0.001, ORIGIN.latitude + i * 0.001]);
+    }
+    if (!open) {
+      coordinates.push(coordinates[0]);
+    }
+    return {
+      geometry: { coordinates },
+      properties: { summary: { distance: distanceM, duration: distanceM * 0.9 }, ascent: 5 },
+    };
+  });
+  return { features };
+}
+
 describe('correctionFactorFor', () => {
   test('applies the ≤4 km tier', () => {
     const { correctionFactorFor } = loadRouting('test-key');
@@ -618,5 +640,104 @@ describe('routeThroughWaypoints (#16)', () => {
     await expect(
       routeThroughWaypoints({ origin: ORIGIN, waypoints: WAYPOINTS }),
     ).rejects.toMatchObject({ code: 'rate-limit' });
+  });
+});
+
+describe('findRoutesBetween (#17)', () => {
+  let fetchMock: jest.Mock;
+
+  beforeEach(() => {
+    fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const FINISH = { latitude: 40.76, longitude: -73.97 };
+
+  test('sends origin then finish, asking for alternatives rather than a round trip', async () => {
+    const { findRoutesBetween } = loadRouting('test-key');
+    fetchMock.mockResolvedValue(
+      jsonResponse(orsMultiFixture([5000, 5200, 4800], { open: true })) as never,
+    );
+
+    await findRoutesBetween({ origin: ORIGIN, finish: FINISH, targetKm: 5 });
+
+    const call = fetchMock.mock.calls[0] as [string, { body: string }];
+    const body = JSON.parse(call[1].body);
+    expect(body.coordinates).toEqual([
+      [ORIGIN.longitude, ORIGIN.latitude],
+      [FINISH.longitude, FINISH.latitude],
+    ]);
+    expect(body.options.alternative_routes.target_count).toBeGreaterThan(1);
+    expect(body.options.round_trip).toBeUndefined();
+  });
+
+  test('returns a one-way candidate with open geometry and the finish recorded', async () => {
+    const { findRoutesBetween } = loadRouting('test-key');
+    fetchMock.mockResolvedValue(jsonResponse(orsMultiFixture([5000], { open: true })) as never);
+
+    const routes = await findRoutesBetween({ origin: ORIGIN, finish: FINISH, targetKm: 5 });
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0].characteristics).toContain('One-way');
+    expect(routes[0].finish).toEqual(FINISH);
+    const { geometry } = routes[0];
+    expect(geometry[0]).not.toEqual(geometry[geometry.length - 1]);
+  });
+
+  test('ranks alternatives by closeness to the target and caps at three', async () => {
+    const { findRoutesBetween } = loadRouting('test-key');
+    fetchMock.mockResolvedValue(
+      jsonResponse(orsMultiFixture([8000, 5100, 6000, 4800], { open: true })) as never,
+    );
+
+    const routes = await findRoutesBetween({ origin: ORIGIN, finish: FINISH, targetKm: 5 });
+
+    // Offsets from 5 km: 5100→100, 4800→200, 6000→1000, 8000→3000.
+    expect(routes.map((route) => route.distanceKm)).toEqual([5.1, 4.8, 6]);
+  });
+
+  test('labels an off-target route "Closest available" rather than rejecting it', async () => {
+    const { findRoutesBetween } = loadRouting('test-key');
+    fetchMock.mockResolvedValue(jsonResponse(orsMultiFixture([3000], { open: true })) as never);
+
+    const routes = await findRoutesBetween({ origin: ORIGIN, finish: FINISH, targetKm: 5 });
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0].characteristics).toContain('Closest available');
+  });
+
+  test('does not label a route that matches the target', async () => {
+    const { findRoutesBetween } = loadRouting('test-key');
+    fetchMock.mockResolvedValue(jsonResponse(orsMultiFixture([5000], { open: true })) as never);
+    const routes = await findRoutesBetween({ origin: ORIGIN, finish: FINISH, targetKm: 5 });
+    expect(routes[0].characteristics).not.toContain('Closest available');
+  });
+
+  test('throws no-routes when the provider returns no usable feature', async () => {
+    const { findRoutesBetween } = loadRouting('test-key');
+    fetchMock.mockResolvedValue(jsonResponse({ features: [] }) as never);
+    await expect(
+      findRoutesBetween({ origin: ORIGIN, finish: FINISH, targetKm: 5 }),
+    ).rejects.toMatchObject({ code: 'no-routes' });
+  });
+
+  test('rejects an invalid finish without calling out', async () => {
+    const { findRoutesBetween } = loadRouting('test-key');
+    await expect(
+      findRoutesBetween({ origin: ORIGIN, finish: { latitude: 999, longitude: 0 }, targetKm: 5 }),
+    ).rejects.toMatchObject({ code: 'invalid-origin' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('throws missing-key when no key is configured', async () => {
+    const { findRoutesBetween } = loadRouting(undefined);
+    await expect(
+      findRoutesBetween({ origin: ORIGIN, finish: FINISH, targetKm: 5 }),
+    ).rejects.toMatchObject({ code: 'missing-key' });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

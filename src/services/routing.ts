@@ -43,6 +43,11 @@ export type RouteCandidate = {
    * already begins and ends at them.
    */
   waypoints?: Coordinate[];
+  /**
+   * Where a one-way route ends (#17). Absent on a loop, which is the default:
+   * `geometry` closing on its own start is what "loop" means here.
+   */
+  finish?: Coordinate;
 };
 
 /**
@@ -289,10 +294,14 @@ export function isValidCoordinate(value: unknown): value is Coordinate {
 
 /**
  * Defensive geometry cleanup: drop invalid coordinates and consecutive
- * duplicates, require at least a triangle, and close the loop. Returns an empty
- * array when nothing renderable remains, so the UI can fail gracefully.
+ * duplicates, require a usable minimum, and — for a loop — close the ring.
+ * Returns an empty array when nothing renderable remains, so the UI can fail
+ * gracefully.
+ *
+ * `close` is false for a one-way route (#17): appending the first point there
+ * would invent a segment back to the start that the runner never takes.
  */
-export function sanitizeGeometry(geometry: Coordinate[]): Coordinate[] {
+export function sanitizeGeometry(geometry: Coordinate[], close = true): Coordinate[] {
   if (!Array.isArray(geometry)) {
     return [];
   }
@@ -309,8 +318,13 @@ export function sanitizeGeometry(geometry: Coordinate[]): Coordinate[] {
     cleaned.push({ latitude: point.latitude, longitude: point.longitude });
   }
 
-  if (cleaned.length < 3) {
+  // A loop needs a triangle so there is an area; a one-way is valid as a line.
+  if (cleaned.length < (close ? 3 : 2)) {
     return [];
+  }
+
+  if (!close) {
+    return cleaned;
   }
 
   const first = cleaned[0];
@@ -362,6 +376,9 @@ type RawCandidate = {
   attributes: RouteAttributes;
 };
 
+/** A loop closes on its start; a one-way is an open line (#17). */
+type GeometryShape = 'loop' | 'one-way';
+
 /**
  * @param requestedLengthM The length sent to ORS in the request — after the
  *   distance correction has already been applied. Never use this for ranking
@@ -371,8 +388,14 @@ type RawCandidate = {
  * The one place a directions request is actually sent and parsed. Both the
  * generated loop and a waypoint recalculation go through here, so status
  * handling, geometry cleanup and attribute parsing cannot drift between them.
+ *
+ * Returns every route the provider sent: a plain request yields one, but an
+ * `alternative_routes` request (one-way routing, #17) yields several.
  */
-async function sendDirections(body: Record<string, unknown>): Promise<RawCandidate> {
+async function sendDirections(
+  body: Record<string, unknown>,
+  shape: GeometryShape,
+): Promise<RawCandidate[]> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -411,29 +434,50 @@ async function sendDirections(body: Record<string, unknown>): Promise<RawCandida
     throw new RoutingError('network', 'The routing service returned an unreadable response.');
   }
 
-  const feature = payload.features?.[0];
-  const geometry = sanitizeGeometry(toCoordinates(feature?.geometry?.coordinates));
-  if (geometry.length < 4) {
-    throw new RoutingError('no-routes', 'The routing service returned no usable loop.');
+  const features = Array.isArray(payload.features) ? payload.features : [];
+  const minimumPoints = shape === 'loop' ? 4 : 2;
+  const candidates: RawCandidate[] = [];
+
+  for (const feature of features) {
+    // `close` is what keeps a one-way an open line instead of a fake ring.
+    const geometry = sanitizeGeometry(
+      toCoordinates(feature?.geometry?.coordinates),
+      shape === 'loop',
+    );
+    if (geometry.length < minimumPoints) {
+      continue;
+    }
+
+    // Prefer the provider's own summary; fall back to measuring the returned
+    // polyline so the displayed distance always describes the drawn geometry.
+    const summaryDistance = feature?.properties?.summary?.distance;
+    const distanceM =
+      typeof summaryDistance === 'number' && Number.isFinite(summaryDistance) && summaryDistance > 0
+        ? summaryDistance
+        : pathLengthMeters(geometry);
+
+    const rawAscent = feature?.properties?.ascent ?? feature?.properties?.summary?.ascent;
+    const ascentM =
+      typeof rawAscent === 'number' && Number.isFinite(rawAscent) ? rawAscent : undefined;
+
+    candidates.push({
+      geometry,
+      distanceM,
+      ascentM,
+      attributes: pathAttributesFromExtras(feature?.properties?.extras),
+    });
   }
 
-  // Prefer the provider's own summary; fall back to measuring the returned
-  // polyline so the displayed distance always describes the drawn geometry.
-  const summaryDistance = feature?.properties?.summary?.distance;
-  const distanceM =
-    typeof summaryDistance === 'number' && Number.isFinite(summaryDistance) && summaryDistance > 0
-      ? summaryDistance
-      : pathLengthMeters(geometry);
+  if (candidates.length === 0) {
+    throw new RoutingError(
+      'no-routes',
+      shape === 'loop'
+        ? 'The routing service returned no usable loop.'
+        : 'The routing service returned no usable route.',
+    );
+  }
 
-  const rawAscent = feature?.properties?.ascent ?? feature?.properties?.summary?.ascent;
-  const ascentM = typeof rawAscent === 'number' && Number.isFinite(rawAscent) ? rawAscent : undefined;
-
-  return {
-    geometry,
-    distanceM,
-    ascentM,
-    attributes: pathAttributesFromExtras(feature?.properties?.extras),
-  };
+  return candidates;
 }
 
 /**
@@ -453,18 +497,22 @@ async function requestLoop(
   requestedLengthM: number,
   variant: { seed: number; points: number },
 ): Promise<RawCandidate> {
-  return sendDirections({
-    coordinates: [[origin.longitude, origin.latitude]],
-    elevation: true,
-    extra_info: REQUESTED_EXTRA_INFO,
-    options: {
-      round_trip: {
-        length: Math.round(requestedLengthM),
-        points: variant.points,
-        seed: variant.seed,
+  const [candidate] = await sendDirections(
+    {
+      coordinates: [[origin.longitude, origin.latitude]],
+      elevation: true,
+      extra_info: REQUESTED_EXTRA_INFO,
+      options: {
+        round_trip: {
+          length: Math.round(requestedLengthM),
+          points: variant.points,
+          seed: variant.seed,
+        },
       },
     },
-  });
+    'loop',
+  );
+  return candidate;
 }
 
 export type WaypointsRequest = {
@@ -517,11 +565,14 @@ export async function routeThroughWaypoints({
     [origin.longitude, origin.latitude],
   ];
 
-  const result = await sendDirections({
-    coordinates,
-    elevation: true,
-    extra_info: REQUESTED_EXTRA_INFO,
-  });
+  const [result] = await sendDirections(
+    {
+      coordinates,
+      elevation: true,
+      extra_info: REQUESTED_EXTRA_INFO,
+    },
+    'loop',
+  );
 
   const distanceKm = roundTo(result.distanceM / 1000, 1);
   return {
@@ -534,6 +585,96 @@ export async function routeThroughWaypoints({
     attributes: result.attributes,
     waypoints: valid,
   };
+}
+
+export type BetweenRequest = {
+  /** Where the run starts. */
+  origin: Coordinate;
+  /** Where it ends. */
+  finish: Coordinate;
+  /** The runner's preferred distance, in kilometers. */
+  targetKm: number;
+  paceMinPerKm?: number;
+};
+
+/**
+ * Find route(s) from `origin` to `finish` — a one-way run (#17).
+ *
+ * The distance target is a *preference* here, not a constraint. A
+ * point-to-point route is whatever the network offers between those two places,
+ * so this asks ORS for alternatives and ranks them by closeness to the target:
+ * the honest way to respect the request without inventing detours. Unlike the
+ * loop search, a route that misses the target is not rejected — it is a valid
+ * way from A to B, just not the length asked for, and is labelled "Closest
+ * available" accordingly.
+ */
+export async function findRoutesBetween({
+  origin,
+  finish,
+  targetKm,
+  paceMinPerKm = PACE_MIN_PER_KM,
+}: BetweenRequest): Promise<RouteCandidate[]> {
+  if (!ORS_API_KEY) {
+    throw new RoutingError(
+      'missing-key',
+      'No routing API key is configured. Add EXPO_PUBLIC_ORS_API_KEY.',
+    );
+  }
+  if (!isValidCoordinate(origin)) {
+    throw new RoutingError('invalid-origin', 'Your location is not available yet.');
+  }
+  if (!isValidCoordinate(finish)) {
+    throw new RoutingError('invalid-origin', 'Choose a finish point for the route.');
+  }
+  if (!Number.isFinite(targetKm) || targetKm <= 0) {
+    throw new RoutingError('no-routes', 'Choose a distance before finding routes.');
+  }
+
+  const raw = await sendDirections(
+    {
+      coordinates: [
+        [origin.longitude, origin.latitude],
+        [finish.longitude, finish.latitude],
+      ],
+      elevation: true,
+      extra_info: REQUESTED_EXTRA_INFO,
+      options: {
+        alternative_routes: {
+          target_count: CANDIDATE_COUNT,
+          // ORS's own defaults, stated explicitly so the request is readable
+          // rather than depending on undocumented provider behaviour.
+          weight_factor: 1.4,
+          share_factor: 0.6,
+        },
+      },
+    },
+    'one-way',
+  );
+
+  const targetM = targetKm * 1000;
+  const ranked = rankByCloseness(raw, targetM).slice(0, CANDIDATE_COUNT);
+  const closestAvailable = !ranked.some((candidate) =>
+    isWithinTolerance(candidate.distanceM, targetM),
+  );
+
+  return ranked.map((candidate, index) => {
+    const distanceKm = roundTo(candidate.distanceM / 1000, 1);
+    return {
+      id: `route-${index + 1}`,
+      distanceKm,
+      estimatedMinutes: Math.max(1, Math.round(distanceKm * paceMinPerKm)),
+      geometry: candidate.geometry,
+      characteristics: describe(
+        'one-way',
+        candidate.ascentM,
+        closestAvailable,
+        candidate.attributes,
+      ),
+      ascentMeters: candidate.ascentM,
+      attributes: candidate.attributes,
+      finish,
+    };
+  });
 }
 
 /**
@@ -625,11 +766,12 @@ export function characteristicLabelsFor(attributes: RouteAttributes): string[] {
 }
 
 function describe(
+  routeType: GeometryShape,
   ascentMeters: number | undefined,
   closestAvailable: boolean,
   attributes: RouteAttributes,
 ): string[] {
-  const characteristics = ['Loop'];
+  const characteristics = [routeType === 'loop' ? 'Loop' : 'One-way'];
   if (typeof ascentMeters === 'number' && ascentMeters >= 10) {
     characteristics.push(`${Math.round(ascentMeters)} m climb`);
   }
@@ -776,7 +918,7 @@ export async function findRoutes({
       distanceKm,
       estimatedMinutes: Math.max(1, Math.round(distanceKm * paceMinPerKm)),
       geometry: candidate.geometry,
-      characteristics: describe(candidate.ascentM, closestAvailable, candidate.attributes),
+      characteristics: describe('loop', candidate.ascentM, closestAvailable, candidate.attributes),
       ascentMeters: candidate.ascentM,
       attributes: candidate.attributes,
     };
