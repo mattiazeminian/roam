@@ -1,6 +1,10 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
+// Imported for its side effect: it registers the background location task with
+// TaskManager, which must happen at the bundle's global scope so the task
+// exists when the OS wakes the app in the background (#30).
+import '@/services/background-location';
 import { LocationProvider } from '@/services/location-context';
 import { RouteProvider } from '@/services/route-context';
 import { RunProvider } from '@/services/run-context';

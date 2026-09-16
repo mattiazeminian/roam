@@ -10,6 +10,8 @@ import {
 } from 'react';
 
 import * as location from './location';
+import type { LocationSample } from './location';
+import { setRunLocationSink, startRunLocationUpdates, stopRunLocationUpdates } from './background-location';
 import type { Coordinate, RouteCandidate } from './routing';
 import {
   applySample,
@@ -132,31 +134,44 @@ export function RunProvider({ children }: { children: ReactNode }) {
     trackingEpoch.current += 1;
     subscription.current?.remove();
     subscription.current = null;
+    // Background delivery is torn down with the foreground watch: nothing
+    // should be tracking once the run is paused or finished (#30).
+    setRunLocationSink(null);
+    void stopRunLocationUpdates();
   }, []);
 
   const startWatching = useCallback(() => {
     stopWatching();
     const epoch = trackingEpoch.current;
     trackingError.current = false;
-    subscription.current = location.watchRunPosition(
-      (sample) => {
-        if (epoch !== trackingEpoch.current) {
-          return;
-        }
-        const next = applySample(tracker.current, sample, planned.current);
-        if (next !== tracker.current) {
-          tracker.current = next;
-        }
-      },
-      () => {
-        if (epoch !== trackingEpoch.current) {
-          return;
-        }
-        // Never lose the session over a watch failure — surface it through
-        // the existing "weak signal" UI instead of a new error state.
-        trackingError.current = true;
-      },
-    );
+
+    // One acceptance path for both sources. `applySample` rejects a fix whose
+    // timestamp is not newer than the last accepted one, so the same location
+    // arriving from the foreground watch and the background task counts once.
+    const accept = (sample: LocationSample) => {
+      if (epoch !== trackingEpoch.current) {
+        return;
+      }
+      const next = applySample(tracker.current, sample, planned.current);
+      if (next !== tracker.current) {
+        tracker.current = next;
+      }
+    };
+
+    subscription.current = location.watchRunPosition(accept, () => {
+      if (epoch !== trackingEpoch.current) {
+        return;
+      }
+      // Never lose the session over a watch failure — surface it through
+      // the existing "weak signal" UI instead of a new error state.
+      trackingError.current = true;
+    });
+
+    // Background updates run alongside the foreground watch, so a locked
+    // screen keeps recording. Failure is deliberately silent: the run is
+    // still tracked in the foreground.
+    setRunLocationSink(accept);
+    void startRunLocationUpdates();
   }, [stopWatching]);
 
   const activeSecondsNow = useCallback(() => {

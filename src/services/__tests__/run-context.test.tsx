@@ -15,6 +15,11 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import * as Location from 'expo-location';
 
 import { RunProvider, useRun, type RunContextValue } from '../run-context';
+import {
+  setRunLocationSink,
+  startRunLocationUpdates,
+  stopRunLocationUpdates,
+} from '../background-location';
 
 jest.mock('expo-location', () => ({
   Accuracy: { BestForNavigation: 6, Balanced: 3 },
@@ -33,6 +38,27 @@ jest.mock('../run-storage', () => ({
   getInProgressRun: jest.fn(() => Promise.resolve(null)),
   saveRun: jest.fn(() => Promise.resolve()),
 }));
+
+// Background delivery (#30) is a thin native bridge; its own payload handling
+// is covered by `background-location.test.ts`. Here it is mocked so the run
+// provider's start/stop wiring can be asserted directly.
+jest.mock('../background-location', () => ({
+  setRunLocationSink: jest.fn(),
+  startRunLocationUpdates: jest.fn(() => Promise.resolve(true)),
+  stopRunLocationUpdates: jest.fn(() => Promise.resolve()),
+}));
+
+const setSinkMock = setRunLocationSink as unknown as jest.Mock;
+const startBackgroundMock = startRunLocationUpdates as unknown as jest.Mock;
+const stopBackgroundMock = stopRunLocationUpdates as unknown as jest.Mock;
+
+/** The most recent non-null sink the provider registered. */
+function currentSink(): ((sample: unknown) => void) | undefined {
+  const sinks = setSinkMock.mock.calls
+    .map((call) => call[0])
+    .filter((value): value is (sample: unknown) => void => typeof value === 'function');
+  return sinks[sinks.length - 1];
+}
 
 const watchPositionAsyncMock = Location.watchPositionAsync as unknown as jest.Mock<
   (...args: unknown[]) => unknown
@@ -83,6 +109,9 @@ beforeEach(() => {
     registrations.push({ callback, errorHandler, remove });
     return Promise.resolve({ remove });
   });
+  setSinkMock.mockClear();
+  startBackgroundMock.mockClear();
+  stopBackgroundMock.mockClear();
 });
 
 function Harness({ onValue }: { onValue: (value: RunContextValue) => void }) {
@@ -342,6 +371,67 @@ describe('completion suggestion (#10)', () => {
 
     act(() => harness.value.dismissCompletionSuggestion());
     expect(harness.value.completionSuggested).toBe(false);
+    harness.unmount();
+  });
+});
+
+describe('background delivery (#30)', () => {
+  test('starting a run registers a sink and starts background updates', async () => {
+    const harness = renderRun();
+    act(() => harness.value.start(null, 5));
+    await flush();
+    expect(startBackgroundMock).toHaveBeenCalledTimes(1);
+    expect(typeof currentSink()).toBe('function');
+    harness.unmount();
+  });
+
+  test('pausing stops background updates and clears the sink', async () => {
+    const harness = renderRun();
+    act(() => harness.value.start(null, 5));
+    await flush();
+    act(() => harness.value.pause());
+    expect(stopBackgroundMock).toHaveBeenCalled();
+    expect(setSinkMock).toHaveBeenLastCalledWith(null);
+    harness.unmount();
+  });
+
+  test('finishing stops background updates and clears the sink', async () => {
+    const harness = renderRun();
+    act(() => harness.value.start(null, 5));
+    await flush();
+    act(() => harness.value.finish());
+    expect(stopBackgroundMock).toHaveBeenCalled();
+    expect(setSinkMock).toHaveBeenLastCalledWith(null);
+    harness.unmount();
+  });
+
+  test('a fix delivered through the background sink is tracked like a foreground one', async () => {
+    const harness = renderRun();
+    act(() => harness.value.start(null, 5));
+    await flush();
+    const sink = currentSink();
+    expect(sink).toBeDefined();
+
+    const t0 = Date.now();
+    act(() =>
+      sink?.({
+        coordinate: offsetCoord(0, 0),
+        accuracyMeters: 5,
+        timestamp: t0,
+        speedMetersPerSecond: null,
+      }),
+    );
+    act(() =>
+      sink?.({
+        coordinate: offsetCoord(0, 50),
+        accuracyMeters: 5,
+        timestamp: t0 + 10_000,
+        speedMetersPerSecond: null,
+      }),
+    );
+
+    act(() => harness.value.pause()); // force a publish
+    expect(harness.value.distanceMeters).toBeGreaterThan(0);
     harness.unmount();
   });
 });

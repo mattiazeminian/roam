@@ -44,8 +44,8 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "ROAM uses your location to find running routes near you.",
-          "locationAlwaysAndWhenInUsePermission": false,
-          "locationAlwaysPermission": false
+          "locationAlwaysAndWhenInUsePermission": "ROAM keeps recording your run when the screen is off or ROAM is in the background.",
+          "isIosBackgroundLocationEnabled": true
         }
       ]
     ],
