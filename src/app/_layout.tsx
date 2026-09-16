@@ -65,6 +65,9 @@ export default function RootLayout() {
               <Stack.Screen name="run-detail" />
               <Stack.Screen name="settings" />
               <Stack.Screen name="account" />
+              {/* A route opened from a share link lands here, then hands off
+                  to the normal selection flow (#23). */}
+              <Stack.Screen name="shared-route" />
               {/* Choosing a start place is a modal decision, not a destination. */}
               <Stack.Screen name="location-search" options={{ presentation: 'modal' }} />
             </Stack>

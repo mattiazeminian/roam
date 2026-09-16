@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
@@ -13,6 +13,7 @@ import { impactMedium, selectionFeedback, successFeedback } from '@/lib/haptics'
 import { useLocation } from '@/services/location-context';
 import { routeIdentity } from '@/services/route-identity';
 import { loadRoutePopularity, type RoutePopularity } from '@/services/route-popularity';
+import { routeShareLink } from '@/services/route-share';
 import { useRoutes } from '@/services/route-context';
 import { listRoutes, saveRoute } from '@/services/route-storage';
 import { useRun } from '@/services/run-context';
@@ -103,6 +104,20 @@ export default function RouteSelectionScreen() {
     setSavedIds((current) => new Set(current).add(saved.id));
   }, [selectedRoute, isSaved]);
 
+  // Sharing sends a link that reconstructs the route; the share sheet being
+  // dismissed is not an error, so nothing is reported (#23).
+  const handleShare = useCallback(async () => {
+    if (!selectedRoute) {
+      return;
+    }
+    const link = routeShareLink(selectedRoute);
+    try {
+      await Share.share({ message: `A running route from ROAM:\n${link}` });
+    } catch {
+      // Dismissed, or sharing unavailable — nothing to tell the runner.
+    }
+  }, [selectedRoute]);
+
   const handleSelect = useCallback(
     (index: number) => {
       if (index === selectedIndex) {
@@ -162,11 +177,18 @@ export default function RouteSelectionScreen() {
           onPress={() => router.back()}
         />
         {!isEmpty ? (
-          <MapControl
-            symbol={editing ? 'checkmark' : 'pencil'}
-            accessibilityLabel={editing ? 'Finish editing' : 'Edit route'}
-            onPress={() => setEditing((value) => !value)}
-          />
+          <View style={styles.topActions}>
+            <MapControl
+              symbol="square.and.arrow.up"
+              accessibilityLabel="Share route"
+              onPress={() => void handleShare()}
+            />
+            <MapControl
+              symbol={editing ? 'checkmark' : 'pencil'}
+              accessibilityLabel={editing ? 'Finish editing' : 'Edit route'}
+              onPress={() => setEditing((value) => !value)}
+            />
+          </View>
         ) : null}
       </View>
 
@@ -305,6 +327,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  topActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   sheetAnchor: {
     position: 'absolute',
