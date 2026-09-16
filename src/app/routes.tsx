@@ -15,6 +15,8 @@ import { routeIdentity } from '@/services/route-identity';
 import { useRoutes } from '@/services/route-context';
 import { listRoutes, saveRoute } from '@/services/route-storage';
 import { useRun } from '@/services/run-context';
+import { formatDuration } from '@/services/run-session';
+import { useFormatters } from '@/services/settings-context';
 import { layout, spacing, useTheme } from '@/theme';
 
 /** Height the sheet occupies, so the camera can frame routes above it. */
@@ -30,10 +32,28 @@ const SHEET_CLEARANCE = 260;
 export default function RouteSelectionScreen() {
   const insets = useSafeAreaInsets();
   const theme = useTheme();
+  const fmt = useFormatters();
   const { origin } = useLocation();
-  const { candidates, selectedRoute, selectedIndex, targetKm, status, errorMessage, retry, select } =
-    useRoutes();
+  const {
+    candidates,
+    selectedRoute,
+    selectedIndex,
+    targetKm,
+    status,
+    errorMessage,
+    retry,
+    select,
+    editWaypoints,
+    editStatus,
+    canUndo,
+    moveWaypoint,
+    addWaypoint,
+    removeLastWaypoint,
+    undoEdit,
+    resetEdit,
+  } = useRoutes();
   const { start } = useRun();
+  const [editing, setEditing] = useState(false);
   const [savedIds, setSavedIds] = useState<ReadonlySet<string>>(new Set());
 
   // Which routes are already saved. Loaded once — the set only grows while this
@@ -105,6 +125,10 @@ export default function RouteSelectionScreen() {
         selectedRouteId={selectedRoute?.id}
         padding={mapPadding}
         cameraMode="fit"
+        autoFit={!editing}
+        waypoints={editing ? editWaypoints : undefined}
+        onMapPress={editing ? addWaypoint : undefined}
+        onWaypointMoved={editing ? moveWaypoint : undefined}
       />
 
       <View
@@ -118,6 +142,13 @@ export default function RouteSelectionScreen() {
           accessibilityLabel="Back to distance"
           onPress={() => router.back()}
         />
+        {!isEmpty ? (
+          <MapControl
+            symbol={editing ? 'checkmark' : 'pencil'}
+            accessibilityLabel={editing ? 'Finish editing' : 'Edit route'}
+            onPress={() => setEditing((value) => !value)}
+          />
+        ) : null}
       </View>
 
       <View style={styles.sheetAnchor}>
@@ -143,6 +174,64 @@ export default function RouteSelectionScreen() {
                   />
                 </View>
               ) : null}
+            </View>
+          ) : editing ? (
+            <View style={styles.editPanel}>
+              <View style={styles.header}>
+                <Text variant="micro" color="textSecondary">
+                  {editStatus === 'recalculating' ? 'Updating route…' : 'Editing route'}
+                </Text>
+                {selectedRoute ? (
+                  <Text variant="micro" color="textSecondary">
+                    {`${fmt.distance(selectedRoute.distanceKm * 1000)} ${fmt.unitLabel}  ·  ${formatDuration(
+                      selectedRoute.estimatedMinutes * 60,
+                    )}`}
+                  </Text>
+                ) : null}
+              </View>
+
+              <Text variant="caption" color="textSecondary">
+                Tap the map to add a point. Drag a point to move it.
+              </Text>
+
+              {editStatus === 'error' && errorMessage ? (
+                <Text variant="caption" color="textSecondary" accessibilityLiveRegion="polite">
+                  {errorMessage}
+                </Text>
+              ) : null}
+
+              <View style={styles.editActions}>
+                <Button
+                  label="Undo"
+                  variant="secondary"
+                  onPress={undoEdit}
+                  disabled={!canUndo}
+                  style={styles.grow}
+                />
+                <Button
+                  label="Remove point"
+                  variant="secondary"
+                  onPress={removeLastWaypoint}
+                  disabled={editWaypoints.length === 0}
+                  style={styles.grow}
+                />
+              </View>
+
+              <View style={styles.editActions}>
+                <Button
+                  label="Reset"
+                  variant="secondary"
+                  onPress={resetEdit}
+                  disabled={!canUndo && editWaypoints.length === 0}
+                  style={styles.grow}
+                />
+                <Button
+                  label="Done"
+                  variant="accent"
+                  onPress={() => setEditing(false)}
+                  style={styles.grow}
+                />
+              </View>
             </View>
           ) : (
             <>
@@ -193,6 +282,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   sheetAnchor: {
     position: 'absolute',
@@ -221,6 +313,16 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   startButton: {
+    flex: 1,
+  },
+  editPanel: {
+    gap: spacing.sm,
+  },
+  editActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  grow: {
     flex: 1,
   },
 });

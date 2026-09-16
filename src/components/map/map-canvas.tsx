@@ -83,6 +83,18 @@ export type MapCanvasProps = {
    * dropped on, so the start of a run can be placed by hand.
    */
   onOriginMoved?: (coordinate: Coordinate) => void;
+  /** Editable waypoints, drawn as draggable pins when provided (#31). */
+  waypoints?: Coordinate[];
+  /** A tap on the map (edit mode): the coordinate that was tapped. */
+  onMapPress?: (coordinate: Coordinate) => void;
+  /** A waypoint pin was dragged to a new position. */
+  onWaypointMoved?: (index: number, coordinate: Coordinate) => void;
+  /**
+   * Whether the camera should reframe when the routes change. False during
+   * editing, so recalculating a route does not move the map under the runner's
+   * finger on every drop.
+   */
+  autoFit?: boolean;
 };
 
 const DEFAULT_INSETS: MapInsets = { top: 48, right: 48, bottom: 48, left: 48 };
@@ -138,6 +150,10 @@ function MapboxCanvas({
   completedGeometry,
   onFollowBroken,
   onOriginMoved,
+  waypoints,
+  onMapPress,
+  onWaypointMoved,
+  autoFit = true,
 }: MapCanvasProps & { mapbox: MapboxModule }) {
   const theme = useTheme();
   const map = useMapPalette();
@@ -160,7 +176,7 @@ function MapboxCanvas({
   // Frame every route, plus the origin. Runs only when the route set changes,
   // so selecting a different route never moves the camera.
   useEffect(() => {
-    if (cameraMode !== 'fit' || routes.length === 0 || !mapReady) {
+    if (cameraMode !== 'fit' || routes.length === 0 || !mapReady || !autoFit) {
       return;
     }
     const camera = cameraRef.current;
@@ -175,7 +191,7 @@ function MapboxCanvas({
       [insets.top, insets.right, insets.bottom, insets.left],
       500,
     );
-  }, [cameraMode, routes, origin, insets, mapReady]);
+  }, [cameraMode, routes, origin, insets, mapReady, autoFit]);
 
   // Center on the location on first fix and when the locate control is used.
   // Later position updates never move the camera on their own.
@@ -241,6 +257,21 @@ function MapboxCanvas({
       pitchEnabled={false}
       onCameraChanged={handleCameraChanged}
       onDidFinishLoadingMap={() => setMapReady(true)}
+      onPress={
+        onMapPress
+          ? (feature) => {
+              const coordinates = (feature as { geometry?: { coordinates?: number[] } })
+                ?.geometry?.coordinates;
+              if (!coordinates || coordinates.length < 2) {
+                return;
+              }
+              const [longitude, latitude] = coordinates;
+              if (typeof longitude === 'number' && typeof latitude === 'number') {
+                onMapPress({ latitude, longitude });
+              }
+            }
+          : undefined
+      }
       rotateEnabled
       scrollEnabled
       zoomEnabled>
@@ -274,6 +305,30 @@ function MapboxCanvas({
             neutralColor={theme.textSecondary}
           />
         ))}
+
+      {/* Editable waypoints (#31). PointAnnotation because only it supports
+          dragging — the same trade-off already made for the origin pin. */}
+      {waypoints?.map((waypoint, index) => (
+        <mapbox.PointAnnotation
+          key={`roam-waypoint-${index}`}
+          id={`roam-waypoint-${index}`}
+          coordinate={[waypoint.longitude, waypoint.latitude]}
+          anchor={{ x: 0.5, y: 0.5 }}
+          draggable={onWaypointMoved !== undefined}
+          onDragEnd={(payload) => {
+            const coordinates = (payload as { geometry?: { coordinates?: number[] } })
+              ?.geometry?.coordinates;
+            if (!coordinates || coordinates.length < 2) {
+              return;
+            }
+            const [longitude, latitude] = coordinates;
+            if (typeof longitude === 'number' && typeof latitude === 'number') {
+              onWaypointMoved?.(index, { latitude, longitude });
+            }
+          }}>
+          <WaypointDot />
+        </mapbox.PointAnnotation>
+      ))}
 
       {/* The runner's actual movement, distinct from the planned line. */}
       {track && track.length >= 2 ? (
@@ -470,6 +525,30 @@ function LocationDot({ draggable = false }: { draggable?: boolean }) {
   );
 }
 
+/**
+ * A draggable waypoint handle. Deliberately a rounded square rather than the
+ * origin's circle, so "a point on the route" and "where the run starts" cannot
+ * be confused at a glance.
+ */
+function WaypointDot() {
+  const theme = useTheme();
+  return (
+    <View
+      accessible
+      accessibilityLabel="Route point. Drag to move."
+      style={styles.markerDraggable}
+      pointerEvents="none">
+      <View style={[styles.waypointRing, { borderColor: theme.accent }]} />
+      <View
+        style={[
+          styles.waypointCore,
+          { backgroundColor: theme.background, borderColor: theme.accent },
+        ]}
+      />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   pulse: {
     width: 140,
@@ -507,6 +586,19 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
+    borderWidth: 2,
+  },
+  waypointRing: {
+    position: 'absolute',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 2,
+  },
+  waypointCore: {
+    width: 14,
+    height: 14,
+    borderRadius: 3,
     borderWidth: 2,
   },
 });
