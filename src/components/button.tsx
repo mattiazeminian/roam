@@ -121,7 +121,9 @@ export function Button({
 
 const styles = StyleSheet.create({
   base: {
-    borderRadius: radii.small,
+    // Pill geometry is the strongest single Wise signature, and it reads as a
+    // deliberate action rather than a generic rounded rectangle.
+    borderRadius: radii.pill,
     borderCurve: 'continuous',
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.xl,

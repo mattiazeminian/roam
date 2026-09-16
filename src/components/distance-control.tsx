@@ -160,7 +160,7 @@ export function DistanceControl({ valueKm, onChange, disabled = false }: Distanc
             accessibilityRole="button"
             accessibilityLabel="Done editing distance"
             hitSlop={12}>
-            <Text variant="heading" color="accent">
+            <Text variant="heading" color="accentText">
               Done
             </Text>
           </Pressable>
@@ -197,7 +197,7 @@ export function DistanceControl({ valueKm, onChange, disabled = false }: Distanc
             maxLength={4}
             maxFontSizeMultiplier={1}
             accessibilityLabel={`Distance in ${fmt.unitSpoken}`}
-            style={[styles.input, { color: theme.accent }]}
+            style={[styles.input, { color: theme.accentText }]}
           />
           <Text variant="title" color="textSecondary" style={styles.unit}>
             {fmt.unitLabel}
@@ -229,7 +229,7 @@ export function DistanceControl({ valueKm, onChange, disabled = false }: Distanc
             }
           }}>
           <Animated.View style={[styles.valueRow, valueStyle]}>
-            <Text variant="metric" color="accent" tabular>
+            <Text variant="metric" color="accentText" tabular>
               {shown.toFixed(1)}
             </Text>
             <Text variant="title" color="textSecondary" style={styles.unit}>

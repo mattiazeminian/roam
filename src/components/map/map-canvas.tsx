@@ -22,8 +22,8 @@ const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
 /** Optional custom monochrome style, authored in Mapbox Studio. */
 const MAPBOX_STYLE_URL = process.env.EXPO_PUBLIC_MAPBOX_STYLE_URL ?? '';
 
-/** ROAM is dark in every appearance, so the map is too. */
-const FALLBACK_STYLE_DARK = 'mapbox://styles/mapbox/dark-v11';
+/** The map is quiet and light so the route and the UI carry the contrast. */
+const FALLBACK_STYLE = 'mapbox://styles/mapbox/light-v11';
 
 /**
  * Mapbox is required lazily, and only when a token is configured. The native
@@ -155,7 +155,7 @@ function MapboxCanvas({
   const [mapReady, setMapReady] = useState(false);
 
   const insets = useMemo<MapInsets>(() => ({ ...DEFAULT_INSETS, ...padding }), [padding]);
-  const styleURL = MAPBOX_STYLE_URL || FALLBACK_STYLE_DARK;
+  const styleURL = MAPBOX_STYLE_URL || FALLBACK_STYLE;
 
   // Frame every route, plus the origin. Runs only when the route set changes,
   // so selecting a different route never moves the camera.
@@ -256,7 +256,7 @@ function MapboxCanvas({
             mapbox={mapbox}
             route={route}
             selected={false}
-            casingColor={map.land}
+            casingColor={map.routeCasing}
             selectedColor={theme.accent}
             neutralColor={theme.textSecondary}
           />
@@ -269,7 +269,7 @@ function MapboxCanvas({
             mapbox={mapbox}
             route={route}
             selected
-            casingColor={map.land}
+            casingColor={map.routeCasing}
             selectedColor={theme.accent}
             neutralColor={theme.textSecondary}
           />

@@ -10,7 +10,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { useTheme } from '@/theme';
+import { motion, useTheme } from '@/theme';
 
 const BASE = 140;
 
@@ -36,7 +36,7 @@ function Ring({
     }
     progress.value = withDelay(
       delay,
-      withRepeat(withTiming(1, { duration: 1500, easing: Easing.out(Easing.quad) }), -1, false),
+      withRepeat(withTiming(1, { duration: motion.searchPulseDuration, easing: Easing.out(Easing.quad) }), -1, false),
     );
   }, [delay, progress, reduceMotion]);
 

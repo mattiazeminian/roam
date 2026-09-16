@@ -11,11 +11,18 @@
  * drawn over them is never in competition.
  */
 export const mapPalette = {
-  land: '#000000',
-  building: '#141414',
-  minorRoad: '#242424',
-  majorRoad: '#3A3A3C',
-  label: 'rgba(235, 235, 245, 0.60)',
+  /** Sits a touch below the canvas so the map reads as a distinct surface. */
+  land: '#F1F1EE',
+  building: '#E6E7E3',
+  minorRoad: '#DCDDD8',
+  majorRoad: '#C4C5BF',
+  label: '#6E706C',
+  /**
+   * Casing drawn under a route line. On light land the lime alone has too
+   * little separation, so the selected route gets a dark green outline: the
+   * line keeps its accent while gaining an edge against the map.
+   */
+  routeCasing: '#163300',
 } as const;
 
 export type MapColors = typeof mapPalette;

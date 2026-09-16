@@ -5,13 +5,14 @@ import Animated, {
   cancelAnimation,
   runOnJS,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
 
 import { Text } from '@/components/text';
 import { impactLight, successFeedback } from '@/lib/haptics';
-import { layout, radii, spacing, useTheme } from '@/theme';
+import { layout, motion, radii, spacing, useTheme } from '@/theme';
 
 /** Long enough to be deliberate, short enough not to feel like a punishment. */
 const HOLD_DURATION_MS = 1200;
@@ -41,6 +42,7 @@ export function HoldButton({
   accessibilityLabel,
 }: HoldButtonProps) {
   const theme = useTheme();
+  const reduceMotion = useReducedMotion();
   const progress = useSharedValue(0);
   const holding = useSharedValue(0);
   // The swap has to be real React state: the resting label is what the control
@@ -75,15 +77,18 @@ export function HoldButton({
     cancelAnimation(progress);
     setIsHolding(false);
     holding.value = 0;
-    progress.value = withTiming(0, { duration: 160 });
+    progress.value = withTiming(0, { duration: motion.microDuration });
   };
 
   const fillStyle = useAnimatedStyle(() => ({
     width: `${progress.value * 100}%`,
   }));
 
+  // The progress track is *essential* motion — it is the only thing telling the
+  // runner how much longer to hold — so it is never disabled. The label's fade
+  // is decorative, and that is what Reduce Motion switches off.
   const labelStyle = useAnimatedStyle(() => ({
-    opacity: holding.value ? 0.8 : 1,
+    opacity: reduceMotion ? 1 : holding.value ? 0.8 : 1,
   }));
 
   return (

@@ -140,7 +140,7 @@ export default function SettingsScreen() {
           <View style={styles.row}>
             <Text
               variant="display"
-              color="accent"
+              color="accentText"
               tabular
               accessibilityLabel={`Typical pace ${paceMinutes} minutes ${paceSeconds} seconds per ${settings.unit === 'mi' ? 'mile' : 'kilometer'}`}>
               {`${paceMinutes}'${paceSeconds.toString().padStart(2, '0')}"`}
@@ -184,7 +184,7 @@ export default function SettingsScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Delete all saved runs"
                 style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
-                <Text variant="body" color="accent">
+                <Text variant="body" color="accentText">
                   Delete all runs
                 </Text>
               </Pressable>

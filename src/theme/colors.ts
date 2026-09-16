@@ -1,87 +1,93 @@
 /**
- * ROAM color system.
+ * ROAM color system — adapted from docs/design.md (Wise).
  *
- * ROAM is a dark product. That is an identity decision, not a preference: the
- * accent is a bright warm hue, so on white it reads around 2.3:1 and could only
- * ever be a fill. On black it reaches ~9:1, which lets it carry live data as
- * *text* — the distance while running, the selected route, the primary action.
- * The dark ground is what makes the accent usable, and it lets the map recede
- * so the route reads first.
+ * The governing rule, taken from design.md and confirmed by measurement: the
+ * green is a *fill*, never a foreground. `#9fe870` on the off-white canvas is
+ * 1.42:1, so any green text would be unreadable. Emphasis in type is carried by
+ * Dark Green (`accentText`, 13.44:1) instead, which keeps the brand present in
+ * the big numbers without putting lime on white.
+ *
+ * One deliberate deviation from design.md: its neutral Gray `#868685` measures
+ * 3.52:1 on the canvas and fails AA for body text, so secondary copy uses Warm
+ * Dark `#454745` (9.05:1) and the gray is kept for disabled states only. The
+ * brief ranks accessibility above Wise fidelity.
  */
 
 export const palette = {
-  /** True black. On OLED this is the ground Apple's own dark mode uses, and it
-   *  is what lets the map and the accent read as the only light in the screen. */
-  black: '#000000',
+  /** Near-black with a warm green undertone — design.md's primary. */
+  nearBlack: '#0E0F0C',
+  /** The canvas. Warm rather than pure white, so the UI does not glare. */
+  offWhite: '#FBFBF9',
   white: '#FFFFFF',
 
-  /** iOS systemGray6 / systemGray5 in dark: the two elevation steps above black. */
-  elevated: '#1C1C1E',
-  elevatedHigh: '#2C2C2E',
+  /** Wise Green. Buttons, selection and the active route — fills only. */
+  green: '#9FE870',
+  /** Pressed/hover green. */
+  greenPastel: '#CDFFAD',
+  greenDeep: '#8AD65C',
+  /** Text that sits on green, and the way to emphasise type without lime. */
+  greenDark: '#163300',
+  /** Soft green surface for badges and quiet emphasis. */
+  greenMint: '#E2F6D5',
 
-  /**
-   * ROAM orange — the single accent. Paired only with black foreground.
-   *
-   * Claude's warm orange family, pushed brighter so it still reads as neon on
-   * a black ground: the brand terracotta `#D97757` only reaches 6.73:1 against
-   * black, while this holds 8.95:1 — enough to carry live data as text rather
-   * than being limited to fills.
-   */
-  orange: '#FF8A3D',
-  orangeDeep: '#E8722A',
-  orangeBright: '#FFA766',
+  /** Secondary text and borders. */
+  warmDark: '#454745',
+  /** design.md's Gray — fails AA on the canvas, so disabled states only. */
+  gray: '#868685',
+  /** Subtle green-tinted light surface. */
+  lightSurface: '#E8EBE6',
 } as const;
 
 export type PaletteToken = keyof typeof palette;
 
-/**
- * Semantic tokens. Components reference these, never `palette` directly.
- */
 export const colors = {
-  background: palette.black,
-  /** Cards and list surfaces sitting on the page. */
-  surface: palette.elevated,
-  /** Sheets and anything that floats above content. */
-  surfaceElevated: palette.elevatedHigh,
+  background: palette.offWhite,
+  /** Cards and grouped rows sit lighter than the canvas. */
+  surface: palette.white,
+  /** Sheets and anything presented above content. */
+  surfaceElevated: palette.white,
 
-  // iOS separator colors rather than flat white alphas, which go chalky on
-  // true black.
-  border: 'rgba(84, 84, 88, 0.90)',
-  borderSubtle: 'rgba(84, 84, 88, 0.60)',
-  divider: 'rgba(84, 84, 88, 0.60)',
+  // Ring borders rather than shadows — design.md's elevation model.
+  border: 'rgba(14, 15, 12, 0.12)',
+  borderSubtle: 'rgba(14, 15, 12, 0.08)',
+  divider: 'rgba(14, 15, 12, 0.12)',
 
-  // Apple's dark label ramp: pure white primary, then tinted alphas.
-  text: palette.white,
-  textSecondary: 'rgba(235, 235, 245, 0.60)',
-  textDisabled: 'rgba(235, 235, 245, 0.30)',
-  /** Labels sitting on a translucent fill, where secondary would miss AA. */
-  textTertiary: 'rgba(235, 235, 245, 0.85)',
+  text: palette.nearBlack,
+  textSecondary: palette.warmDark,
+  /** Labels on a translucent fill, where full strength reads better. */
+  textTertiary: palette.nearBlack,
+  textDisabled: palette.gray,
 
-  disabled: 'rgba(120, 120, 128, 0.18)',
-  inverse: palette.black,
-  inverseBackground: palette.white,
+  disabled: 'rgba(14, 15, 12, 0.06)',
+  inverse: palette.white,
+  inverseBackground: palette.nearBlack,
 
-  // The accent is a fill, a line or a data value — never a foreground on a
-  // light surface. `accentForeground` is what sits on top of it.
-  accent: palette.orange,
-  accentForeground: palette.black,
-  accentPressed: palette.orangeDeep,
-  /** Low-alpha accent for progress tracks and selection washes. */
-  accentMuted: 'rgba(255, 138, 61, 0.16)',
-  selected: palette.orange,
-  active: palette.orange,
-  pressed: palette.orangeBright,
+  /** Fills, selection, the active route. Never a foreground. */
+  accent: palette.green,
+  /** What sits on top of the accent. */
+  accentForeground: palette.greenDark,
+  /**
+   * Emphasis in type — the distance, a record, a live metric. Dark Green keeps
+   * the brand in the numerals at 13.44:1 where the lime would be 1.42:1.
+   */
+  accentText: palette.greenDark,
+  accentPressed: palette.greenDeep,
+  /** Soft green wash for badges and progress tracks. */
+  accentMuted: palette.greenMint,
+  selected: palette.green,
+  active: palette.green,
+  pressed: palette.greenPastel,
 
-  /** iOS systemFill / secondarySystemFill in dark. */
-  fill: 'rgba(120, 120, 128, 0.24)',
-  fillPressed: 'rgba(120, 120, 128, 0.36)',
+  /** Secondary controls — design.md's subtle pill, dark green at low alpha. */
+  fill: 'rgba(22, 51, 0, 0.08)',
+  fillPressed: 'rgba(22, 51, 0, 0.14)',
 
-  /** Fallback material when the native Liquid Glass API is unavailable. */
-  glass: 'rgba(28, 28, 30, 0.78)',
-  glassBorder: 'rgba(84, 84, 88, 0.60)',
-  shadow: 'rgba(0, 0, 0, 0.8)',
-  /** Darkens the map beneath floating content so text stays legible. */
-  scrim: 'rgba(0, 0, 0, 0.55)',
+  /** Material for floating controls over the map. */
+  glass: 'rgba(255, 255, 255, 0.76)',
+  glassBorder: 'rgba(14, 15, 12, 0.10)',
+  /** Kept minimal on purpose: depth comes from the ring, not the shadow. */
+  shadow: 'rgba(14, 15, 12, 0.12)',
+  scrim: 'rgba(14, 15, 12, 0.32)',
 } as const;
 
 export type ColorToken = keyof typeof colors;

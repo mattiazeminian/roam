@@ -11,6 +11,8 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 
+import { motion } from '@/theme';
+
 import type { Point } from './projection';
 
 export type RoutePathProps = {
@@ -274,7 +276,7 @@ export function RoutePath({
       progress.value = 0;
       progress.value = withDelay(
         drawDelayMs,
-        withTiming(1, { duration: 720, easing: Easing.out(Easing.cubic) }),
+        withTiming(1, { duration: motion.routeDrawDuration, easing: Easing.out(Easing.cubic) }),
       );
     } else {
       progress.value = 1;

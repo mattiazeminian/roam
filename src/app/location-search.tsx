@@ -112,7 +112,7 @@ export default function LocationSearchScreen() {
             accessibilityRole="button"
             accessibilityLabel="Close"
             hitSlop={12}>
-            <Text variant="heading" color="accent">
+            <Text variant="heading" color="accentText">
               Done
             </Text>
           </Pressable>

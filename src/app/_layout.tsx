@@ -24,7 +24,7 @@ export default function RootLayout() {
       <LocationProvider>
         <RouteProvider>
           <RunProvider>
-            <StatusBar style="light" />
+            <StatusBar style="dark" />
             <Stack
               screenOptions={{
                 headerShown: false,

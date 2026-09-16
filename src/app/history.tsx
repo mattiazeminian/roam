@@ -122,7 +122,7 @@ function RecordCell({ label, value }: { label: string; value: string }) {
       <Text variant="micro" color="textSecondary">
         {label}
       </Text>
-      <Text variant="title" color="accent" tabular>
+      <Text variant="title" color="accentText" tabular>
         {value}
       </Text>
     </View>

@@ -42,7 +42,7 @@ export function Metric({
           variant={isHero ? 'metric' : 'display'}
           // The value a screen is about is the one thing that carries the
           // accent; the supporting metrics stay white so the accent keeps meaning.
-          color={isHero ? 'accent' : 'text'}
+          color={isHero ? 'accentText' : 'text'}
           tabular
           accessibilityLabel={accessibilityLabel ?? `${label} ${value}`}>
           {value}
