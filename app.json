@@ -9,7 +9,8 @@
     "userInterfaceStyle": "light",
     "ios": {
       "icon": "./assets/expo.icon",
-      "bundleIdentifier": "com.mattiazeminian.roam"
+      "bundleIdentifier": "com.mattiazeminian.roam",
+      "usesAppleSignIn": true
     },
     "android": {
       "adaptiveIcon": {
@@ -40,6 +41,7 @@
         }
       ],
       "@rnmapbox/maps",
+      "expo-apple-authentication",
       [
         "expo-location",
         {

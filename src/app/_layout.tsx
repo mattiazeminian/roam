@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 // TaskManager, which must happen at the bundle's global scope so the task
 // exists when the OS wakes the app in the background (#30).
 import '@/services/background-location';
+import { AccountProvider } from '@/services/account-context';
 import { LocationProvider } from '@/services/location-context';
 import { RouteProvider } from '@/services/route-context';
 import { RunProvider } from '@/services/run-context';
@@ -25,9 +26,10 @@ export default function RootLayout() {
 
   return (
     <SettingsProvider>
-      <LocationProvider>
-        <RouteProvider>
-          <RunProvider>
+      <AccountProvider>
+        <LocationProvider>
+          <RouteProvider>
+            <RunProvider>
             <StatusBar style="dark" />
             <Stack
               screenOptions={{
@@ -62,12 +64,14 @@ export default function RootLayout() {
               <Stack.Screen name="favorites" />
               <Stack.Screen name="run-detail" />
               <Stack.Screen name="settings" />
+              <Stack.Screen name="account" />
               {/* Choosing a start place is a modal decision, not a destination. */}
               <Stack.Screen name="location-search" options={{ presentation: 'modal' }} />
             </Stack>
           </RunProvider>
         </RouteProvider>
       </LocationProvider>
+      </AccountProvider>
     </SettingsProvider>
   );
 }

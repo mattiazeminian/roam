@@ -9,6 +9,7 @@ import { Divider } from '@/components/divider';
 import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
 import { impactLight, selectionFeedback } from '@/lib/haptics';
+import { useAccount } from '@/services/account-context';
 import { useSettings } from '@/services/settings-context';
 import {
   MAX_PACE_MIN_PER_KM,
@@ -24,14 +25,15 @@ const PACE_STEP = 0.1;
 /**
  * Settings — only things that change what ROAM does.
  *
- * No account, no notifications, no toggles that lead nowhere. Each row here
- * alters a number the app actually uses, or acts on data the app actually
- * stores.
+ * No notifications and no toggles that lead nowhere; each row changes a number
+ * the app actually uses, acts on data it actually stores, or opens the one
+ * account entry point.
  */
 export default function SettingsScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const { settings, update, formatters } = useSettings();
+  const { account } = useAccount();
   const [runCount, setRunCount] = useState<number | null>(null);
 
   useEffect(() => {
@@ -190,6 +192,28 @@ export default function SettingsScreen() {
               </Pressable>
             </>
           ) : null}
+        </Section>
+
+        <Section title="Account">
+          <Pressable
+            onPress={() => router.push('/account')}
+            accessibilityRole="button"
+            accessibilityLabel={
+              account
+                ? `Account, signed in as ${account.name ?? account.email ?? 'Apple user'}. Manage account.`
+                : 'Sign in with Apple'
+            }
+            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
+            <Text variant="body">
+              {account ? (account.name ?? 'Signed in with Apple') : 'Sign in with Apple'}
+            </Text>
+            <View style={styles.spacer} />
+            <SymbolView
+              name="chevron.right"
+              size={layout.iconSizeSmall}
+              tintColor={theme.textSecondary}
+            />
+          </Pressable>
         </Section>
 
         <Section title="About">
