@@ -28,8 +28,33 @@ function loadRouting(apiKey: string | undefined): RoutingModule {
 
 const ORIGIN = { latitude: 40.7484, longitude: -73.9857 };
 
+/**
+ * A real ORS `extra_info` payload, captured from a live foot-walking round trip
+ * in Manhattan (~3.35 km). Codes are ORS's own: waytype 7 = Footway, 3 =
+ * Street, 4 = Path; surface 4 = Concrete and 3 = Asphalt (sealed), 0 = Unknown,
+ * 10 = Gravel. It exists so the taxonomy is tested against what the API
+ * actually returns rather than an invented shape (#14).
+ */
+const ORS_EXTRAS = {
+  waytype: {
+    summary: [
+      { value: 7, distance: 3315, amount: 98.91 },
+      { value: 3, distance: 29.8, amount: 0.89 },
+      { value: 4, distance: 6.8, amount: 0.2 },
+    ],
+  },
+  surface: {
+    summary: [
+      { value: 4, distance: 1839.8, amount: 54.89 },
+      { value: 0, distance: 964.1, amount: 28.76 },
+      { value: 3, distance: 310.5, amount: 9.26 },
+      { value: 10, distance: 218.4, amount: 6.52 },
+    ],
+  },
+};
+
 /** A minimal, valid ORS round-trip response with a given summary distance. */
-function orsFixture(distanceM: number, ascentM = 12) {
+function orsFixture(distanceM: number, ascentM = 12, extras?: unknown) {
   const pointCount = 12;
   const coordinates: [number, number][] = [];
   for (let i = 0; i < pointCount; i += 1) {
@@ -44,7 +69,11 @@ function orsFixture(distanceM: number, ascentM = 12) {
     features: [
       {
         geometry: { coordinates },
-        properties: { summary: { distance: distanceM, duration: distanceM * 0.9 }, ascent: ascentM },
+        properties: {
+          summary: { distance: distanceM, duration: distanceM * 0.9 },
+          ascent: ascentM,
+          ...(extras === undefined ? {} : { extras }),
+        },
       },
     ],
   };
@@ -405,5 +434,83 @@ describe('findRoutes', () => {
       findRoutes({ origin: { latitude: 999, longitude: 0 }, targetKm: 5 }),
     ).rejects.toMatchObject({ code: 'invalid-origin' });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('path attributes (#14)', () => {
+  test('derives footway and road percentages from the waytype summary', () => {
+    const { pathAttributesFromExtras } = loadRouting('test-key');
+    const attributes = pathAttributesFromExtras(ORS_EXTRAS);
+    expect(attributes.footwayPercent).toBe(99); // 98.91 + 0.2, rounded
+    expect(attributes.roadPercent).toBe(1); // 0.89, rounded
+  });
+
+  test('counts only recognised unsealed surfaces as unpaved', () => {
+    const { pathAttributesFromExtras } = loadRouting('test-key');
+    // 6.52% gravel; concrete/asphalt/unknown are sealed or unknown, not unpaved.
+    expect(pathAttributesFromExtras(ORS_EXTRAS).unpavedPercent).toBe(7);
+  });
+
+  test('reports unknown, not zero, when a dimension has no readable summary', () => {
+    const { pathAttributesFromExtras } = loadRouting('test-key');
+    expect(pathAttributesFromExtras(undefined).unpavedPercent).toBeNull();
+    expect(pathAttributesFromExtras({}).footwayPercent).toBeNull();
+    expect(pathAttributesFromExtras({ waytype: { summary: [] } }).footwayPercent).toBeNull();
+    expect(
+      pathAttributesFromExtras({ waytype: { summary: ORS_EXTRAS.waytype.summary } }).unpavedPercent,
+    ).toBeNull();
+  });
+
+  test('ignores malformed summary entries rather than throwing', () => {
+    const { pathAttributesFromExtras } = loadRouting('test-key');
+    const attributes = pathAttributesFromExtras({
+      waytype: { summary: [{ value: 'x', amount: 10 }, { value: 7, amount: Number.NaN }, null] },
+    });
+    expect(attributes.footwayPercent).toBeNull();
+  });
+
+  test('labels a route that is mostly on footways', () => {
+    const { characteristicLabelsFor } = loadRouting('test-key');
+    expect(
+      characteristicLabelsFor({ footwayPercent: 99, roadPercent: 1, unpavedPercent: 0 }),
+    ).toEqual(['Mostly footways & paths']);
+  });
+
+  test('flags road exposure and unpaved sections without combining them into a score', () => {
+    const { characteristicLabelsFor } = loadRouting('test-key');
+    const labels = characteristicLabelsFor({
+      footwayPercent: 60,
+      roadPercent: 25,
+      unpavedPercent: 40,
+    });
+    expect(labels).toContain('Some main-road sections');
+    expect(labels).toContain('Partly unpaved');
+    expect(labels).not.toContain('Mostly footways & paths');
+  });
+
+  test('claims nothing when data is present but below every threshold', () => {
+    const { characteristicLabelsFor } = loadRouting('test-key');
+    expect(
+      characteristicLabelsFor({ footwayPercent: 50, roadPercent: 5, unpavedPercent: 0 }),
+    ).toEqual([]);
+  });
+
+  test('says unknown — not "none" — when no path data was returned', () => {
+    const { characteristicLabelsFor } = loadRouting('test-key');
+    expect(
+      characteristicLabelsFor({ footwayPercent: null, roadPercent: null, unpavedPercent: null }),
+    ).toEqual(['Path surface unknown']);
+  });
+
+  test('carries attributes through to the candidate and its labels', async () => {
+    const fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    fetchMock.mockResolvedValue(jsonResponse(orsFixture(5000, 12, ORS_EXTRAS)) as never);
+
+    const { findRoutes } = loadRouting('test-key');
+    const routes = await findRoutes({ origin: ORIGIN, targetKm: 5 });
+
+    expect(routes[0].attributes?.footwayPercent).toBe(99);
+    expect(routes[0].characteristics).toContain('Mostly footways & paths');
   });
 });

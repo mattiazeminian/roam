@@ -30,6 +30,28 @@ export type RouteCandidate = {
   characteristics: string[];
   /** Total climb in meters, when the provider returned elevation data. */
   ascentMeters?: number;
+  /**
+   * Structured path attributes from the provider's per-segment data (#14).
+   * Separate from `characteristics`, which is the human-readable projection of
+   * these. Absent when the provider returned no path data at all.
+   */
+  attributes?: RouteAttributes;
+};
+
+/**
+ * Factual, per-segment attributes derived from the provider's own path data
+ * (ORS `extra_info`). Each percentage is of total route distance, and `null`
+ * means the provider did not return usable data for that dimension — never
+ * inferred, and never defaulted to zero, because "unknown" and "none" are
+ * different claims.
+ */
+export type RouteAttributes = {
+  /** Percent on pedestrian ways: footway, path, track, steps, cycleway. */
+  footwayPercent: number | null;
+  /** Percent on roads and streets: state road, road, street. */
+  roadPercent: number | null;
+  /** Percent on a recognised unsealed surface: gravel, dirt, grass, sand, … */
+  unpavedPercent: number | null;
 };
 
 export type RouteRequest = {
@@ -301,6 +323,7 @@ type OrsFeature = {
   properties?: {
     summary?: { distance?: unknown; duration?: unknown; ascent?: unknown };
     ascent?: unknown;
+    extras?: unknown;
   };
 };
 
@@ -323,7 +346,12 @@ function toCoordinates(raw: unknown): Coordinate[] {
   return points;
 }
 
-type RawCandidate = { geometry: Coordinate[]; distanceM: number; ascentM?: number };
+type RawCandidate = {
+  geometry: Coordinate[];
+  distanceM: number;
+  ascentM?: number;
+  attributes: RouteAttributes;
+};
 
 /**
  * @param requestedLengthM The length sent to ORS in the request — after the
@@ -350,6 +378,11 @@ async function requestLoop(
       body: JSON.stringify({
         coordinates: [[origin.longitude, origin.latitude]],
         elevation: true,
+        // Per-segment path data (#14). Only the two dimensions ROAM actually
+        // presents are requested: `steepness` would duplicate the climb figure
+        // already shown, and `suitability` is a 0–10 score, which is exactly
+        // the kind of composite verdict this feature must not surface.
+        extra_info: ['waytype', 'surface'],
         options: {
           round_trip: {
             length: Math.round(requestedLengthM),
@@ -400,14 +433,112 @@ async function requestLoop(
   const rawAscent = feature?.properties?.ascent ?? feature?.properties?.summary?.ascent;
   const ascentM = typeof rawAscent === 'number' && Number.isFinite(rawAscent) ? rawAscent : undefined;
 
-  return { geometry, distanceM, ascentM };
+  return {
+    geometry,
+    distanceM,
+    ascentM,
+    attributes: pathAttributesFromExtras(feature?.properties?.extras),
+  };
 }
 
-function describe(ascentMeters: number | undefined, closestAvailable: boolean): string[] {
+/**
+ * ORS `waytype` codes, grouped by what a runner would care about. Names are
+ * ORS's own way categories; codes in neither group (unknown, ferry,
+ * construction) are deliberately not counted either way.
+ */
+const WAYTYPE_FOOT = new Set([4, 5, 6, 7, 8]); // Path, Track, Cycleway, Footway, Steps
+const WAYTYPE_ROAD = new Set([1, 2, 3]); // State road, Road, Street
+
+/**
+ * ORS `surface` codes that are not sealed. Sealed codes are deliberately not
+ * listed, so a code this build does not recognise is treated as "not counted"
+ * rather than silently called unpaved.
+ */
+const SURFACE_UNPAVED = new Set([2, 8, 9, 10, 11, 12, 15, 16, 17, 18]);
+
+type OrsExtraEntry = { value?: unknown; amount?: unknown };
+type OrsExtras = Record<string, { summary?: OrsExtraEntry[] } | undefined>;
+
+/**
+ * Percentage of route distance whose code is in `codes`, or null when the
+ * provider returned no readable summary for that dimension. A present but
+ * empty summary is a real "0%"; a missing one is unknown.
+ */
+function percentForCodes(
+  extras: OrsExtras,
+  key: string,
+  codes: ReadonlySet<number>,
+): number | null {
+  const summary = extras[key]?.summary;
+  if (!Array.isArray(summary) || summary.length === 0) {
+    return null;
+  }
+  let percent = 0;
+  let readable = false;
+  for (const entry of summary) {
+    const { value, amount } = entry ?? {};
+    if (typeof value !== 'number' || typeof amount !== 'number' || !Number.isFinite(amount)) {
+      continue;
+    }
+    readable = true;
+    if (codes.has(value)) {
+      percent += amount;
+    }
+  }
+  return readable ? Math.round(percent) : null;
+}
+
+/** Reads ORS `extra_info` into the attributes ROAM presents. Never infers. */
+export function pathAttributesFromExtras(extras: unknown): RouteAttributes {
+  const parsed = (typeof extras === 'object' && extras !== null ? extras : {}) as OrsExtras;
+  return {
+    footwayPercent: percentForCodes(parsed, 'waytype', WAYTYPE_FOOT),
+    roadPercent: percentForCodes(parsed, 'waytype', WAYTYPE_ROAD),
+    unpavedPercent: percentForCodes(parsed, 'surface', SURFACE_UNPAVED),
+  };
+}
+
+const MOSTLY_FOOTWAY_PERCENT = 80;
+const SOME_ROAD_PERCENT = 15;
+const SOME_UNPAVED_PERCENT = 15;
+
+/**
+ * Short, factual labels for the route UI — one discrete claim per fact, never
+ * a combined score, and never a statement that a route is safe. Thresholds are
+ * stated once here so the copy and the numbers cannot drift apart.
+ */
+export function characteristicLabelsFor(attributes: RouteAttributes): string[] {
+  if (
+    attributes.footwayPercent === null &&
+    attributes.roadPercent === null &&
+    attributes.unpavedPercent === null
+  ) {
+    return ['Path surface unknown'];
+  }
+
+  const labels: string[] = [];
+  if (attributes.footwayPercent !== null && attributes.footwayPercent >= MOSTLY_FOOTWAY_PERCENT) {
+    labels.push('Mostly footways & paths');
+  }
+  if (attributes.roadPercent !== null && attributes.roadPercent >= SOME_ROAD_PERCENT) {
+    labels.push('Some main-road sections');
+  }
+  if (attributes.unpavedPercent !== null && attributes.unpavedPercent >= SOME_UNPAVED_PERCENT) {
+    labels.push('Partly unpaved');
+  }
+  return labels;
+}
+
+function describe(
+  ascentMeters: number | undefined,
+  closestAvailable: boolean,
+  attributes: RouteAttributes,
+): string[] {
   const characteristics = ['Loop'];
   if (typeof ascentMeters === 'number' && ascentMeters >= 10) {
     characteristics.push(`${Math.round(ascentMeters)} m climb`);
   }
+  characteristics.push(...characteristicLabelsFor(attributes));
   // Honest rather than silent: when nothing landed near the request, every
   // candidate returned is an approximation, not a match, and the app must not
   // imply otherwise (issue #7).
@@ -550,8 +681,9 @@ export async function findRoutes({
       distanceKm,
       estimatedMinutes: Math.max(1, Math.round(distanceKm * paceMinPerKm)),
       geometry: candidate.geometry,
-      characteristics: describe(candidate.ascentM, closestAvailable),
+      characteristics: describe(candidate.ascentM, closestAvailable, candidate.attributes),
       ascentMeters: candidate.ascentM,
+      attributes: candidate.attributes,
     };
   });
 }
