@@ -1,12 +1,12 @@
 import { router, useFocusEffect } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
+import { ControlPanel } from '@/components/control-panel';
 import { DEFAULT_DISTANCE_KM, DistanceControl } from '@/components/distance-control';
-import { Divider } from '@/components/divider';
 import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
@@ -61,6 +61,7 @@ export default function HomeScreen() {
   const [chosenKm, setChosenKm] = useState<number | null>(null);
   const distanceKm = chosenKm ?? settings.defaultDistanceKm ?? DEFAULT_DISTANCE_KM;
   const [recenterSignal, setRecenterSignal] = useState(0);
+  const [findRoutesOpen, setFindRoutesOpen] = useState(false);
 
   // Home shows who the runner is and what they have run, so statistics are
   // visible without opening History (#108). Reloaded on focus, so a run saved
@@ -188,18 +189,11 @@ export default function HomeScreen() {
             { top: insets.top + spacing.xs, paddingHorizontal: layout.screenMargin },
           ]}
           pointerEvents="box-none">
-          <View style={styles.mapControlsGroup}>
-            <MapControl
-              symbol="clock.arrow.circlepath"
-              accessibilityLabel="Your runs"
-              onPress={() => router.push('/history')}
-            />
-            <MapControl
-              symbol="bookmark"
-              accessibilityLabel="Saved routes"
-              onPress={() => router.push('/favorites')}
-            />
-          </View>
+          <MapControl
+            symbol="person.crop.circle"
+            accessibilityLabel="Your profile"
+            onPress={() => router.push('/profile')}
+          />
           {coordinate ? (
             <MapControl
               symbol="location"
@@ -313,89 +307,133 @@ export default function HomeScreen() {
           </Pressable>
         ) : null}
 
-        {/* Route discovery is a clear but visually subordinate path below
-            it — a line, not a card, per the app's own "structure with
-            lines" convention, separates the primary action from it. */}
-        <Divider />
+        {/* Route discovery is one quiet button now: it opens the start point,
+            distance and finish choices in a sheet, out of the way of running
+            (#107). The primary action above stays the only accent on screen. */}
+        <Button
+          label="Find a route"
+          variant="secondary"
+          onPress={() => {
+            impactLight();
+            setFindRoutesOpen(true);
+          }}
+          disabled={!origin}
+        />
+      </View>
 
-        {/* Where the run starts, and the way to change it. Deliberately not
-            accented: the accent is reserved for the primary action above. */}
+      {/* The route choices, out of the way until asked for. A sheet rather than
+          a screen: choosing a route is a decision, not a destination. */}
+      <Modal
+        visible={findRoutesOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setFindRoutesOpen(false)}>
         <Pressable
-          onPress={() => router.push('/location-search')}
+          style={styles.backdrop}
           accessibilityRole="button"
-          accessibilityLabel={`Starting from ${originLabel}. Change starting point.`}
-          style={({ pressed }) => [styles.originRow, pressed && styles.pressed]}>
-          <SymbolView
-            name={hasCustomOrigin ? 'mappin.circle.fill' : 'location.fill'}
-            size={layout.iconSizeSmall}
-            tintColor={theme.textSecondary}
-          />
-          <Text variant="label" color="textTertiary" numberOfLines={1} style={styles.originLabel}>
-            {originLabel}
-          </Text>
-          <SymbolView
-            name="chevron.right"
-            size={layout.iconSizeSmall}
-            tintColor={theme.textSecondary}
-          />
-        </Pressable>
+          accessibilityLabel="Close"
+          onPress={() => setFindRoutesOpen(false)}
+        />
+        <View style={styles.sheetAnchor}>
+          <ControlPanel style={styles.sheet}>
+            <View style={styles.sheetHeader}>
+              <Text variant="title">Find a route</Text>
+              <Pressable
+                onPress={() => setFindRoutesOpen(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+                hitSlop={spacing.sm}>
+                <Text variant="body" color="accentText">
+                  Close
+                </Text>
+              </Pressable>
+            </View>
 
-        <DistanceControl valueKm={distanceKm} onChange={setChosenKm} disabled={isFinding} />
-
-        {/* Where the run ends. Loops by default; a chosen finish makes it a
-            one-way, and can be cleared back to a loop. */}
-        <View style={styles.finishRow}>
-          <Pressable
-            onPress={() => router.push('/location-search?mode=finish')}
-            accessibilityRole="button"
-            accessibilityLabel={
-              finish
-                ? `Finishing at ${finish.label}. Change finish point.`
-                : 'Loop, finishing back where you started. Choose a finish point.'
-            }
-            style={({ pressed }) => [
-              styles.originRow,
-              styles.finishTarget,
-              pressed && styles.pressed,
-            ]}>
-            <SymbolView
-              name={finish ? 'flag' : 'arrow.triangle.2.circlepath'}
-              size={layout.iconSizeSmall}
-              tintColor={theme.textSecondary}
-            />
-            <Text variant="label" color="textTertiary" numberOfLines={1} style={styles.originLabel}>
-              {finish ? `Finish · ${finish.label}` : 'Loop · back to start'}
-            </Text>
-            <SymbolView
-              name="chevron.right"
-              size={layout.iconSizeSmall}
-              tintColor={theme.textSecondary}
-            />
-          </Pressable>
-          {finish ? (
             <Pressable
-              onPress={clearFinish}
+              onPress={() => router.push('/location-search')}
               accessibilityRole="button"
-              accessibilityLabel="Make it a loop instead"
-              hitSlop={spacing.sm}
-              style={({ pressed }) => (pressed ? styles.pressed : undefined)}>
+              accessibilityLabel={`Starting from ${originLabel}. Change starting point.`}
+              style={({ pressed }) => [styles.originRow, pressed && styles.pressed]}>
               <SymbolView
-                name="xmark.circle.fill"
+                name={hasCustomOrigin ? 'mappin.circle.fill' : 'location.fill'}
+                size={layout.iconSizeSmall}
+                tintColor={theme.textSecondary}
+              />
+              <Text variant="label" color="textTertiary" numberOfLines={1} style={styles.originLabel}>
+                {originLabel}
+              </Text>
+              <SymbolView
+                name="chevron.right"
                 size={layout.iconSizeSmall}
                 tintColor={theme.textSecondary}
               />
             </Pressable>
-          ) : null}
-        </View>
 
-        <Button
-          label={isFinding ? 'Finding your way' : hasError ? 'Try again' : 'Find routes'}
-          variant="secondary"
-          onPress={handleFindRoutes}
-          disabled={isFinding || !origin}
-          loading={isFinding}
-        />
-      </View>
+            <DistanceControl valueKm={distanceKm} onChange={setChosenKm} disabled={isFinding} />
+
+            {/* Where the run ends. Loops by default; a chosen finish makes it
+                a one-way, and can be cleared back to a loop. */}
+            <View style={styles.finishRow}>
+              <Pressable
+                onPress={() => router.push('/location-search?mode=finish')}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  finish
+                    ? `Finishing at ${finish.label}. Change finish point.`
+                    : 'Loop, finishing back where you started. Choose a finish point.'
+                }
+                style={({ pressed }) => [
+                  styles.originRow,
+                  styles.finishTarget,
+                  pressed && styles.pressed,
+                ]}>
+                <SymbolView
+                  name={finish ? 'flag' : 'arrow.triangle.2.circlepath'}
+                  size={layout.iconSizeSmall}
+                  tintColor={theme.textSecondary}
+                />
+                <Text
+                  variant="label"
+                  color="textTertiary"
+                  numberOfLines={1}
+                  style={styles.originLabel}>
+                  {finish ? `Finish · ${finish.label}` : 'Loop · back to start'}
+                </Text>
+                <SymbolView
+                  name="chevron.right"
+                  size={layout.iconSizeSmall}
+                  tintColor={theme.textSecondary}
+                />
+              </Pressable>
+              {finish ? (
+                <Pressable
+                  onPress={clearFinish}
+                  accessibilityRole="button"
+                  accessibilityLabel="Make it a loop instead"
+                  hitSlop={spacing.sm}
+                  style={({ pressed }) => (pressed ? styles.pressed : undefined)}>
+                  <SymbolView
+                    name="xmark.circle.fill"
+                    size={layout.iconSizeSmall}
+                    tintColor={theme.textSecondary}
+                  />
+                </Pressable>
+              ) : null}
+            </View>
+
+            <Button
+              label={isFinding ? 'Finding your way' : hasError ? 'Try again' : 'Find routes'}
+              variant="accent"
+              onPress={() => {
+                setFindRoutesOpen(false);
+                void handleFindRoutes();
+              }}
+              disabled={isFinding || !origin}
+              loading={isFinding}
+            />
+          </ControlPanel>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -416,10 +454,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  mapControlsGroup: {
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(14, 15, 12, 0.25)',
+  },
+  sheetAnchor: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  sheet: {
+    gap: spacing.md,
+  },
+  sheetHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    justifyContent: 'space-between',
   },
   panel: {
     borderTopWidth: StyleSheet.hairlineWidth,
