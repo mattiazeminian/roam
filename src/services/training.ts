@@ -188,6 +188,57 @@ export function normalizePreferredDays(days: readonly number[]): number[] {
   return [...new Set(valid)].sort((a, b) => a - b);
 }
 
+export const DEFAULT_RUNS_PER_WEEK = 3;
+
+/**
+ * Tuesday, Thursday, Saturday. The shape the week rules expect when a runner
+ * does not choose: three sessions spread out, with the long run on the weekend.
+ */
+export const DEFAULT_PREFERRED_DAYS: readonly number[] = [2, 4, 6];
+
+/** What a plan is created from. Every field is used; none is collected for show. */
+export type PlanInput = {
+  goalKind: TrainingGoalKind;
+  /** Used only for `distance` and `race` goals. */
+  targetKm: number | null;
+  /** Used only for a `race` goal. */
+  raceDate: string | null;
+  runsPerWeek: number;
+  preferredDays: readonly number[];
+  level: TrainingLevel;
+};
+
+function positiveOrNull(value: number | null): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/**
+ * Build a plan from the runner's choices (#69).
+ *
+ * Normalising rather than trusting: runs per week is clamped, weekdays are
+ * validated, and a target or race date that does not belong to the chosen goal
+ * is dropped instead of being stored unused. An unusable level falls back to
+ * `occasional`, and no chosen days fall back to the default three.
+ */
+export function buildPlan(input: PlanInput): TrainingPlan {
+  const runsPerWeek = Number.isFinite(input.runsPerWeek)
+    ? Math.min(14, Math.max(1, Math.round(input.runsPerWeek)))
+    : DEFAULT_RUNS_PER_WEEK;
+
+  const preferredDays = normalizePreferredDays([...input.preferredDays]);
+
+  return createPlan({
+    goal: {
+      kind: input.goalKind,
+      targetKm: input.goalKind === 'fitness' ? null : positiveOrNull(input.targetKm),
+      raceDate: input.goalKind === 'race' && isDateKey(input.raceDate) ? input.raceDate : null,
+    },
+    runsPerWeek,
+    preferredDays: preferredDays.length > 0 ? preferredDays : [...DEFAULT_PREFERRED_DAYS],
+    level: isTrainingLevel(input.level) ? input.level : 'occasional',
+  });
+}
+
 // -- Queries ----------------------------------------------------------------
 
 export function workoutsOnDate(state: TrainingState, date: string): PlannedWorkout[] {

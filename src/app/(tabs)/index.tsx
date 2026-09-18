@@ -22,6 +22,7 @@ import type { Coordinate } from '@/services/routing';
 import { useRun } from '@/services/run-context';
 import { listRuns } from '@/services/run-storage';
 import { useFormatters, useSettings } from '@/services/settings-context';
+import { useTraining } from '@/services/training-context';
 import { layout, spacing, useTheme } from '@/theme';
 
 /**
@@ -49,6 +50,7 @@ export default function HomeScreen() {
   const { status: routeStatus, errorMessage, find } = useRoutes();
   const { start, recoverable, resumeRecovered, discardRecovered } = useRun();
   const { settings, loaded: settingsLoaded, update } = useSettings();
+  const { state: training, loaded: trainingLoaded } = useTraining();
   const { account } = useAccount();
   const fmt = useFormatters();
   const [displayName, setDisplayName] = useState<string | null>(null);
@@ -277,6 +279,30 @@ export default function HomeScreen() {
           onPress={handleStartRun}
           disabled={locationStatus === 'denied'}
         />
+
+        {/* The training surface (#114) starts with a plan. Until one exists,
+            this is the way in — quiet, because running now needs nothing. */}
+        {trainingLoaded && !training.plan ? (
+          <Pressable
+            onPress={() => router.push('/plan')}
+            accessibilityRole="button"
+            accessibilityLabel="Set up a training plan"
+            style={({ pressed }) => [styles.originRow, pressed && styles.pressed]}>
+            <SymbolView
+              name="calendar"
+              size={layout.iconSizeSmall}
+              tintColor={theme.textSecondary}
+            />
+            <Text variant="label" color="textTertiary" style={styles.originLabel}>
+              Set up a training plan
+            </Text>
+            <SymbolView
+              name="chevron.right"
+              size={layout.iconSizeSmall}
+              tintColor={theme.textSecondary}
+            />
+          </Pressable>
+        ) : null}
 
         {/* Planning and running are separate journeys (#107): a route kept
             earlier can be run directly from here, without regenerating

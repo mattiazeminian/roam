@@ -10,6 +10,7 @@ import { LocationProvider } from '@/services/location-context';
 import { RouteProvider } from '@/services/route-context';
 import { RunProvider } from '@/services/run-context';
 import { SettingsProvider } from '@/services/settings-context';
+import { TrainingProvider } from '@/services/training-context';
 import { motion, useTheme } from '@/theme';
 
 /**
@@ -25,6 +26,7 @@ export default function RootLayout() {
 
   return (
     <SettingsProvider>
+      <TrainingProvider>
       <AccountProvider>
         <LocationProvider>
           <RouteProvider>
@@ -64,6 +66,8 @@ export default function RootLayout() {
               <Stack.Screen name="run-detail" />
               <Stack.Screen name="settings" />
               <Stack.Screen name="account" />
+              {/* A plan is created in a sheet, not a journey of its own. */}
+              <Stack.Screen name="plan" options={{ presentation: 'modal' }} />
               {/* A route opened from a share link lands here, then hands off
                   to the normal selection flow (#23). */}
               <Stack.Screen name="shared-route" />
@@ -74,6 +78,7 @@ export default function RootLayout() {
         </RouteProvider>
       </LocationProvider>
       </AccountProvider>
+      </TrainingProvider>
     </SettingsProvider>
   );
 }

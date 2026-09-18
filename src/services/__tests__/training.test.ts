@@ -13,6 +13,7 @@ import {
   WORKOUT_DESCRIPTIONS,
   WORKOUT_TYPES,
   addWorkouts,
+  buildPlan,
   createPlan,
   createWorkout,
   loadTraining,
@@ -275,5 +276,59 @@ describe('training updates (#67)', () => {
 
   test('a local date key is a calendar day, not a timestamp', () => {
     expect(toDateKey(new Date(2026, 8, 21, 23, 30))).toBe('2026-09-21');
+  });
+});
+
+describe('building a plan (#69)', () => {
+  const input = {
+    goalKind: 'distance' as const,
+    targetKm: 10,
+    raceDate: null,
+    runsPerWeek: 4,
+    preferredDays: [5, 1, 1],
+    level: 'regular' as const,
+  };
+
+  test('keeps the runner\'s choices, normalized', () => {
+    const plan = buildPlan(input);
+    expect(plan).toMatchObject({
+      runsPerWeek: 4,
+      preferredDays: [1, 5],
+      level: 'regular',
+      goal: { kind: 'distance', targetKm: 10, raceDate: null },
+    });
+  });
+
+  test('clamps an implausible runs-per-week instead of accepting it', () => {
+    expect(buildPlan({ ...input, runsPerWeek: 0 }).runsPerWeek).toBe(1);
+    expect(buildPlan({ ...input, runsPerWeek: 99 }).runsPerWeek).toBe(14);
+    expect(buildPlan({ ...input, runsPerWeek: 3.4 }).runsPerWeek).toBe(3);
+  });
+
+  test('drops a target that does not belong to the chosen goal', () => {
+    const fitness = buildPlan({ ...input, goalKind: 'fitness' });
+    expect(fitness.goal.targetKm).toBeNull();
+    expect(fitness.goal.raceDate).toBeNull();
+  });
+
+  test('keeps a race date only for a race goal, and only when it is a date', () => {
+    const race = buildPlan({ ...input, goalKind: 'race', raceDate: '2026-11-01' });
+    expect(race.goal).toEqual({ kind: 'race', targetKm: 10, raceDate: '2026-11-01' });
+
+    const notADate = buildPlan({ ...input, goalKind: 'race', raceDate: 'next month' });
+    expect(notADate.goal.raceDate).toBeNull();
+
+    const distance = buildPlan({ ...input, goalKind: 'distance', raceDate: '2026-11-01' });
+    expect(distance.goal.raceDate).toBeNull();
+  });
+
+  test('falls back to three spread weekdays when none are chosen', () => {
+    expect(buildPlan({ ...input, preferredDays: [] }).preferredDays).toEqual([2, 4, 6]);
+    expect(buildPlan({ ...input, preferredDays: [9, -1] }).preferredDays).toEqual([2, 4, 6]);
+  });
+
+  test('an unusable level falls back rather than being stored', () => {
+    // @ts-expect-error deliberately invalid input from a caller
+    expect(buildPlan({ ...input, level: 'olympian' }).level).toBe('occasional');
   });
 });
