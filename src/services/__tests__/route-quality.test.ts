@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from '@jest/globals';
 
-import { backtracking } from '../route-quality';
+import { backtracking, turnDensity } from '../route-quality';
 import type { Coordinate } from '../routing';
 
 const ORIGIN = { latitude: 40.7484, longitude: -73.9857 };
@@ -79,5 +79,57 @@ describe('backtracking (#53)', () => {
       offset(8, 2000),
     ]);
     expect(result.ratio).toBeLessThan(0.05);
+  });
+});
+
+describe('turnDensity (#54)', () => {
+  test('is zero for a straight line', () => {
+    // Add a mid-point so there is something to simplify.
+    expect(turnDensity([offset(0, 0), offset(0, 500), offset(0, 1000)])).toEqual({
+      turns: 0,
+      perKm: 0,
+    });
+  });
+
+  test('is zero for too few points', () => {
+    expect(turnDensity([offset(0, 0), offset(0, 1000)])).toEqual({ turns: 0, perKm: 0 });
+    expect(turnDensity([])).toEqual({ turns: 0, perKm: 0 });
+  });
+
+  test('counts a single right-angle turn', () => {
+    const result = turnDensity([offset(0, 0), offset(0, 1000), offset(1000, 1000)]);
+    expect(result.turns).toBe(1);
+    expect(result.perKm).toBeCloseTo(0.5, 1); // 1 turn over 2 km
+  });
+
+  test('counts every corner of a closed square loop, including the junction', () => {
+    const result = turnDensity([
+      offset(0, 0),
+      offset(0, 500),
+      offset(500, 500),
+      offset(500, 0),
+      offset(0, 0),
+    ]);
+    expect(result.turns).toBe(4);
+    expect(result.perKm).toBeCloseTo(2, 1); // 4 turns over 2 km
+  });
+
+  test('does not mistake a gradual curve for turns', () => {
+    // A wide arc sampled densely: many small heading changes, no sharp corner.
+    const radius = 800;
+    const arc: Coordinate[] = [];
+    for (let step = 0; step <= 40; step += 1) {
+      const angle = (step / 40) * (Math.PI / 2);
+      arc.push(offset(Math.sin(angle) * radius, (1 - Math.cos(angle)) * radius));
+    }
+    expect(turnDensity(arc).turns).toBeLessThanOrEqual(1);
+  });
+
+  test('normalises by length so a longer route with the same corners scores lower', () => {
+    const shortL = turnDensity([offset(0, 0), offset(0, 500), offset(500, 500)]);
+    const longL = turnDensity([offset(0, 0), offset(0, 5000), offset(5000, 5000)]);
+    expect(shortL.turns).toBe(1);
+    expect(longL.turns).toBe(1);
+    expect(longL.perKm).toBeLessThan(shortL.perKm);
   });
 });

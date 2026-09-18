@@ -153,3 +153,119 @@ export function backtracking(track: Coordinate[]): Backtracking {
 
   return { meters, ratio: total > 0 ? meters / total : 0 };
 }
+
+/** A turn sharper than this counts; a gentle bend does not. */
+const TURN_THRESHOLD_DEGREES = 45;
+
+/** The polyline is simplified to this tolerance before counting corners, so a
+ *  smooth curve is not mistaken for a series of turns. */
+const SIMPLIFY_TOLERANCE_M = 12;
+
+/** Two points closer than this are the same place (a closed loop's start/end). */
+const CLOSED_TOLERANCE_M = 5;
+
+export type Turniness = {
+  /** Corners sharper than the threshold. */
+  turns: number;
+  /** Corners per kilometre, so routes of different lengths compare fairly. */
+  perKm: number;
+};
+
+/**
+ * Roughly how twisty a route is.
+ *
+ * The track is simplified first (Douglas–Peucker) so that a curve — which the
+ * provider returns as many small heading changes — becomes a few straight legs;
+ * only then are corners counted. A closed loop also counts the corner at the
+ * start/end junction, which an open-polyline scan would miss.
+ *
+ * `perKm` is the comparable figure: eight turns on a 10 km route is not the
+ * same route as eight turns on a 2 km one.
+ */
+export function turnDensity(track: Coordinate[]): Turniness {
+  if (track.length < 3) {
+    return { turns: 0, perKm: 0 };
+  }
+
+  let total = 0;
+  for (let index = 1; index < track.length; index += 1) {
+    total += haversineMeters(track[index - 1], track[index]);
+  }
+  if (total <= 0) {
+    return { turns: 0, perKm: 0 };
+  }
+
+  const simplified = simplify(track, SIMPLIFY_TOLERANCE_M);
+  const closed =
+    simplified.length > 2 &&
+    haversineMeters(simplified[0], simplified[simplified.length - 1]) < CLOSED_TOLERANCE_M;
+
+  const points = closed ? simplified.slice(0, -1) : simplified;
+  if (points.length < 3) {
+    return { turns: 0, perKm: 0 };
+  }
+
+  let turns = 0;
+  const count = closed ? points.length : points.length - 2;
+
+  for (let index = 0; index < count; index += 1) {
+    const position = closed ? index : index + 1;
+    const previous = points[(position - 1 + points.length) % points.length];
+    const current = points[position];
+    const next = points[(position + 1) % points.length];
+
+    const incoming = bearingDegrees(previous, current);
+    const outgoing = bearingDegrees(current, next);
+    if (headingDifference(incoming, outgoing) >= TURN_THRESHOLD_DEGREES) {
+      turns += 1;
+    }
+  }
+
+  return { turns, perKm: turns / (total / 1000) };
+}
+
+/** Perpendicular distance from `point` to segment `a`–`b`, in metres. */
+function perpendicularDistanceM(point: Coordinate, a: Coordinate, b: Coordinate): number {
+  const latitudeScale = 111_320;
+  const longitudeScale = 111_320 * Math.cos((point.latitude * Math.PI) / 180);
+
+  const px = (point.longitude - a.longitude) * longitudeScale;
+  const py = (point.latitude - a.latitude) * latitudeScale;
+  const bx = (b.longitude - a.longitude) * longitudeScale;
+  const by = (b.latitude - a.latitude) * latitudeScale;
+
+  const lengthSquared = bx * bx + by * by;
+  if (lengthSquared === 0) {
+    return Math.hypot(px, py);
+  }
+  const t = Math.max(0, Math.min(1, (px * bx + py * by) / lengthSquared));
+  return Math.hypot(px - t * bx, py - t * by);
+}
+
+/** Douglas–Peucker. Keeps the shape while dropping points within `tolerance`. */
+function simplify(points: Coordinate[], tolerance: number): Coordinate[] {
+  if (points.length < 3) {
+    return points;
+  }
+
+  const first = points[0];
+  const last = points[points.length - 1];
+  let furthest = 0;
+  let index = 0;
+
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const distance = perpendicularDistanceM(points[i], first, last);
+    if (distance > furthest) {
+      furthest = distance;
+      index = i;
+    }
+  }
+
+  if (furthest <= tolerance) {
+    return [first, last];
+  }
+
+  const left = simplify(points.slice(0, index + 1), tolerance);
+  const right = simplify(points.slice(index), tolerance);
+  return [...left.slice(0, -1), ...right];
+}
