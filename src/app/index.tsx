@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Pressable, StyleSheet, View } from 'react-native';
@@ -11,12 +11,17 @@ import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
 import { errorFeedback, impactLight, impactMedium, selectionFeedback, successFeedback } from '@/lib/haptics';
+import { useAccount } from '@/services/account-context';
 import { describeCoordinate } from '@/services/geocoding';
 import { useLocation } from '@/services/location-context';
+import { loadProfile } from '@/services/profile';
+import { summarizeRuns, type RunOverview } from '@/services/run-analytics';
 import { useRoutes } from '@/services/route-context';
+import { listRoutes } from '@/services/route-storage';
 import type { Coordinate } from '@/services/routing';
 import { useRun } from '@/services/run-context';
-import { useSettings } from '@/services/settings-context';
+import { listRuns } from '@/services/run-storage';
+import { useFormatters, useSettings } from '@/services/settings-context';
 import { layout, spacing, useTheme } from '@/theme';
 
 /**
@@ -45,12 +50,41 @@ export default function HomeScreen() {
   const { status: routeStatus, errorMessage, find } = useRoutes();
   const { start, recoverable, resumeRecovered, discardRecovered } = useRun();
   const { settings, loaded: settingsLoaded, update } = useSettings();
+  const { account } = useAccount();
+  const fmt = useFormatters();
+  const [displayName, setDisplayName] = useState<string | null>(null);
+  const [overview, setOverview] = useState<RunOverview | null>(null);
+  const [savedRoutes, setSavedRoutes] = useState(0);
   // Derived rather than an effect: settings load asynchronously, so seeding
   // state from them would mean a setState inside an effect. Until the runner
   // picks a distance this session, the remembered one is shown.
   const [chosenKm, setChosenKm] = useState<number | null>(null);
   const distanceKm = chosenKm ?? settings.defaultDistanceKm ?? DEFAULT_DISTANCE_KM;
   const [recenterSignal, setRecenterSignal] = useState(0);
+
+  // Home shows who the runner is and what they have run, so statistics are
+  // visible without opening History (#108). Reloaded on focus, so a run saved
+  // moments ago is already counted, and a route saved after a run already
+  // appears as somewhere to run (#109).
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      const now = Date.now();
+      void Promise.all([loadProfile(), listRuns(), listRoutes()])
+        .then(([profile, runs, routes]) => {
+          if (!active) {
+            return;
+          }
+          setDisplayName(profile.name ?? account?.name ?? null);
+          setOverview(summarizeRuns(runs, now, 7));
+          setSavedRoutes(routes.length);
+        })
+        .catch(() => {});
+      return () => {
+        active = false;
+      };
+    }, [account]),
+  );
 
   // A new install meets the introduction first — before Home, and before any
   // location permission dialog (#19). `replace` so back cannot return here.
@@ -203,6 +237,44 @@ export default function HomeScreen() {
           </Text>
         ) : null}
 
+        {/* Who the runner is, and what they have run this week — visible on
+            open rather than buried in History (#108). Deliberately quiet: it
+            must not compete with Start run below it. */}
+        <View style={styles.identityRow}>
+          <Pressable
+            onPress={() => router.push('/account')}
+            accessibilityRole="button"
+            accessibilityLabel={displayName ? `Your profile, ${displayName}` : 'Your profile'}
+            style={({ pressed }) => [styles.identity, pressed && styles.pressed]}>
+            <View style={[styles.avatar, { backgroundColor: theme.fill }]}>
+              <Text variant="label" color="textSecondary">
+                {(displayName?.trim()?.[0] ?? '·').toUpperCase()}
+              </Text>
+            </View>
+            <Text variant="body" numberOfLines={1} style={styles.identityName}>
+              {displayName ?? 'You'}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => router.push('/history')}
+            accessibilityRole="button"
+            accessibilityLabel={
+              overview && overview.count > 0
+                ? `Statistics. This week, ${fmt.distance(overview.recentMeters)} ${fmt.unitSpoken} over ${overview.recentCount} runs.`
+                : 'Statistics. No runs yet.'
+            }
+            style={({ pressed }) => (pressed ? styles.pressed : undefined)}>
+            <Text variant="caption" color="textSecondary" tabular>
+              {overview && overview.count > 0
+                ? `This week · ${fmt.distance(overview.recentMeters)} ${fmt.unitLabel} · ${overview.recentCount} ${
+                    overview.recentCount === 1 ? 'run' : 'runs'
+                  }`
+                : 'No runs yet'}
+            </Text>
+          </Pressable>
+        </View>
+
         {/* The question Home asks on open is "do I want to run now?", not
             "what route do I want?" (#34) — one accent action, nothing else
             on the panel competing with it. */}
@@ -212,6 +284,34 @@ export default function HomeScreen() {
           onPress={handleStartRun}
           disabled={locationStatus === 'denied'}
         />
+
+        {/* Planning and running are separate journeys (#107): a route kept
+            earlier can be run directly from here, without regenerating
+            anything (#109). Absent until there is something to run. */}
+        {savedRoutes > 0 ? (
+          <Pressable
+            onPress={() => router.push('/favorites?mode=run')}
+            accessibilityRole="button"
+            accessibilityLabel={`Run a saved route. ${savedRoutes} saved.`}
+            style={({ pressed }) => [styles.originRow, pressed && styles.pressed]}>
+            <SymbolView
+              name="bookmark"
+              size={layout.iconSizeSmall}
+              tintColor={theme.textSecondary}
+            />
+            <Text variant="label" color="textTertiary" style={styles.originLabel}>
+              Run a saved route
+            </Text>
+            <Text variant="caption" color="textSecondary" tabular>
+              {savedRoutes}
+            </Text>
+            <SymbolView
+              name="chevron.right"
+              size={layout.iconSizeSmall}
+              tintColor={theme.textSecondary}
+            />
+          </Pressable>
+        ) : null}
 
         {/* Route discovery is a clear but visually subordinate path below
             it — a line, not a card, per the app's own "structure with
@@ -326,6 +426,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: layout.screenMargin,
     paddingTop: spacing.lg,
     gap: spacing.md,
+  },
+  identityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  identity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexShrink: 1,
+  },
+  avatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  identityName: {
+    flexShrink: 1,
   },
   originRow: {
     flexDirection: 'row',

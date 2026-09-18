@@ -1,4 +1,4 @@
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useState } from 'react';
 import { Alert, FlatList, Pressable, StyleSheet, View } from 'react-native';
@@ -8,8 +8,9 @@ import { Button } from '@/components/button';
 import { Divider } from '@/components/divider';
 import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
-import { impactLight, selectionFeedback } from '@/lib/haptics';
+import { impactLight, impactMedium, selectionFeedback } from '@/lib/haptics';
 import { useRoutes } from '@/services/route-context';
+import { useRun } from '@/services/run-context';
 import { deleteRoute, listRoutes, type SavedRoute } from '@/services/route-storage';
 import { formatRunDate, formatDuration } from '@/services/run-session';
 import { useFormatters, type Formatters } from '@/services/settings-context';
@@ -27,6 +28,11 @@ export default function FavoritesScreen() {
   const insets = useSafeAreaInsets();
   const fmt = useFormatters();
   const { loadSaved } = useRoutes();
+  const { start } = useRun();
+  // Opened from Home to choose a route for a run, rather than to browse them
+  // (#109). Same screen, same list; the tap does the obvious thing in context.
+  const { mode } = useLocalSearchParams<{ mode?: string }>();
+  const runMode = mode === 'run';
   const [routes, setRoutes] = useState<SavedRoute[] | null>(null);
 
   // Reload on focus so a route saved moments ago is already here.
@@ -45,10 +51,17 @@ export default function FavoritesScreen() {
   const handleOpen = useCallback(
     (saved: SavedRoute) => {
       selectionFeedback();
+      if (runMode) {
+        // Go straight to the run: the runner already chose this route.
+        impactMedium();
+        start(saved.route, saved.route.distanceKm);
+        router.push('/run');
+        return;
+      }
       loadSaved(saved.route, saved.route.distanceKm);
       router.push('/routes');
     },
-    [loadSaved],
+    [runMode, start, loadSaved],
   );
 
   const handleRemove = useCallback((saved: SavedRoute) => {
@@ -92,13 +105,19 @@ export default function FavoritesScreen() {
               />
             </View>
             <Text variant="large" style={styles.title}>
-              Saved routes
+              {runMode ? 'Choose a route' : 'Saved routes'}
             </Text>
           </View>
         }
         ItemSeparatorComponent={() => <Divider />}
         renderItem={({ item }) => (
-          <RouteRow saved={item} fmt={fmt} onPress={() => handleOpen(item)} onRemove={() => handleRemove(item)} />
+          <RouteRow
+            saved={item}
+            fmt={fmt}
+            runMode={runMode}
+            onPress={() => handleOpen(item)}
+            onRemove={() => handleRemove(item)}
+          />
         )}
         ListEmptyComponent={
           isEmpty ? (
@@ -124,11 +143,13 @@ export default function FavoritesScreen() {
 function RouteRow({
   saved,
   fmt,
+  runMode,
   onPress,
   onRemove,
 }: {
   saved: SavedRoute;
   fmt: Formatters;
+  runMode: boolean;
   onPress: () => void;
   onRemove: () => void;
 }) {
@@ -140,7 +161,9 @@ function RouteRow({
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${distance} ${fmt.unitSpoken} route, saved ${formatRunDate(saved.savedAt)}. Open on the map.`}
+      accessibilityLabel={`${distance} ${fmt.unitSpoken} route, saved ${formatRunDate(saved.savedAt)}. ${
+        runMode ? 'Start running it.' : 'Open on the map.'
+      }`}
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
       <View style={styles.rowMain}>
         <Text variant="caption" color="textSecondary">
