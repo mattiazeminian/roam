@@ -17,6 +17,19 @@ A runner who does not want a generated route must still be able to start running
 immediately. A runner who does want one must be able to get one without
 friction. Route generation supports the run; it never gates it.
 
+## The two journeys
+
+Both start from Home, and neither may gate the other.
+
+1. **Run now.** Open → Start Run → run → finish. A route is not required. What
+   was actually run is recorded, and can be saved as a route afterwards — so
+   somewhere you discovered becomes somewhere you can run again.
+2. **Plan, then run.** Explore → generate a route → save it. Later, at run time,
+   choose it from saved routes and run it directly.
+
+Home therefore always offers Start Run first, surfaces the runner's own
+statistics and identity, and offers saved routes as an optional way in.
+
 ## Core problem
 
 Runners repeat the same loops because finding a good route of a given length
