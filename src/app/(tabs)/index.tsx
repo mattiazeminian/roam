@@ -1,12 +1,12 @@
 import { router, useFocusEffect } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
-import { ControlPanel } from '@/components/control-panel';
-import { DEFAULT_DISTANCE_KM, DistanceControl } from '@/components/distance-control';
+import { DEFAULT_DISTANCE_KM } from '@/components/distance-control';
+import { FindRouteSheet } from '@/components/find-route-sheet';
 import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
@@ -25,13 +25,12 @@ import { useFormatters, useSettings } from '@/services/settings-context';
 import { layout, spacing, useTheme } from '@/theme';
 
 /**
- * Home — the map, and one decision: how far.
+ * Home — the training dashboard.
  *
- * The controls are a fixed region of the screen, not a sheet floating over the
- * map. A sheet's shape — rounded top corners, a shadow, a glass material —
- * promises that it can be dismissed, and these controls never can. Splitting
- * the screen instead means the map is never occluded by something pretending
- * to be temporary, and the panel can simply be part of the layout.
+ * Two things, in order: who you are and how the week is going, then the one
+ * action that matters, Start run. Route discovery is a single quiet button that
+ * opens the distance and start-point choices in a sheet, so the choices exist
+ * without standing between the runner and the run.
  */
 export default function HomeScreen() {
   const theme = useTheme();
@@ -190,9 +189,9 @@ export default function HomeScreen() {
           ]}
           pointerEvents="box-none">
           <MapControl
-            symbol="person.crop.circle"
-            accessibilityLabel="Your profile"
-            onPress={() => router.push('/profile')}
+            symbol="clock.arrow.circlepath"
+            accessibilityLabel="Your runs"
+            onPress={() => router.push('/history')}
           />
           {coordinate ? (
             <MapControl
@@ -323,117 +322,24 @@ export default function HomeScreen() {
 
       {/* The route choices, out of the way until asked for. A sheet rather than
           a screen: choosing a route is a decision, not a destination. */}
-      <Modal
+      <FindRouteSheet
         visible={findRoutesOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setFindRoutesOpen(false)}>
-        <Pressable
-          style={styles.backdrop}
-          accessibilityRole="button"
-          accessibilityLabel="Close"
-          onPress={() => setFindRoutesOpen(false)}
-        />
-        <View style={styles.sheetAnchor}>
-          <ControlPanel style={styles.sheet}>
-            <View style={styles.sheetHeader}>
-              <Text variant="title">Find a route</Text>
-              <Pressable
-                onPress={() => setFindRoutesOpen(false)}
-                accessibilityRole="button"
-                accessibilityLabel="Close"
-                hitSlop={spacing.sm}>
-                <Text variant="body" color="accentText">
-                  Close
-                </Text>
-              </Pressable>
-            </View>
-
-            <Pressable
-              onPress={() => router.push('/location-search')}
-              accessibilityRole="button"
-              accessibilityLabel={`Starting from ${originLabel}. Change starting point.`}
-              style={({ pressed }) => [styles.originRow, pressed && styles.pressed]}>
-              <SymbolView
-                name={hasCustomOrigin ? 'mappin.circle.fill' : 'location.fill'}
-                size={layout.iconSizeSmall}
-                tintColor={theme.textSecondary}
-              />
-              <Text variant="label" color="textTertiary" numberOfLines={1} style={styles.originLabel}>
-                {originLabel}
-              </Text>
-              <SymbolView
-                name="chevron.right"
-                size={layout.iconSizeSmall}
-                tintColor={theme.textSecondary}
-              />
-            </Pressable>
-
-            <DistanceControl valueKm={distanceKm} onChange={setChosenKm} disabled={isFinding} />
-
-            {/* Where the run ends. Loops by default; a chosen finish makes it
-                a one-way, and can be cleared back to a loop. */}
-            <View style={styles.finishRow}>
-              <Pressable
-                onPress={() => router.push('/location-search?mode=finish')}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  finish
-                    ? `Finishing at ${finish.label}. Change finish point.`
-                    : 'Loop, finishing back where you started. Choose a finish point.'
-                }
-                style={({ pressed }) => [
-                  styles.originRow,
-                  styles.finishTarget,
-                  pressed && styles.pressed,
-                ]}>
-                <SymbolView
-                  name={finish ? 'flag' : 'arrow.triangle.2.circlepath'}
-                  size={layout.iconSizeSmall}
-                  tintColor={theme.textSecondary}
-                />
-                <Text
-                  variant="label"
-                  color="textTertiary"
-                  numberOfLines={1}
-                  style={styles.originLabel}>
-                  {finish ? `Finish · ${finish.label}` : 'Loop · back to start'}
-                </Text>
-                <SymbolView
-                  name="chevron.right"
-                  size={layout.iconSizeSmall}
-                  tintColor={theme.textSecondary}
-                />
-              </Pressable>
-              {finish ? (
-                <Pressable
-                  onPress={clearFinish}
-                  accessibilityRole="button"
-                  accessibilityLabel="Make it a loop instead"
-                  hitSlop={spacing.sm}
-                  style={({ pressed }) => (pressed ? styles.pressed : undefined)}>
-                  <SymbolView
-                    name="xmark.circle.fill"
-                    size={layout.iconSizeSmall}
-                    tintColor={theme.textSecondary}
-                  />
-                </Pressable>
-              ) : null}
-            </View>
-
-            <Button
-              label={isFinding ? 'Finding your way' : hasError ? 'Try again' : 'Find routes'}
-              variant="accent"
-              onPress={() => {
-                setFindRoutesOpen(false);
-                void handleFindRoutes();
-              }}
-              disabled={isFinding || !origin}
-              loading={isFinding}
-            />
-          </ControlPanel>
-        </View>
-      </Modal>
+        onClose={() => setFindRoutesOpen(false)}
+        startLabel={originLabel}
+        hasCustomStart={hasCustomOrigin}
+        onChangeStart={() => router.push('/location-search')}
+        finishLabel={finish?.label ?? null}
+        onChangeFinish={() => router.push('/location-search?mode=finish')}
+        onClearFinish={clearFinish}
+        distanceKm={distanceKm}
+        onChangeDistance={setChosenKm}
+        busy={isFinding}
+        errorMessage={hasError ? errorMessage : null}
+        onSubmit={() => {
+          setFindRoutesOpen(false);
+          void handleFindRoutes();
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -450,24 +356,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(14, 15, 12, 0.25)',
-  },
-  sheetAnchor: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  sheet: {
-    gap: spacing.md,
-  },
-  sheetHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -511,14 +399,6 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   originLabel: {
-    flex: 1,
-  },
-  finishRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  finishTarget: {
     flex: 1,
   },
 });

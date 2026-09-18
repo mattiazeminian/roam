@@ -126,8 +126,9 @@ export default function ProfileScreen() {
           styles.content,
           { paddingTop: insets.top + spacing.xs, paddingBottom: insets.bottom + spacing.xxl },
         ]}>
+        {/* Profile is a tab root, so there is nothing to go back to — only the
+            way into Settings. */}
         <View style={styles.headerRow}>
-          <MapControl symbol="chevron.left" accessibilityLabel="Back" onPress={() => router.back()} />
           <MapControl
             symbol="gearshape"
             accessibilityLabel="Settings"
@@ -329,7 +330,7 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     marginBottom: spacing.md,
   },
   identity: {

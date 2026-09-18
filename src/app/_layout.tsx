@@ -13,17 +13,12 @@ import { SettingsProvider } from '@/services/settings-context';
 import { motion, useTheme } from '@/theme';
 
 /**
- * ROAM has no tab bar.
+ * The app shell.
  *
- * Re-evaluated in #106 against a proposed Run/Explore/Training/History-Profile
- * tab structure, and kept as a stack: two of those four destinations don't
- * exist yet (Explore has no dedicated screen; Training is entirely unbuilt),
- * so a tab bar today would mean permanent map-height chrome spent on two
- * placeholders. Start Run is already the first thing on Home (#33, #34),
- * which is most of what this issue needs from navigation right now. History
- * is pushed from Home, one tap away via its map control. See
- * `docs/navigation-decision.md` for the full reasoning and the trigger for
- * revisiting this once Training and a real Profile screen exist.
+ * The four destinations live in the `(tabs)` group behind a native tab bar
+ * (#113). Everything registered here is a flow that deliberately leaves that
+ * shell: onboarding, route selection, the active run and its summary, and the
+ * browsing screens pushed over the tabs.
  */
 export default function RootLayout() {
   const theme = useTheme();
@@ -40,9 +35,9 @@ export default function RootLayout() {
                 headerShown: false,
                 contentStyle: { backgroundColor: theme.background },
               }}>
-              <Stack.Screen name="index" />
-              {/* The introduction replaces Home, so there is no back gesture
-                  into a half-started app (#19). */}
+              <Stack.Screen name="(tabs)" />
+              {/* The introduction replaces the app, so there is no back gesture
+                  into a half-started shell (#19). */}
               <Stack.Screen
                 name="onboarding"
                 options={{ animation: 'fade', animationDuration: motion.mediumDuration, gestureEnabled: false }}
@@ -69,7 +64,6 @@ export default function RootLayout() {
               <Stack.Screen name="run-detail" />
               <Stack.Screen name="settings" />
               <Stack.Screen name="account" />
-              <Stack.Screen name="profile" />
               {/* A route opened from a share link lands here, then hands off
                   to the normal selection flow (#23). */}
               <Stack.Screen name="shared-route" />
