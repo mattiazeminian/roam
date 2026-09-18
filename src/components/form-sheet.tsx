@@ -115,7 +115,6 @@ export function FormSheet({
                     autoFocus={field.autoFocus}
                     onFocus={() => setFocused(field.key)}
                     onBlur={() => setFocused(null)}
-                    returnKeyType="done"
                     accessibilityLabel={field.label}
                     style={[
                       styles.input,
