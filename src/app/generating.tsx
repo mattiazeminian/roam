@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/components/button';
 import { Text } from '@/components/text';
 import { useRoutes } from '@/services/route-context';
-import { layout, spacing, useTheme } from '@/theme';
+import { layout, radii, spacing, useTheme } from '@/theme';
 
 /** Long enough to read as deliberate work, short enough not to be a wait. */
 const MIN_DURATION_MS = 3500;
@@ -80,19 +80,74 @@ export default function GeneratingScreen() {
     <View
       style={[
         styles.root,
-        { backgroundColor: theme.background, paddingTop: insets.top + spacing.xxl },
+        { backgroundColor: theme.background, paddingTop: insets.top + spacing.lg },
       ]}>
-      <View style={styles.stage}>
-        {!failed ? <Runner reduceMotion={reduceMotion} /> : null}
+      <View style={styles.topline}>
+        <View style={[styles.liveDot, { backgroundColor: theme.accent }]} />
         <Text variant="micro" color="textSecondary">
-          {failed ? 'NO ROUTE YET' : 'GENERATING'}
+          ROUTE SEARCH
         </Text>
+      </View>
+      <View style={styles.stage}>
         <Text variant="large" style={styles.headline}>
           {failed ? 'That did not work' : 'Building your route'}
         </Text>
         <Text variant="body" color="textSecondary" accessibilityLiveRegion="polite">
-          {failed ? (errorMessage ?? 'ROAM could not find a route near you.') : STEPS[step]}
+          {failed
+            ? (errorMessage ?? 'ROAM could not find a route near you.')
+            : 'Finding a route with fewer turns and useful paths.'}
         </Text>
+        {!failed ? (
+          <View
+            style={[styles.searchCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+            accessibilityRole="progressbar"
+            accessibilityLabel="Route generation progress"
+            accessibilityValue={{ min: 0, max: STEPS.length, now: step + 1 }}>
+            <Runner reduceMotion={reduceMotion} />
+            <View style={styles.progressHeader}>
+              <Text variant="label">{STEPS[step]}</Text>
+              <Text variant="micro" color="textSecondary">
+                {step + 1}/{STEPS.length}
+              </Text>
+            </View>
+            <View style={[styles.progressTrack, { backgroundColor: theme.fill }]}>
+              <View
+                style={[
+                  styles.progressFill,
+                  {
+                    width: `${((step + 1) / STEPS.length) * 100}%`,
+                    backgroundColor: theme.accent,
+                  },
+                ]}
+              />
+            </View>
+            <View style={styles.stepList}>
+              {STEPS.map((label, index) => {
+                const complete = index < step;
+                const current = index === step;
+                return (
+                  <View key={label} style={styles.stepRow}>
+                    <View
+                      style={[
+                        styles.stepDot,
+                        {
+                          backgroundColor: complete || current ? theme.accent : theme.fill,
+                          borderColor: complete || current ? theme.accent : theme.borderSubtle,
+                        },
+                      ]}
+                    />
+                    <Text
+                      variant="caption"
+                      color={current ? 'text' : 'textSecondary'}
+                      style={complete ? styles.completedStep : undefined}>
+                      {label}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
       </View>
 
       {failed ? (
@@ -189,6 +244,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: layout.screenMargin,
     justifyContent: 'space-between',
   },
+  topline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  liveDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
   stage: {
     flex: 1,
     alignItems: 'center',
@@ -197,6 +262,50 @@ const styles = StyleSheet.create({
   },
   headline: {
     textAlign: 'center',
+    marginTop: spacing.md,
+  },
+  searchCard: {
+    width: '100%',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radii.medium,
+    borderCurve: 'continuous',
+    padding: spacing.md,
+    marginTop: spacing.lg,
+    gap: spacing.sm,
+  },
+  progressHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  progressTrack: {
+    height: 5,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  stepList: {
+    gap: spacing.xs,
+    paddingTop: spacing.xs,
+  },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: layout.iconSizeSmall,
+  },
+  stepDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  completedStep: {
+    textDecorationLine: 'line-through',
+    opacity: 0.65,
   },
   track: {
     width: TRACK_WIDTH,
