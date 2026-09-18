@@ -1,13 +1,22 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { router } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { SymbolView } from 'expo-symbols';
 
 import { Button } from '@/components/button';
 import { MapControl } from '@/components/map-control';
+import { Metric, MetricRow } from '@/components/metric';
 import { Text } from '@/components/text';
 import { useAccount } from '@/services/account-context';
+import { loadProfile, saveProfile } from '@/services/profile';
+import { listRuns } from '@/services/run-storage';
+import { useFormatters } from '@/services/settings-context';
 import { layout, radii, spacing, useTheme } from '@/theme';
+
+type Stats = { distanceKm: number; runCount: number };
 
 /**
  * Account — Sign in with Apple, and nothing else (#20).
@@ -20,7 +29,37 @@ import { layout, radii, spacing, useTheme } from '@/theme';
 export default function AccountScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const fmt = useFormatters();
   const { account, loaded, supported, signingIn, errorMessage, signIn, signOut } = useAccount();
+
+  const [name, setName] = useState('');
+  const [stats, setStats] = useState<Stats | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void loadProfile().then((profile) => {
+      if (active) {
+        setName(profile.name ?? '');
+      }
+    });
+    void listRuns().then((runs) => {
+      if (active) {
+        setStats({
+          distanceKm: runs.reduce((total, run) => total + run.distanceKm, 0),
+          runCount: runs.length,
+        });
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleNameBlur = useCallback(() => {
+    const trimmed = name.trim();
+    setName(trimmed);
+    void saveProfile({ name: trimmed.length > 0 ? trimmed : null });
+  }, [name]);
 
   return (
     <View
@@ -39,6 +78,49 @@ export default function AccountScreen() {
       />
 
       <Text variant="large">Account</Text>
+
+      <View style={styles.profile}>
+        <TextInput
+          value={name}
+          onChangeText={setName}
+          onBlur={handleNameBlur}
+          placeholder="Add your name"
+          placeholderTextColor={theme.textSecondary}
+          autoCapitalize="words"
+          autoCorrect={false}
+          returnKeyType="done"
+          accessibilityLabel="Your name"
+          style={[styles.nameInput, { color: theme.text, borderColor: theme.borderSubtle }]}
+        />
+
+        {stats ? (
+          <MetricRow>
+            <Metric
+              fill
+              label="Total distance"
+              value={fmt.distance(stats.distanceKm * 1000)}
+              unit={fmt.unitLabel}
+              accessibilityLabel={`Total distance ${fmt.distance(stats.distanceKm * 1000)} ${fmt.unitSpoken}`}
+            />
+            <Metric fill label="Runs" value={String(stats.runCount)} />
+          </MetricRow>
+        ) : null}
+
+        <Pressable
+          onPress={() => router.push('/favorites')}
+          accessibilityRole="button"
+          accessibilityLabel="Favorite routes"
+          style={({ pressed }) => [
+            styles.favoritesRow,
+            { borderColor: theme.borderSubtle },
+            pressed && styles.pressed,
+          ]}>
+          <Text variant="body" color="text">
+            Favorite routes
+          </Text>
+          <SymbolView name="chevron.right" size={layout.iconSizeSmall} tintColor={theme.textSecondary} />
+        </Pressable>
+      </View>
 
       {account ? (
         <View style={styles.body}>
@@ -108,6 +190,24 @@ const styles = StyleSheet.create({
   },
   identity: {
     gap: spacing.xxs,
+  },
+  profile: {
+    gap: spacing.md,
+  },
+  nameInput: {
+    minHeight: layout.minTouchTarget,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    fontSize: 17,
+  },
+  favoritesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: layout.minTouchTarget,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  pressed: {
+    opacity: 0.6,
   },
   action: {
     alignSelf: 'flex-start',

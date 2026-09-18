@@ -20,6 +20,7 @@ import {
   startRunLocationUpdates,
   stopRunLocationUpdates,
 } from '../background-location';
+import { getInProgressRun } from '../run-storage';
 
 jest.mock('expo-location', () => ({
   Accuracy: { BestForNavigation: 6, Balanced: 3 },
@@ -51,6 +52,9 @@ jest.mock('../background-location', () => ({
 const setSinkMock = setRunLocationSink as unknown as jest.Mock;
 const startBackgroundMock = startRunLocationUpdates as unknown as jest.Mock;
 const stopBackgroundMock = stopRunLocationUpdates as unknown as jest.Mock;
+const getInProgressRunMock = getInProgressRun as unknown as jest.Mock<
+  () => Promise<unknown>
+>;
 
 /** The most recent non-null sink the provider registered. */
 function currentSink(): ((sample: unknown) => void) | undefined {
@@ -112,6 +116,7 @@ beforeEach(() => {
   setSinkMock.mockClear();
   startBackgroundMock.mockClear();
   stopBackgroundMock.mockClear();
+  getInProgressRunMock.mockReset().mockResolvedValue(null);
 });
 
 function Harness({ onValue }: { onValue: (value: RunContextValue) => void }) {
@@ -432,6 +437,193 @@ describe('background delivery (#30)', () => {
 
     act(() => harness.value.pause()); // force a publish
     expect(harness.value.distanceMeters).toBeGreaterThan(0);
+    harness.unmount();
+  });
+});
+
+describe('route-less run (#33)', () => {
+  test('start(null, 0) begins a valid active run with tracking, distance, time and pace, exactly like a route-based run', async () => {
+    const harness = renderRun();
+    act(() => harness.value.start(null, 0));
+    await flush();
+
+    // 1. A valid active run.
+    expect(harness.value.status).toBe('active');
+    expect(harness.value.route).toBeNull();
+    // 2. Location tracking started — a subscription was created.
+    expect(registrations).toHaveLength(1);
+
+    const t0 = Date.now();
+    act(() => registrations[0].callback(nativeLocation(offsetCoord(0, 0), t0)));
+    act(() => registrations[0].callback(nativeLocation(offsetCoord(0, 100), t0 + 20_000)));
+    // `activeSeconds` is derived from the real wall clock (`Date.now()`), not
+    // the fixture timestamps above — a real delay guarantees it has actually
+    // advanced before publishing, rather than racing whatever millisecond the
+    // synchronous work above happened to land on.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    act(() => harness.value.pause()); // force a publish
+
+    // 3. Distance accumulates normally.
+    expect(harness.value.distanceMeters).toBeCloseTo(100, 0);
+    // 4. Time and pace work normally.
+    expect(harness.value.activeSeconds).toBeGreaterThan(0);
+    expect(harness.value.paceMinPerKm).not.toBeNull();
+    // 5. The actual GPS path is recorded.
+    expect(harness.value.track).toEqual([offsetCoord(0, 0), offsetCoord(0, 100)]);
+    harness.unmount();
+  });
+
+  test('deviation and completion never activate for a route-less run, no matter how far or long it runs', async () => {
+    const harness = renderRun();
+    act(() => harness.value.start(null, 0));
+    await flush();
+
+    const t0 = Date.now();
+    // A long, winding sequence of fixes — the kind of movement that would
+    // trigger completion (a return to "the start") or deviation (leaving
+    // a corridor) if a route were planned.
+    const points: [number, number][] = [
+      [0, 0],
+      [0, 200],
+      [150, 250],
+      [150, 20],
+      [10, 10],
+      [0, 5],
+    ];
+    points.forEach(([n, e], index) => {
+      act(() => registrations[0].callback(nativeLocation(offsetCoord(n, e), t0 + index * 60_000)));
+    });
+    act(() => harness.value.pause()); // force a publish
+
+    expect(harness.value.distanceMeters).toBeGreaterThan(0); // sanity: it actually ran
+    expect(harness.value.progressMeters).toBe(0);
+    expect(harness.value.completionSuggested).toBe(false);
+    expect(harness.value.offRoute).toBe(false);
+    expect(harness.value.distanceToRouteMeters).toBe(0);
+    expect(harness.value.directionToRouteDegrees).toBeNull();
+    harness.unmount();
+  });
+
+  test('a route-less run finishes normally into a completed run with route: null', async () => {
+    const harness = renderRun();
+    act(() => harness.value.start(null, 0));
+    await flush();
+
+    const t0 = Date.now();
+    act(() => registrations[0].callback(nativeLocation(offsetCoord(0, 0), t0)));
+    act(() => registrations[0].callback(nativeLocation(offsetCoord(0, 80), t0 + 15_000)));
+
+    act(() => harness.value.finish());
+
+    // 8. The run can finish normally.
+    expect(harness.value.status).toBe('finished');
+    expect(harness.value.completedRun).not.toBeNull();
+    expect(harness.value.completedRun?.route).toBeNull();
+    expect(harness.value.completedRun?.distanceKm).toBeGreaterThan(0);
+    expect(harness.value.completedRun?.status).toBe('finished');
+    harness.unmount();
+  });
+});
+
+describe('state machine guards (#35)', () => {
+  test('finish() from idle is a no-op — it used to fabricate a zero-distance completed run', async () => {
+    const harness = renderRun();
+    act(() => harness.value.finish());
+    expect(harness.value.status).toBe('idle');
+    expect(harness.value.completedRun).toBeNull();
+    harness.unmount();
+  });
+
+  test('finish() called a second time does not overwrite the first result', async () => {
+    const harness = renderRun();
+    act(() => harness.value.start(null, 0));
+    await flush();
+    act(() => registrations[0].callback(nativeLocation(offsetCoord(0, 0), Date.now())));
+    act(() => harness.value.finish());
+    const firstResult = harness.value.completedRun;
+    expect(firstResult).not.toBeNull();
+
+    act(() => harness.value.finish());
+    expect(harness.value.completedRun).toBe(firstResult); // same object: untouched
+    harness.unmount();
+  });
+
+  test('pause()/resume() from an illegal state are no-ops, not corrupting the session', async () => {
+    const harness = renderRun();
+    // pause() before any run started.
+    act(() => harness.value.pause());
+    expect(harness.value.status).toBe('idle');
+    // resume() while idle.
+    act(() => harness.value.resume());
+    expect(harness.value.status).toBe('idle');
+
+    act(() => harness.value.start(null, 0));
+    await flush();
+    // resume() while already active.
+    act(() => harness.value.resume());
+    expect(harness.value.status).toBe('active');
+    harness.unmount();
+  });
+
+  test('saveCompleted()/discardCompleted() cannot abort a live run', async () => {
+    const harness = renderRun();
+    act(() => harness.value.start(null, 0));
+    await flush();
+    act(() => registrations[0].callback(nativeLocation(offsetCoord(0, 0), Date.now())));
+
+    act(() => harness.value.discardCompleted());
+    // Before the guard, this unconditionally reset the provider to idle —
+    // the exact "silently corrupts a live run" failure mode #35 closes.
+    expect(harness.value.status).toBe('active');
+
+    await act(async () => {
+      await harness.value.saveCompleted();
+    });
+    expect(harness.value.status).toBe('active');
+    harness.unmount();
+  });
+
+  test('resumeRecovered() cannot clobber an already-active session, even if the recovery check resolves late', async () => {
+    // A real race: the mount effect's `getInProgressRun()` is still pending
+    // when the runner starts a fresh run some other way, then resolves
+    // afterwards and sets `recoverable` while a session is already live —
+    // Home stays mounted underneath /run in a stack navigator, so its
+    // "offer to resume" effect can still fire.
+    let resolveCheckpoint!: (value: unknown) => void;
+    getInProgressRunMock.mockReset().mockImplementation(
+      () => new Promise((resolve) => { resolveCheckpoint = resolve; }),
+    );
+
+    const harness = renderRun();
+    act(() => harness.value.start(null, 0));
+    await flush();
+    act(() => registrations[0].callback(nativeLocation(offsetCoord(0, 0), Date.now())));
+    act(() => registrations[0].callback(nativeLocation(offsetCoord(0, 60), Date.now() + 10_000)));
+    act(() => harness.value.pause()); // force a publish
+    const distanceBeforeRace = harness.value.distanceMeters;
+    expect(distanceBeforeRace).toBeGreaterThan(0);
+
+    // The stale check finally resolves, now that a session is already live.
+    await act(async () => {
+      resolveCheckpoint({
+        id: 'run-stale',
+        startedAt: 1,
+        endedAt: 2,
+        route: null,
+        targetDistanceKm: 0,
+        distanceKm: 9,
+        durationSeconds: 999,
+        averagePaceMinPerKm: null,
+        coordinates: [],
+        status: 'active',
+      });
+    });
+    expect(harness.value.recoverable).not.toBeNull(); // it was set...
+
+    act(() => harness.value.resumeRecovered());
+    // ...but resolving it must not overwrite the live session.
+    expect(harness.value.status).toBe('paused');
+    expect(harness.value.distanceMeters).toBe(distanceBeforeRace);
     harness.unmount();
   });
 });

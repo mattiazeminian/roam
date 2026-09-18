@@ -1,12 +1,14 @@
 import { router } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, ScrollView, Share, StyleSheet, View } from 'react-native';
+import { captureRef } from 'react-native-view-shot';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
 import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
 import { Metric, MetricRow } from '@/components/metric';
+import { ShareCard } from '@/components/share-card';
 import { Text } from '@/components/text';
 import { useRun } from '@/services/run-context';
 import { runShareMessage } from '@/services/run-share';
@@ -26,6 +28,7 @@ export default function RunSummaryScreen() {
   const { completedRun, saveCompleted, discardCompleted } = useRun();
   const fmt = useFormatters();
   const [saving, setSaving] = useState(false);
+  const cardRef = useRef<View>(null);
 
   // Nothing to summarize (a reload, or the run was already resolved).
   useEffect(() => {
@@ -68,8 +71,18 @@ export default function RunSummaryScreen() {
     if (!completedRun) {
       return;
     }
+    let uri: string | undefined;
     try {
-      await Share.share({ message: runShareMessage(completedRun, fmt) });
+      uri = await captureRef(cardRef, { format: 'png', quality: 1, result: 'tmpfile' });
+    } catch {
+      // No track to render, or the capture failed — share the text alone.
+    }
+    try {
+      await Share.share(
+        uri
+          ? { url: uri, message: runShareMessage(completedRun, fmt) }
+          : { message: runShareMessage(completedRun, fmt) },
+      );
     } catch {
       // Dismissed, or sharing unavailable.
     }
@@ -84,6 +97,10 @@ export default function RunSummaryScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
+      <View style={styles.hiddenCard} pointerEvents="none">
+        <ShareCard ref={cardRef} run={completedRun} fmt={fmt} />
+      </View>
+
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -164,6 +181,11 @@ export default function RunSummaryScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+  },
+  hiddenCard: {
+    position: 'absolute',
+    top: 0,
+    left: -9999,
   },
   content: {
     paddingHorizontal: layout.screenMargin,

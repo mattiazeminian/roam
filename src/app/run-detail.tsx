@@ -1,11 +1,13 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView, Share, StyleSheet, View } from 'react-native';
+import { captureRef } from 'react-native-view-shot';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
 import { Metric, MetricRow } from '@/components/metric';
+import { ShareCard } from '@/components/share-card';
 import { Text } from '@/components/text';
 import { runShareMessage } from '@/services/run-share';
 import { formatDuration, formatRunDate, type SavedRun } from '@/services/run-session';
@@ -43,13 +45,22 @@ export default function RunDetailScreen() {
   }, [id]);
 
   const hasTrack = (run?.coordinates.length ?? 0) >= 2;
+  const cardRef = useRef<View>(null);
 
   const handleShare = useCallback(async () => {
     if (!run) {
       return;
     }
+    let uri: string | undefined;
     try {
-      await Share.share({ message: runShareMessage(run, fmt) });
+      uri = await captureRef(cardRef, { format: 'png', quality: 1, result: 'tmpfile' });
+    } catch {
+      // No track to render, or the capture failed — share the text alone.
+    }
+    try {
+      await Share.share(
+        uri ? { url: uri, message: runShareMessage(run, fmt) } : { message: runShareMessage(run, fmt) },
+      );
     } catch {
       // Dismissed, or sharing unavailable.
     }
@@ -57,6 +68,14 @@ export default function RunDetailScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
+      {run ? (
+        // Rendered off-screen, not display:none — the map needs to actually
+        // lay out and draw tiles to be captured when Share is tapped.
+        <View style={styles.hiddenCard} pointerEvents="none">
+          <ShareCard ref={cardRef} run={run} fmt={fmt} />
+        </View>
+      ) : null}
+
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -134,6 +153,11 @@ export default function RunDetailScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+  },
+  hiddenCard: {
+    position: 'absolute',
+    top: 0,
+    left: -9999,
   },
   content: {
     paddingHorizontal: layout.screenMargin,

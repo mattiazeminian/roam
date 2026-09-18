@@ -1,56 +1,82 @@
-# Welcome to your Expo app 👋
+# ROAM
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+ROAM turns a single input — desired distance — into runnable routes starting
+from wherever you are, then tracks and records the run. It's about *where to
+go*, not scoreboards, streaks or social features. See
+[`docs/product.md`](docs/product.md) for the full product thinking.
 
-## Get started
+## Stack
 
-1. Install dependencies
+- Expo SDK 57 / React Native, TypeScript (strict), `expo-router`
+- OpenRouteService for route generation, Mapbox for map rendering
+- `expo-file-system` for local, offline-first run/route persistence — no
+  backend, no account required to use the app
+- Jest (`jest-expo`) for the service-layer test suite
 
-   ```bash
-   npm install
-   ```
+## Prerequisites
 
-2. Start the app
+- Node.js (see `.nvmrc`/`package.json` engines if present, otherwise a
+  current LTS)
+- Xcode and CocoaPods, for the iOS development build
+- An OpenRouteService API key ([free signup](https://openrouteservice.org/dev/#/signup))
+- A Mapbox access token
 
-   ```bash
-   npx expo start
-   ```
+**Expo Go is not supported.** ROAM uses native modules (Mapbox, location,
+background tracking, Sign in with Apple) that require a development build.
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Setup
 
 ```bash
-npm run reset-project
+npm install
+cp .env.local.example .env.local   # then fill in the two keys below
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+`.env.local`:
 
-### Other setup steps
+```
+EXPO_PUBLIC_MAPBOX_TOKEN=...
+EXPO_PUBLIC_ORS_API_KEY=...
+```
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+Restart with `npx expo start --dev-client --clear` after changing either
+value so the new value is picked up.
 
-## Learn more
+## Running the app
 
-To learn more about developing your project with Expo, look at the following resources:
+```bash
+npx expo run:ios       # builds and installs the dev client on a simulator/device
+npx expo start --dev-client   # subsequent JS-only iterations
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+If a native dependency changes (check `git diff` on `package.json` for new
+`expo-*`/native packages), the installed dev client goes stale and the app
+will crash on launch trying to load a module that isn't compiled in. Fix:
 
-## Join the community
+```bash
+cd ios && pod install
+npx expo run:ios
+```
 
-Join our community of developers creating universal apps.
+## Testing and linting
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```bash
+npm test          # jest — service-layer unit/integration tests
+npx tsc --noEmit   # type check
+npx expo lint      # lint
+```
+
+CI (`.github/workflows/ci.yml`) runs all three on every push/PR.
+
+## Project docs
+
+- [`docs/product.md`](docs/product.md) — product thinking and core problem
+- [`docs/brand.md`](docs/brand.md) — brand direction
+- [`docs/design-system.md`](docs/design-system.md), [`docs/design.md`](docs/design.md) — design system and UI decisions
+- [`docs/map-provider-decision.md`](docs/map-provider-decision.md), [`docs/map-style.md`](docs/map-style.md) — mapping choices
+- [`docs/project-audit.md`](docs/project-audit.md), [`docs/implementation-audit.md`](docs/implementation-audit.md) — past audits
+
+## Backlog
+
+Work is tracked as GitHub issues, grouped into milestones (`v0.1` core
+running, `v0.2` better routes, `v0.3` account, `v0.4` sharing, `v0.5` Apple
+Watch). See the repository's [Issues](../../issues) tab.

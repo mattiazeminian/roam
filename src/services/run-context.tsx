@@ -20,13 +20,13 @@ import {
   preparePlannedRoute,
   trackerStateFromCheckpoint,
   type PlannedRoute,
-  type RunStatus,
   type SavedRun,
   type TrackerState,
 } from './run-session';
 import { checkpointRun, clearInProgressRun, getInProgressRun, saveRun } from './run-storage';
+import { canTransition, type RunSessionStatus } from './run-state';
 
-export type RunSessionStatus = 'idle' | RunStatus;
+export type { RunSessionStatus } from './run-state';
 
 /**
  * The snapshot the UI renders. Published on a timer rather than per GPS fix, so
@@ -258,6 +258,12 @@ export function RunProvider({ children }: { children: ReactNode }) {
 
   const start = useCallback(
     (nextRoute: RouteCandidate | null, nextTargetKm: number) => {
+      if (!canTransition(status, 'start')) {
+        // Unreachable today — `start` is legal from every state — but kept
+        // so this callback consults the same table as every other one
+        // rather than being the one exception by omission.
+        return;
+      }
       tracker.current = createTrackerState();
       planned.current = preparePlannedRoute(nextRoute);
       startedAt.current = Date.now();
@@ -273,11 +279,11 @@ export function RunProvider({ children }: { children: ReactNode }) {
       setStatus('active');
       startWatching();
     },
-    [startWatching],
+    [startWatching, status],
   );
 
   const pause = useCallback(() => {
-    if (status !== 'active') {
+    if (!canTransition(status, 'pause')) {
       return;
     }
     pausedAt.current = Date.now();
@@ -291,7 +297,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
   }, [checkpoint, publish, status, stopWatching]);
 
   const resume = useCallback(() => {
-    if (status !== 'paused') {
+    if (!canTransition(status, 'resume')) {
       return;
     }
     if (pausedAt.current !== null) {
@@ -306,6 +312,12 @@ export function RunProvider({ children }: { children: ReactNode }) {
   }, [startWatching, status]);
 
   const finish = useCallback(() => {
+    if (!canTransition(status, 'finish')) {
+      // Without this guard, calling finish() from `idle` (no run started)
+      // used to fabricate a zero-distance completed run, and calling it
+      // twice would silently overwrite the first result.
+      return;
+    }
     stopWatching();
     const state = tracker.current;
     const seconds = activeSecondsNow();
@@ -330,7 +342,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       timestamps: state.timestamps,
       status: 'finished',
     });
-  }, [activeSecondsNow, publish, route, stopWatching, targetKm]);
+  }, [activeSecondsNow, publish, route, status, stopWatching, targetKm]);
 
   const reset = useCallback(() => {
     tracker.current = createTrackerState();
@@ -346,18 +358,28 @@ export function RunProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const saveCompleted = useCallback(async () => {
+    if (!canTransition(status, 'saveCompleted')) {
+      return;
+    }
     if (completedRun) {
       await saveRun(completedRun);
     }
     reset();
-  }, [completedRun, reset]);
+  }, [completedRun, reset, status]);
 
   const discardCompleted = useCallback(() => {
+    if (!canTransition(status, 'discardCompleted')) {
+      return;
+    }
     reset();
-  }, [reset]);
+  }, [reset, status]);
 
   const resumeRecovered = useCallback(() => {
-    if (!recoverable) {
+    if (!recoverable || !canTransition(status, 'resumeRecovered')) {
+      // The status guard matters even though `recoverable` is only ever set
+      // from `idle` today: without it, a stale recovery offer resolved late
+      // (e.g. the runner tapped Resume after already starting a fresh run
+      // some other way) would silently overwrite a session already live.
       return;
     }
     const run = recoverable;
@@ -387,12 +409,17 @@ export function RunProvider({ children }: { children: ReactNode }) {
     setStatus('active');
     setRecoverable(null);
     startWatching();
-  }, [recoverable, startWatching]);
+  }, [recoverable, startWatching, status]);
 
   const discardRecovered = useCallback(() => {
+    if (!canTransition(status, 'discardRecovered')) {
+      // Unreachable today — legal from every state — kept for the same
+      // reason as `start`'s check above.
+      return;
+    }
     setRecoverable(null);
     void clearInProgressRun();
-  }, []);
+  }, [status]);
 
   const dismissCompletionSuggestion = useCallback(() => {
     tracker.current = { ...tracker.current, nearStartStreak: 0, completionSuggested: false };

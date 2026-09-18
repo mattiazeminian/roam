@@ -6,10 +6,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
 import { DEFAULT_DISTANCE_KM, DistanceControl } from '@/components/distance-control';
+import { Divider } from '@/components/divider';
 import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
-import { errorFeedback, impactLight, selectionFeedback, successFeedback } from '@/lib/haptics';
+import { errorFeedback, impactLight, impactMedium, selectionFeedback, successFeedback } from '@/lib/haptics';
 import { describeCoordinate } from '@/services/geocoding';
 import { useLocation } from '@/services/location-context';
 import { useRoutes } from '@/services/route-context';
@@ -42,7 +43,7 @@ export default function HomeScreen() {
     refresh,
   } = useLocation();
   const { status: routeStatus, errorMessage, find } = useRoutes();
-  const { recoverable, resumeRecovered, discardRecovered } = useRun();
+  const { start, recoverable, resumeRecovered, discardRecovered } = useRun();
   const { settings, loaded: settingsLoaded, update } = useSettings();
   // Derived rather than an effect: settings load asynchronously, so seeding
   // state from them would mean a setState inside an effect. Until the runner
@@ -121,6 +122,16 @@ export default function HomeScreen() {
     router.push('/routes');
   }, [origin, distanceKm, finish, find, isFinding, update]);
 
+  // A run can start immediately, with no planned route (#33): route
+  // discovery supports the run rather than gating it. A route-less run has
+  // no target distance — there is nothing to hit a target *of* — so nothing
+  // here reads `distanceKm`; that control only ever feeds route generation.
+  const handleStartRun = useCallback(() => {
+    impactMedium();
+    start(null, 0);
+    router.push('/run');
+  }, [start]);
+
   return (
     // The panel is in normal flow, so the standard iOS keyboard behaviour works
     // — the map gives up height and the controls ride up with the keyboard.
@@ -180,7 +191,7 @@ export default function HomeScreen() {
             accessibilityRole={locationStatus === 'denied' ? 'text' : 'button'}>
             <Text variant="label" color="textSecondary">
               {locationStatus === 'denied'
-                ? 'Location is off. ROAM needs it to find routes near you — turn it on in Settings.'
+                ? 'Location is off. ROAM needs it to track your run — turn it on in Settings.'
                 : 'Location is unavailable. Tap to try again.'}
             </Text>
           </Pressable>
@@ -192,9 +203,23 @@ export default function HomeScreen() {
           </Text>
         ) : null}
 
+        {/* The question Home asks on open is "do I want to run now?", not
+            "what route do I want?" (#34) — one accent action, nothing else
+            on the panel competing with it. */}
+        <Button
+          label="Start run"
+          variant="accent"
+          onPress={handleStartRun}
+          disabled={locationStatus === 'denied'}
+        />
+
+        {/* Route discovery is a clear but visually subordinate path below
+            it — a line, not a card, per the app's own "structure with
+            lines" convention, separates the primary action from it. */}
+        <Divider />
+
         {/* Where the run starts, and the way to change it. Deliberately not
-            accented: the accent is reserved for the value and the action, so
-            it keeps meaning something. */}
+            accented: the accent is reserved for the primary action above. */}
         <Pressable
           onPress={() => router.push('/location-search')}
           accessibilityRole="button"
@@ -265,7 +290,7 @@ export default function HomeScreen() {
 
         <Button
           label={isFinding ? 'Finding your way' : hasError ? 'Try again' : 'Find routes'}
-          variant="accent"
+          variant="secondary"
           onPress={handleFindRoutes}
           disabled={isFinding || !origin}
           loading={isFinding}

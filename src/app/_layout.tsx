@@ -15,11 +15,15 @@ import { motion, useTheme } from '@/theme';
 /**
  * ROAM has no tab bar.
  *
- * The product is one journey — choose a distance, pick a route, run it — and a
- * place to look back. A two-item tab bar spent permanent chrome on a
- * destination used a fraction of the time, and cost the map 68pt on the screen
- * that matters most. History is pushed from Home instead, and Records live
- * inside History rather than as a peer destination.
+ * Re-evaluated in #106 against a proposed Run/Explore/Training/History-Profile
+ * tab structure, and kept as a stack: two of those four destinations don't
+ * exist yet (Explore has no dedicated screen; Training is entirely unbuilt),
+ * so a tab bar today would mean permanent map-height chrome spent on two
+ * placeholders. Start Run is already the first thing on Home (#33, #34),
+ * which is most of what this issue needs from navigation right now. History
+ * is pushed from Home, one tap away via its map control. See
+ * `docs/navigation-decision.md` for the full reasoning and the trigger for
+ * revisiting this once Training and a real Profile screen exist.
  */
 export default function RootLayout() {
   const theme = useTheme();
