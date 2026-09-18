@@ -452,15 +452,20 @@ export function formatMetrics(label: string, metrics: RouteQualityMetrics): stri
 }
 
 /**
- * Ranking weights. Distance keeps the largest single share — the runner did ask
- * for a distance — but no longer decides alone. Stated here so the ranking can
- * be reasoned about and tuned in one place rather than inferred from code.
+ * Ranking weights. Distance keeps a strong share — the runner did ask for a
+ * distance — but pedestrian suitability now carries real weight, because a loop
+ * along arterials is not a good run even at the right length.
+ *
+ * Weights are relative: a component whose data is unknown is dropped and the
+ * remaining weights renormalised, so a route is never punished for the provider
+ * returning less.
  */
 export const QUALITY_WEIGHTS = {
-  distance: 0.4,
-  backtracking: 0.25,
-  turns: 0.2,
-  shape: 0.15,
+  distance: 0.3,
+  pedestrian: 0.25,
+  backtracking: 0.2,
+  turns: 0.15,
+  shape: 0.1,
 } as const;
 
 /** At or above these, the component scores zero. */
@@ -471,11 +476,19 @@ const ELONGATION_ZERO_SCORE = 3;
 /** Each self-crossing removes this much of the shape component. */
 const SELF_INTERSECTION_PENALTY = 0.5;
 
+/** The provider's path data, as much as it returned. */
+export type QualityAttributes = {
+  footwayPercent: number | null;
+  roadPercent: number | null;
+};
+
 export type RouteScore = {
   /** 0–1, higher is better. */
   total: number;
   components: {
     distance: number;
+    /** Null when the provider returned no path data at all. */
+    pedestrian: number | null;
     backtracking: number;
     turns: number;
     shape: number;
@@ -487,13 +500,38 @@ function clamp01(value: number): number {
 }
 
 /**
- * A comparable score for ranking candidates (#52).
+ * How good the surfaces are to run on: mostly footways and paths, little road.
  *
- * Each component is normalised to 0–1 and combined with `QUALITY_WEIGHTS`. This
- * is a ranking device, not a judgement shown to the runner: nothing here is ever
- * surfaced as a "quality" or "safety" figure, and distance remains gated
- * separately by the caller's tolerance — a route outside tolerance is rejected
- * before it reaches this function.
+ * A dimension the provider did not return is treated as neutral (0.5) rather
+ * than as bad, so absent data neither rewards nor punishes. When *neither*
+ * dimension is known the component is dropped entirely by `scoreRoute`.
+ *
+ * This deliberately uses the explicit waytype breakdown rather than ORS's
+ * `suitability`, which is an unexplained 0–10 composite (see
+ * `docs/route-data-sources.md`).
+ */
+function pedestrianScore(attributes: QualityAttributes | undefined): number | null {
+  if (!attributes) {
+    return null;
+  }
+  const { footwayPercent, roadPercent } = attributes;
+  if (footwayPercent === null && roadPercent === null) {
+    return null;
+  }
+  const footway = footwayPercent === null ? 0.5 : clamp01(footwayPercent / 100);
+  const road = roadPercent === null ? 0.5 : clamp01(roadPercent / 100);
+  return clamp01(footway * (1 - road));
+}
+
+/**
+ * A comparable score for ranking candidates (#52, #55).
+ *
+ * Each component is normalised to 0–1 and combined with `QUALITY_WEIGHTS`,
+ * renormalised over whichever components are available. This is a ranking
+ * device, not a judgement shown to the runner: nothing here is ever surfaced as
+ * a "quality" or "safety" figure, and distance remains gated separately by the
+ * caller's tolerance — a route outside tolerance is rejected before it reaches
+ * this function.
  *
  * `toleranceM` is the caller's soft distance tolerance, so the distance
  * component falls to 0 exactly at the edge of what the caller considers a match.
@@ -503,9 +541,11 @@ export function scoreRoute(
   distanceM: number,
   targetM: number,
   toleranceM: number,
+  attributes?: QualityAttributes,
 ): RouteScore {
   const distance =
     toleranceM > 0 ? clamp01(1 - Math.abs(distanceM - targetM) / toleranceM) : 1;
+  const pedestrian = pedestrianScore(attributes);
 
   const backtracking = clamp01(
     1 - metrics.backtracking.ratio / BACKTRACK_ZERO_SCORE_RATIO,
@@ -520,11 +560,21 @@ export function scoreRoute(
       metrics.shape.selfIntersections * SELF_INTERSECTION_PENALTY,
   );
 
-  const total =
-    distance * QUALITY_WEIGHTS.distance +
-    backtracking * QUALITY_WEIGHTS.backtracking +
-    turns * QUALITY_WEIGHTS.turns +
-    shape * QUALITY_WEIGHTS.shape;
+  const entries: { value: number; weight: number }[] = [
+    { value: distance, weight: QUALITY_WEIGHTS.distance },
+    { value: backtracking, weight: QUALITY_WEIGHTS.backtracking },
+    { value: turns, weight: QUALITY_WEIGHTS.turns },
+    { value: shape, weight: QUALITY_WEIGHTS.shape },
+  ];
+  if (pedestrian !== null) {
+    entries.push({ value: pedestrian, weight: QUALITY_WEIGHTS.pedestrian });
+  }
 
-  return { total, components: { distance, backtracking, turns, shape } };
+  const weightSum = entries.reduce((sum, entry) => sum + entry.weight, 0);
+  const total =
+    weightSum > 0
+      ? entries.reduce((sum, entry) => sum + entry.value * entry.weight, 0) / weightSum
+      : 0;
+
+  return { total, components: { distance, pedestrian, backtracking, turns, shape } };
 }

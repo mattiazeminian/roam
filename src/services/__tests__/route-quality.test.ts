@@ -265,11 +265,53 @@ describe('scoreRoute (#52)', () => {
       TOLERANCE,
     );
     for (const value of Object.values(extreme.components)) {
+      if (value === null) {
+        continue;
+      }
       expect(value).toBeGreaterThanOrEqual(0);
       expect(value).toBeLessThanOrEqual(1);
     }
     expect(extreme.total).toBeGreaterThanOrEqual(0);
     expect(extreme.total).toBeLessThanOrEqual(1);
+  });
+
+  test('prefers footways over roads when path data is available (#55)', () => {
+    const footway = scoreRoute(metrics(), TARGET, TARGET, TOLERANCE, {
+      footwayPercent: 95,
+      roadPercent: 5,
+    });
+    const road = scoreRoute(metrics(), TARGET, TARGET, TOLERANCE, {
+      footwayPercent: 20,
+      roadPercent: 80,
+    });
+    expect(footway.components.pedestrian).toBeGreaterThan(road.components.pedestrian ?? 0);
+    expect(footway.total).toBeGreaterThan(road.total);
+  });
+
+  test('drops the pedestrian component — and renormalises — when no path data exists', () => {
+    const withData = scoreRoute(metrics(), TARGET, TARGET, TOLERANCE, {
+      footwayPercent: 0,
+      roadPercent: 100,
+    });
+    const withoutData = scoreRoute(metrics(), TARGET, TARGET, TOLERANCE);
+    expect(withoutData.components.pedestrian).toBeNull();
+    // Absent data must not be scored as bad: a route with no path data should
+    // not lose to one known to be all road.
+    expect(withoutData.total).toBeGreaterThan(withData.total);
+  });
+
+  test('treats a single unknown dimension as neutral, not as bad', () => {
+    const neutral = scoreRoute(metrics(), TARGET, TARGET, TOLERANCE, {
+      footwayPercent: null,
+      roadPercent: null,
+    });
+    expect(neutral.components.pedestrian).toBeNull();
+
+    const partlyKnown = scoreRoute(metrics(), TARGET, TARGET, TOLERANCE, {
+      footwayPercent: 100,
+      roadPercent: null,
+    });
+    expect(partlyKnown.components.pedestrian).toBeCloseTo(0.5, 3);
   });
 
   test('the harness metrics feed it directly', () => {

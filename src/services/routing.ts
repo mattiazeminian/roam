@@ -295,6 +295,7 @@ function rankByQuality(candidates: RawCandidate[], targetM: number): RawCandidat
         candidate.distanceM,
         targetM,
         tolerance,
+        candidate.attributes,
       ).total,
     }))
     .sort(

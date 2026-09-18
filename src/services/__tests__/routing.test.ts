@@ -509,6 +509,22 @@ describe('findRoutes', () => {
     expect(ratios[0]).toBeLessThan(0.1);
     expect(ratios[ratios.length - 1]).toBeGreaterThan(0.3);
   });
+
+  test('prefers the more pedestrian-friendly route at equal distance and shape (#55)', async () => {
+    const { findRoutes } = loadRouting('test-key');
+    const footway = { waytype: { summary: [{ value: 7, amount: 95 }, { value: 3, amount: 5 }] } };
+    const road = { waytype: { summary: [{ value: 3, amount: 80 }, { value: 7, amount: 20 }] } };
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(orsFixture(5000, 5, road)) as never);
+    fetchMock.mockResolvedValueOnce(jsonResponse(orsFixture(5000, 5, footway)) as never);
+    fetchMock.mockResolvedValueOnce(jsonResponse(orsFixture(5000, 5, footway)) as never);
+
+    const routes = await findRoutes({ origin: ORIGIN, targetKm: 5 });
+
+    // The geometry is identical across these; only the surfaces differ.
+    expect(routes[0].attributes?.footwayPercent).toBe(95);
+    expect(routes[routes.length - 1].attributes?.roadPercent).toBe(80);
+  });
 });
 
 describe('path attributes (#14)', () => {
