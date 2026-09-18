@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, ScrollView, Share, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -15,7 +15,8 @@ import { routeFromRun } from '@/services/run-to-route';
 import { formatDuration, formatRunDate, type SavedRun } from '@/services/run-session';
 import { isRouteSaved, saveRoute } from '@/services/route-storage';
 import { useFormatters } from '@/services/settings-context';
-import { getRun } from '@/services/run-storage';
+import { getRun, saveRun } from '@/services/run-storage';
+import { loadShoes, shoeName, type Shoe } from '@/services/shoes';
 import { layout, radii, spacing, useTheme } from '@/theme';
 
 /** Run detail — the recorded route, and the numbers that describe it. */
@@ -50,6 +51,54 @@ export default function RunDetailScreen() {
   const hasTrack = (run?.coordinates.length ?? 0) >= 2;
   const cardRef = useRef<View>(null);
   const [trackIsSaved, setTrackIsSaved] = useState(false);
+  const [shoes, setShoes] = useState<Shoe[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    void loadShoes()
+      .then((stored) => {
+        if (active) {
+          setShoes(stored);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const currentShoe = run?.shoeId ? shoes.find((shoe) => shoe.id === run.shoeId) : undefined;
+  const shoeLabel = currentShoe ? shoeName(currentShoe) : 'No shoe';
+
+  // Attribute the run to a shoe, or take it off. Attribution is editable after
+  // the fact: a runner may only realise later which pair these kilometres
+  // belong to, and a past run is allowed to name a shoe since retired.
+  const attributeShoe = useCallback(
+    (shoeId: string | null) => {
+      if (!run) {
+        return;
+      }
+      const next = { ...run, shoeId: shoeId ?? undefined };
+      setRun(next);
+      void saveRun(next).catch(() => {});
+    },
+    [run],
+  );
+
+  const handleSetShoe = useCallback(() => {
+    if (!run) {
+      return;
+    }
+    Alert.alert('Shoe', 'Which shoe did you run in?', [
+      ...shoes.map((shoe) => ({
+        text: shoeName(shoe),
+        onPress: () => attributeShoe(shoe.id),
+      })),
+      { text: 'No shoe', onPress: () => attributeShoe(null) },
+      { text: 'Cancel', style: 'cancel' as const },
+    ]);
+  }, [run, shoes, attributeShoe]);
+
 
   // Whether this track is already kept as a route, so the control reflects
   // reality rather than a local guess. Nothing is set synchronously in the
@@ -183,6 +232,21 @@ export default function RunDetailScreen() {
                   accessibilityLabel={fmt.paceSpoken(run.averagePaceMinPerKm)}
                 />
               </MetricRow>
+
+              {shoes.length > 0 ? (
+                <Pressable
+                  onPress={handleSetShoe}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Shoe, ${shoeLabel}. Change.`}
+                  style={({ pressed }) => [styles.shoeRow, pressed && styles.pressed]}>
+                  <Text variant="caption" color="textSecondary">
+                    Shoe
+                  </Text>
+                  <Text variant="body" color="accentText">
+                    {shoeLabel}
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
 
             {hasTrack ? (
@@ -224,6 +288,16 @@ const styles = StyleSheet.create({
   },
   headline: {
     gap: spacing.lg,
+  },
+  shoeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: layout.minTouchTarget,
+    gap: spacing.md,
+  },
+  pressed: {
+    opacity: 0.6,
   },
   headerRow: {
     flexDirection: 'row',

@@ -9,6 +9,7 @@ import { describe, expect, test } from '@jest/globals';
 
 import {
   RECENT_WINDOW_DAYS,
+  shoeMileageMeters,
   weekDayBuckets,
   weeklyRunStreak,
   filterRunsByPeriod,
@@ -152,5 +153,20 @@ describe('weekDayBuckets (#114)', () => {
     expect(buckets[0].meters).toBeCloseTo(8000, 0); // Sunday
     expect(buckets[4].meters).toBeCloseTo(8000, 0); // Thursday (index 4)
     expect(buckets.reduce((total, day) => total + day.meters, 0)).toBeCloseTo(16000, 0);
+  });
+});
+
+describe('shoeMileageMeters (#112)', () => {
+  test('sums only the runs attributed to a shoe, and is zero for the rest', () => {
+    const runs = [
+      { ...run(0, 5, 'a'), shoeId: 'shoe-1' },
+      { ...run(1, 3.5, 'b'), shoeId: 'shoe-1' },
+      { ...run(2, 8, 'c'), shoeId: 'shoe-2' },
+      run(3, 10, 'd'),
+    ];
+    expect(shoeMileageMeters('shoe-1', runs)).toBeCloseTo(8500, 0);
+    expect(shoeMileageMeters('shoe-2', runs)).toBeCloseTo(8000, 0);
+    expect(shoeMileageMeters('shoe-none', runs)).toBe(0);
+    expect(shoeMileageMeters('shoe-1', [])).toBe(0);
   });
 });

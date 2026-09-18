@@ -95,6 +95,22 @@ export function filterRunsByPeriod(
 }
 
 /**
+ * Distance a single shoe has covered, from the runs attributed to it (#112).
+ *
+ * A plain sum of recorded distance — never an estimate, and a shoe with no
+ * attributed runs is zero, not a number borrowed from somewhere else.
+ */
+export function shoeMileageMeters(shoeId: string, runs: SavedRun[]): number {
+  let total = 0;
+  for (const run of runs) {
+    if (run.shoeId === shoeId) {
+      total += run.distanceKm * 1000;
+    }
+  }
+  return total;
+}
+
+/**
  * Consecutive calendar weeks, ending with the current one, that contain at
  * least one recorded run.
  *

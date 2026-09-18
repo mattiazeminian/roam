@@ -120,6 +120,7 @@ function parseRun(value: unknown): SavedRun | null {
     coordinates: parseCoordinates(run.coordinates),
     timestamps: parseTimestamps(run.timestamps),
     status,
+    shoeId: typeof run.shoeId === 'string' && run.shoeId.length > 0 ? run.shoeId : undefined,
   };
 }
 

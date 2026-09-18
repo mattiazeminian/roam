@@ -19,7 +19,7 @@ import {
   shoeName,
   type Shoe,
 } from '@/services/shoes';
-import { summarizeRuns, weekDayBuckets, type RunOverview } from '@/services/run-analytics';
+import { summarizeRuns, shoeMileageMeters, weekDayBuckets, type RunOverview } from '@/services/run-analytics';
 import { formatDuration, formatRunDate, type SavedRun } from '@/services/run-session';
 import { listRuns } from '@/services/run-storage';
 import { useFormatters, type Formatters } from '@/services/settings-context';
@@ -332,6 +332,9 @@ export default function ProfileScreen() {
                   {`${shoe.brand} ${shoe.model}${shoe.retired ? ' · retired' : ''}`}
                 </Text>
               </View>
+              <Text variant="body" tabular>
+                {`${fmt.distance(shoeMileageMeters(shoe.id, allRuns))} ${fmt.unitLabel}`}
+              </Text>
             </Pressable>
           ))
         )}

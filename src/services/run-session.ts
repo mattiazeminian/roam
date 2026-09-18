@@ -37,6 +37,8 @@ export type SavedRun = {
    */
   timestamps?: (number | null)[];
   status: RunStatus;
+  /** The shoe this run is attributed to, when the runner chose one. */
+  shoeId?: string;
 };
 
 /**
