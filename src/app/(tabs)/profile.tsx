@@ -22,6 +22,7 @@ import {
 import { summarizeRuns, shoeMileageMeters, weekDayBuckets, type RunOverview } from '@/services/run-analytics';
 import { formatDuration, formatRunDate, type SavedRun } from '@/services/run-session';
 import { listRuns } from '@/services/run-storage';
+import { listRoutes, type SavedRoute } from '@/services/route-storage';
 import { useFormatters, type Formatters } from '@/services/settings-context';
 import { toDateKey, weekStartFor } from '@/services/training';
 import { layout, radii, spacing, useTheme } from '@/theme';
@@ -51,20 +52,22 @@ export default function ProfileScreen() {
   const [runs, setRuns] = useState<SavedRun[] | null>(null);
   const [loadedAt, setLoadedAt] = useState(0);
   const [shoes, setShoes] = useState<Shoe[]>([]);
+  const [savedRoutes, setSavedRoutes] = useState<SavedRoute[]>([]);
   const [todayKey, setTodayKey] = useState('');
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
       const now = Date.now();
-      void Promise.all([loadProfile(), listRuns(), loadShoes()])
-        .then(([stored, saved, storedShoes]) => {
+      void Promise.all([loadProfile(), listRuns(), loadShoes(), listRoutes()])
+        .then(([stored, saved, storedShoes, routes]) => {
           if (!active) {
             return;
           }
           setProfile(stored);
           setRuns(saved);
           setShoes(storedShoes);
+          setSavedRoutes(routes);
           setLoadedAt(now);
           setTodayKey(toDateKey(new Date(now)));
         })
@@ -335,6 +338,45 @@ export default function ProfileScreen() {
               <Text variant="body" tabular>
                 {`${fmt.distance(shoeMileageMeters(shoe.id, allRuns))} ${fmt.unitLabel}`}
               </Text>
+            </Pressable>
+          ))
+        )}
+
+        <View style={styles.sectionHeader}>
+          <Text variant="title">Saved routes</Text>
+          {savedRoutes.length > 0 ? (
+            <Pressable
+              onPress={() => router.push('/favorites')}
+              accessibilityRole="button"
+              accessibilityLabel="See all saved routes"
+              hitSlop={spacing.sm}>
+              <Text variant="body" color="accentText">
+                See all
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+
+        {savedRoutes.length === 0 ? (
+          <Text variant="body" color="textSecondary">
+            Routes you save from Maps will appear here.
+          </Text>
+        ) : (
+          savedRoutes.map((saved) => (
+            <Pressable
+              key={saved.id}
+              onPress={() => router.push('/favorites')}
+              accessibilityRole="button"
+              accessibilityLabel={`${fmt.distance(saved.route.distanceKm * 1000)} ${fmt.unitSpoken} route`}
+              style={({ pressed }) => [styles.runRow, pressed && styles.pressed]}>
+              <View>
+                <Text variant="title" tabular>
+                  {`${fmt.distance(saved.route.distanceKm * 1000)} ${fmt.unitLabel}`}
+                </Text>
+                <Text variant="caption" color="textSecondary" numberOfLines={1}>
+                  {saved.route.characteristics.join(' · ')}
+                </Text>
+              </View>
             </Pressable>
           ))
         )}
