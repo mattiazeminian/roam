@@ -11,6 +11,7 @@ import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
 import { Metric, MetricRow } from '@/components/metric';
 import { ControlPanel } from '@/components/control-panel';
+import { SlideToConfirm } from '@/components/slide-to-confirm';
 import { Text } from '@/components/text';
 import { cumulativeDistances, sliceAlongPath } from '@/services/geo';
 import { useRun } from '@/services/run-context';
@@ -204,6 +205,7 @@ export default function ActiveRunScreen() {
                 accessibilityLabel="Resume run"
                 variant="accent"
                 durationMs={600}
+                symbol="play.fill"
                 onComplete={resume}
               />
             ) : (
@@ -213,12 +215,12 @@ export default function ActiveRunScreen() {
                 accessibilityLabel="Pause run"
                 variant="secondary"
                 durationMs={600}
+                symbol="pause.fill"
                 onComplete={pause}
               />
             )}
-            <HoldButton
-              label="Hold to finish"
-              holdingLabel="Keep holding…"
+            <SlideToConfirm
+              label="Slide to finish"
               accessibilityLabel="Finish run"
               onComplete={finish}
             />

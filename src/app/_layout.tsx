@@ -56,9 +56,16 @@ export default function RootLayout() {
                 name="routes"
                 options={{ animation: 'fade', animationDuration: motion.mediumDuration }}
               />
+              {/* A run in progress is not dismissable: the only way out is to
+                  finish it. Leaving the swipe-back gesture on meant a rightward
+                  drag could pop the screen mid-run. */}
               <Stack.Screen
                 name="run"
-                options={{ animation: 'fade', animationDuration: motion.mediumDuration }}
+                options={{
+                  animation: 'fade',
+                  animationDuration: motion.mediumDuration,
+                  gestureEnabled: false,
+                }}
               />
               {/* The summary replaces the run, so it has no back gesture. */}
               <Stack.Screen

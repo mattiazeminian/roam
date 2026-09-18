@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { SymbolView } from 'expo-symbols';
+import { useState, type ComponentProps } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
@@ -27,16 +28,17 @@ export type HoldButtonProps = {
   variant?: 'quiet' | 'accent' | 'secondary';
   /** How long the hold takes. Defaults to the deliberate finish hold. */
   durationMs?: number;
+  /** Optional leading glyph, e.g. a play or pause mark. */
+  symbol?: ComponentProps<typeof SymbolView>['name'];
 };
 
 /**
  * Press-and-hold confirmation.
  *
- * Finishing a run discards nothing but cannot be undone mid-run, so it is
- * deliberately not a single tap. The filling track is the progress indicator;
- * releasing early cancels it. Pause and resume reuse the same control with a
- * much shorter hold, so a stray tap cannot change the run's state but a
- * deliberate one stays fast.
+ * Finishing a run cannot be undone mid-run, so it is never a single tap. The
+ * filling track is the progress indicator; releasing early cancels it. Pause
+ * and resume reuse the same control with a much shorter hold, so a stray tap
+ * cannot change the run's state but a deliberate one stays fast.
  *
  * Assistive technology gets a direct action instead of having to emulate a
  * sustained press.
@@ -48,6 +50,7 @@ export function HoldButton({
   accessibilityLabel,
   variant = 'quiet',
   durationMs,
+  symbol,
 }: HoldButtonProps) {
   const theme = useTheme();
   const reduceMotion = useReducedMotion();
@@ -69,6 +72,7 @@ export function HoldButton({
           ? 'text'
           : 'textSecondary';
   const fillColor = variant === 'accent' ? theme.accentPressed : theme.accent;
+  const trackColor = variant === 'accent' ? 'rgba(22, 51, 0, 0.16)' : theme.borderSubtle;
 
   const finish = () => {
     successFeedback();
@@ -108,7 +112,7 @@ export function HoldButton({
   // runner how much longer to hold — so it is never disabled. The label's fade
   // is decorative, and that is what Reduce Motion switches off.
   const labelStyle = useAnimatedStyle(() => ({
-    opacity: reduceMotion ? 1 : holding.value ? 0.8 : 1,
+    opacity: reduceMotion ? 1 : holding.value ? 0.85 : 1,
   }));
 
   return (
@@ -120,50 +124,56 @@ export function HoldButton({
       accessibilityHint="Press and hold to confirm"
       accessibilityActions={[{ name: 'activate', label }]}
       onAccessibilityAction={finish}
-      // Quiet by design: Pause is the action a runner reaches for mid-run, so
-      // it keeps the filled treatment and finishing sits below it as a
-      // deliberate, lower-contrast commitment.
       style={[styles.base, { backgroundColor: background }]}>
-      <View style={styles.labelWrap} pointerEvents="none">
+      <View style={styles.content} pointerEvents="none">
+        {symbol ? (
+          <SymbolView name={symbol} size={layout.iconSizeSmall} tintColor={theme[labelColor]} />
+        ) : null}
         <Animated.View style={labelStyle}>
           <Text variant="label" color={labelColor} style={styles.label}>
             {isHolding ? (holdingLabel ?? label) : label}
           </Text>
         </Animated.View>
       </View>
-      {/* Progress reads along the bottom edge rather than as a fill behind the
-          label: a full-height accent fill would put white-on-accent text in dark
-          mode, which fails contrast badly. */}
-      <Animated.View
-        style={[styles.fill, { backgroundColor: fillColor }, fillStyle]}
-        pointerEvents="none"
-      />
+      {/* The track shows what is left as well as what is done, so the hold reads
+          as a countdown rather than an open-ended press. */}
+      <View style={[styles.progressTrack, { backgroundColor: trackColor }]} pointerEvents="none">
+        <Animated.View style={[styles.fill, { backgroundColor: fillColor }, fillStyle]} />
+      </View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   base: {
-    borderRadius: radii.small,
+    borderRadius: radii.pill,
     borderCurve: 'continuous',
-    minHeight: layout.minTouchTarget,
+    minHeight: layout.controlHeight,
     overflow: 'hidden',
     justifyContent: 'center',
   },
-  fill: {
-    position: 'absolute',
-    left: 0,
-    bottom: 0,
-    height: 3,
-  },
-  labelWrap: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.xl,
+  content: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xl,
   },
   label: {
     fontWeight: '600',
     letterSpacing: -0.2,
+  },
+  progressTrack: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 4,
+  },
+  fill: {
+    height: '100%',
+    borderTopRightRadius: 2,
+    borderBottomRightRadius: 2,
   },
 });
