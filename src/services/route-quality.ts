@@ -415,3 +415,38 @@ export function loopShape(track: Coordinate[]): LoopShape {
     selfIntersections: countSelfIntersections(simplified),
   };
 }
+
+export type RouteQualityMetrics = {
+  backtracking: Backtracking;
+  turniness: Turniness;
+  shape: LoopShape;
+};
+
+/**
+ * Every Tier-1 geometry metric for one route.
+ *
+ * Tier 1 is the set that needs no provider beyond the polyline ROAM already
+ * has (see `docs/route-data-sources.md`), so this runs offline and costs
+ * nothing. It reports; it does not yet rank — combining these into a score is
+ * the quality-score work, and the harness exists so that score can be measured.
+ */
+export function analyzeRoute(track: Coordinate[]): RouteQualityMetrics {
+  return {
+    backtracking: backtracking(track),
+    turniness: turnDensity(track),
+    shape: loopShape(track),
+  };
+}
+
+/** One readable line per route, for the evaluation harness output. */
+export function formatMetrics(label: string, metrics: RouteQualityMetrics): string {
+  const percent = (metrics.backtracking.ratio * 100).toFixed(1);
+  return [
+    label.padEnd(12),
+    `backtrack ${percent}%`,
+    `turns ${metrics.turniness.perKm.toFixed(1)}/km`,
+    `compact ${metrics.shape.compactness.toFixed(2)}`,
+    `elong ${metrics.shape.elongation.toFixed(2)}`,
+    `crossings ${metrics.shape.selfIntersections}`,
+  ].join('  ');
+}
