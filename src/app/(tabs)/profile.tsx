@@ -1,9 +1,11 @@
 import { router, useFocusEffect } from 'expo-router';
+import { SymbolView } from 'expo-symbols';
 import { useCallback, useState } from 'react';
-import { Alert, Image, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
+import { FormSheet } from '@/components/form-sheet';
 import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
 import { impactLight, selectionFeedback } from '@/lib/haptics';
@@ -35,6 +37,9 @@ const BAR_MAX = 52;
 const BAR_MIN = 10;
 const BAR_EMPTY = 4;
 
+/** Which short-fact sheet is open, if any. */
+type Editor = 'name' | 'age' | 'weightKg' | 'shoe' | null;
+
 /**
  * Profile — who the runner is, and what they have done.
  *
@@ -54,6 +59,7 @@ export default function ProfileScreen() {
   const [shoes, setShoes] = useState<Shoe[]>([]);
   const [savedRoutes, setSavedRoutes] = useState<SavedRoute[]>([]);
   const [todayKey, setTodayKey] = useState('');
+  const [editor, setEditor] = useState<Editor>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -83,69 +89,14 @@ export default function ProfileScreen() {
     setProfile(await loadProfile());
   }, []);
 
-  // Editing is a small iOS prompt rather than a form screen: three short facts,
-  // each changed rarely. Guarded because Alert.prompt is iOS-only, and ROAM is
-  // iOS-first.
-  const editName = useCallback(() => {
-    if (Platform.OS !== 'ios' || !profile) {
-      return;
-    }
-    Alert.prompt(
-      'Your name',
-      'Shown on your profile.',
-      (value) => {
-        void persist({ ...profile, name: value });
-      },
-      'plain-text',
-      profile.name ?? '',
-    );
-  }, [profile, persist]);
-
-  const editNumber = useCallback(
-    (field: 'age' | 'weightKg') => {
-      if (Platform.OS !== 'ios' || !profile) {
-        return;
-      }
-      const isAge = field === 'age';
-      Alert.prompt(
-        isAge ? 'Your age' : 'Your weight',
-        isAge ? 'Years.' : 'Kilograms.',
-        (value) => {
-          const parsed = Number(value.replace(',', '.'));
-          void persist({ ...profile, [field]: value.trim() === '' ? null : parsed });
-        },
-        'plain-text',
-        profile[field] === null ? '' : String(profile[field]),
-      );
-    },
-    [profile, persist],
-  );
-
+  // Editing opens ROAM's own sheet rather than the system prompt: the system
+  // prompt cannot be styled, cannot show more than one field, and looks nothing
+  // like the rest of the app. The sheet is mounted only while open, so its
+  // fields always start from the current values.
   const persistShoes = useCallback(async (next: Shoe[]) => {
     setShoes(next);
     await saveShoes(next);
   }, []);
-
-  // Two short prompts rather than a form screen, matching how the rest of the
-  // profile is edited. iOS-only, and ROAM is iOS-first.
-  const addAShoe = useCallback(() => {
-    if (Platform.OS !== 'ios') {
-      return;
-    }
-    Alert.prompt('Add a shoe', 'Brand', (brand) => {
-      const trimmedBrand = brand.trim();
-      if (trimmedBrand.length === 0) {
-        return;
-      }
-      Alert.prompt('Add a shoe', 'Model', (model) => {
-        const trimmedModel = model.trim();
-        if (trimmedModel.length === 0) {
-          return;
-        }
-        void persistShoes(addShoe(shoes, createShoe({ brand: trimmedBrand, model: trimmedModel })));
-      });
-    });
-  }, [shoes, persistShoes]);
 
   const editShoe = useCallback(
     (shoe: Shoe) => {
@@ -220,11 +171,11 @@ export default function ProfileScreen() {
           </Pressable>
 
           <View style={styles.identityText}>
-            <Pressable onPress={editName} accessibilityRole="button" accessibilityLabel="Edit name">
+            <Pressable onPress={() => setEditor('name')} accessibilityRole="button" accessibilityLabel="Edit name">
               <Text variant="large">{profile?.name ?? account?.name ?? 'Add your name'}</Text>
             </Pressable>
             <Pressable
-              onPress={() => editNumber('age')}
+              onPress={() => setEditor('age')}
               accessibilityRole="button"
               accessibilityLabel="Edit age">
               <Text variant="caption" color="textSecondary" tabular>
@@ -234,7 +185,7 @@ export default function ProfileScreen() {
               </Text>
             </Pressable>
             <Pressable
-              onPress={() => editNumber('weightKg')}
+              onPress={() => setEditor('weightKg')}
               accessibilityRole="button"
               accessibilityLabel="Edit weight">
               <Text variant="caption" color="textSecondary" tabular>
@@ -307,7 +258,7 @@ export default function ProfileScreen() {
         <View style={styles.sectionHeader}>
           <Text variant="title">My shoes</Text>
           <Pressable
-            onPress={addAShoe}
+            onPress={() => setEditor('shoe')}
             accessibilityRole="button"
             accessibilityLabel="Add a shoe"
             hitSlop={spacing.sm}>
@@ -319,26 +270,17 @@ export default function ProfileScreen() {
 
         {shoes.length === 0 ? (
           <Text variant="body" color="textSecondary">
-            Add the shoes you run in to keep track of them here.
+            Add the shoes you run in to keep track of the distance in each pair.
           </Text>
         ) : (
           shoes.map((shoe) => (
-            <Pressable
+            <ShoeCard
               key={shoe.id}
+              shoe={shoe}
+              meters={shoeMileageMeters(shoe.id, allRuns)}
+              fmt={fmt}
               onPress={() => editShoe(shoe)}
-              accessibilityRole="button"
-              accessibilityLabel={`${shoeName(shoe)}${shoe.retired ? ', retired' : ''}. Edit shoe.`}
-              style={({ pressed }) => [styles.runRow, pressed && styles.pressed]}>
-              <View>
-                <Text variant="body">{shoeName(shoe)}</Text>
-                <Text variant="caption" color="textSecondary">
-                  {`${shoe.brand} ${shoe.model}${shoe.retired ? ' · retired' : ''}`}
-                </Text>
-              </View>
-              <Text variant="body" tabular>
-                {`${fmt.distance(shoeMileageMeters(shoe.id, allRuns))} ${fmt.unitLabel}`}
-              </Text>
-            </Pressable>
+            />
           ))
         )}
 
@@ -399,6 +341,109 @@ export default function ProfileScreen() {
           style={styles.accountButton}
         />
       </ScrollView>
+
+      {editor === 'name' && profile ? (
+        <FormSheet
+          title="Your name"
+          message="Shown on your profile."
+          fields={[
+            {
+              key: 'name',
+              label: 'Name',
+              placeholder: 'Your name',
+              defaultValue: profile.name ?? '',
+              autoFocus: true,
+            },
+          ]}
+          onSubmit={(values) => {
+            void persist({ ...profile, name: values.name.trim() });
+            setEditor(null);
+          }}
+          onClose={() => setEditor(null)}
+        />
+      ) : null}
+
+      {editor === 'age' && profile ? (
+        <FormSheet
+          title="Your age"
+          message="Years."
+          fields={[
+            {
+              key: 'age',
+              label: 'Age',
+              placeholder: 'Years',
+              keyboardType: 'number-pad',
+              defaultValue:
+                profile.age === null || profile.age === undefined ? '' : String(profile.age),
+              autoFocus: true,
+            },
+          ]}
+          onSubmit={(values) => {
+            const parsed = Number(values.age.replace(',', '.'));
+            void persist({
+              ...profile,
+              age: values.age.trim() === '' || !Number.isFinite(parsed) ? null : parsed,
+            });
+            setEditor(null);
+          }}
+          onClose={() => setEditor(null)}
+        />
+      ) : null}
+
+      {editor === 'weightKg' && profile ? (
+        <FormSheet
+          title="Your weight"
+          message="Kilograms."
+          fields={[
+            {
+              key: 'weightKg',
+              label: 'Weight',
+              placeholder: 'Kilograms',
+              keyboardType: 'decimal-pad',
+              defaultValue:
+                profile.weightKg === null || profile.weightKg === undefined
+                  ? ''
+                  : String(profile.weightKg),
+              autoFocus: true,
+            },
+          ]}
+          onSubmit={(values) => {
+            const parsed = Number(values.weightKg.replace(',', '.'));
+            void persist({
+              ...profile,
+              weightKg: values.weightKg.trim() === '' || !Number.isFinite(parsed) ? null : parsed,
+            });
+            setEditor(null);
+          }}
+          onClose={() => setEditor(null)}
+        />
+      ) : null}
+
+      {editor === 'shoe' ? (
+        <FormSheet
+          title="Add a shoe"
+          fields={[
+            { key: 'brand', label: 'Brand', placeholder: 'e.g. Hoka', autoFocus: true },
+            { key: 'model', label: 'Model', placeholder: 'e.g. Clifton 9' },
+            { key: 'nickname', label: 'Nickname', placeholder: 'Optional', optional: true },
+          ]}
+          submitLabel="Add"
+          onSubmit={(values) => {
+            void persistShoes(
+              addShoe(
+                shoes,
+                createShoe({
+                  brand: values.brand,
+                  model: values.model,
+                  nickname: values.nickname,
+                }),
+              ),
+            );
+            setEditor(null);
+          }}
+          onClose={() => setEditor(null)}
+        />
+      ) : null}
     </View>
   );
 }
@@ -495,6 +540,61 @@ function WeekChart({
   );
 }
 
+function ShoeCard({
+  shoe,
+  meters,
+  fmt,
+  onPress,
+}: {
+  shoe: Shoe;
+  meters: number;
+  fmt: Formatters;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${shoeName(shoe)}${shoe.retired ? ', retired' : ''}, ${fmt.distance(meters)} ${fmt.unitSpoken}. Edit shoe.`}
+      style={({ pressed }) => [
+        styles.shoeCard,
+        { backgroundColor: theme.fill, borderColor: theme.borderSubtle },
+        pressed && styles.pressed,
+      ]}>
+      <View style={[styles.shoeTile, { backgroundColor: theme.background }]}>
+        <SymbolView name="shoeprints.fill" size={layout.iconSize} tintColor={theme.textSecondary} />
+      </View>
+      <View style={styles.shoeText}>
+        <View style={styles.shoeNameRow}>
+          <Text variant="body" numberOfLines={1}>
+            {shoeName(shoe)}
+          </Text>
+          {shoe.retired ? (
+            <Text
+              variant="micro"
+              color="textSecondary"
+              style={[styles.shoeBadge, { backgroundColor: theme.background }]}>
+              RETIRED
+            </Text>
+          ) : null}
+        </View>
+        <Text variant="caption" color="textSecondary" numberOfLines={1}>
+          {`${shoe.brand} ${shoe.model}`}
+        </Text>
+      </View>
+      <View style={styles.shoeMileage}>
+        <Text variant="title" color="accentText" tabular>
+          {fmt.distance(meters)}
+        </Text>
+        <Text variant="micro" color="textSecondary">
+          {fmt.unitLabel.toUpperCase()}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   root: {
     flex: 1,
@@ -534,6 +634,42 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: spacing.sm,
     minHeight: layout.minTouchTarget,
+  },
+  shoeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radii.medium,
+    borderCurve: 'continuous',
+  },
+  shoeTile: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shoeText: {
+    flex: 1,
+    gap: 2,
+  },
+  shoeNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  shoeBadge: {
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 1,
+    borderRadius: 4,
+    letterSpacing: 0.5,
+    overflow: 'hidden',
+  },
+  shoeMileage: {
+    alignItems: 'flex-end',
+    gap: 1,
   },
   statsCard: {
     borderWidth: StyleSheet.hairlineWidth,
