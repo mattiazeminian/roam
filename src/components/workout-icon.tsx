@@ -16,7 +16,10 @@ type SymbolName = ComponentProps<typeof SymbolView>['name'];
 export const WORKOUT_SYMBOLS: Record<WorkoutType, SymbolName> = {
   easy: 'figure.run',
   recovery: 'leaf',
-  long: 'road.lanes',
+  // 'road.lanes' (SF Symbols 4/iOS 16+) rendered as a broken/missing glyph on
+  // this project's simulator — 'map' has existed since SF Symbols 1.0 and is
+  // guaranteed present everywhere expo-symbols supports.
+  long: 'map',
   tempo: 'stopwatch',
   intervals: 'bolt',
   fartlek: 'shuffle',

@@ -92,3 +92,28 @@ export const colors = {
 
 export type ColorToken = keyof typeof colors;
 export type ThemeColors = Record<ColorToken, string>;
+
+/**
+ * The brand palette, named by role (#141).
+ *
+ * Deliberately small. The lime is a fill and never a foreground; the dark green
+ * is what sits on it and how type is emphasised. The two grounds are the warm
+ * near-black (the icon tile, the splash, inverted surfaces) and the off-white
+ * canvas. Everything else in `colors` is a neutral.
+ */
+export const brand = {
+  /** Primary brand colour. Fill only. */
+  primary: palette.green,
+  /** What sits on the primary, and the emphasis colour in type (13.44:1). */
+  onPrimary: palette.greenDark,
+  /** The dark brand ground. */
+  ground: palette.nearBlack,
+  /** The light brand canvas. */
+  canvas: palette.offWhite,
+  /** Muted lime wash, for badges and progress. */
+  primaryMuted: palette.greenMint,
+  /** Secondary warm dark, for secondary type on the canvas. */
+  secondary: palette.warmDark,
+} as const;
+
+export type BrandToken = keyof typeof brand;

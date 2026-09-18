@@ -1,6 +1,6 @@
 import { router, useFocusEffect } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { useCallback, useEffect, useState, type ComponentProps, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import { Alert, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -13,8 +13,8 @@ import { impactLight, impactMedium, selectionFeedback } from '@/lib/haptics';
 import { describeCoordinate } from '@/services/geocoding';
 import { useLocation } from '@/services/location-context';
 import { summarizeRuns, weeklyRunStreak, type RunOverview } from '@/services/run-analytics';
-import { listRoutes } from '@/services/route-storage';
-import type { Coordinate } from '@/services/routing';
+import { listRoutes, type SavedRoute } from '@/services/route-storage';
+import { findRoutes, type Coordinate, type RouteCandidate } from '@/services/routing';
 import { useRun } from '@/services/run-context';
 import { listRuns } from '@/services/run-storage';
 import { useFormatters, useSettings, type Formatters } from '@/services/settings-context';
@@ -44,6 +44,29 @@ const STATUS_LABELS: Record<WorkoutStatus, string> = {
   modified: 'Modified',
 };
 
+/** How far a saved route's distance may be from the target and still count as a match. */
+const ROUTE_MATCH_TOLERANCE = 0.25;
+
+/** The saved route closest to `targetKm`, or null when none is close enough. */
+function closestSavedRoute(routes: SavedRoute[], targetKm: number): RouteCandidate | null {
+  if (targetKm <= 0) {
+    return null;
+  }
+  let best: SavedRoute | null = null;
+  let bestDelta = Infinity;
+  for (const saved of routes) {
+    const delta = Math.abs(saved.route.distanceKm - targetKm);
+    if (delta < bestDelta) {
+      best = saved;
+      bestDelta = delta;
+    }
+  }
+  if (!best || bestDelta / targetKm > ROUTE_MATCH_TOLERANCE) {
+    return null;
+  }
+  return best.route;
+}
+
 /**
  * Home — the training dashboard (#114).
  *
@@ -60,7 +83,7 @@ export default function HomeScreen() {
   const { settings, loaded: settingsLoaded } = useSettings();
   const { state: training } = useTraining();
 
-  const [savedRoutes, setSavedRoutes] = useState(0);
+  const [savedRoutes, setSavedRoutes] = useState<SavedRoute[]>([]);
   const [streakWeeks, setStreakWeeks] = useState(0);
   const [overview, setOverview] = useState<RunOverview | null>(null);
   const [todayKey, setTodayKey] = useState('');
@@ -75,7 +98,7 @@ export default function HomeScreen() {
           if (!active) {
             return;
           }
-          setSavedRoutes(routes.length);
+          setSavedRoutes(routes);
           setStreakWeeks(weeklyRunStreak(runs, today));
           setOverview(summarizeRuns(runs, now, 7));
           setTodayKey(today);
@@ -128,9 +151,9 @@ export default function HomeScreen() {
   );
 
   const handleStart = useCallback(
-    (targetKm: number) => {
+    (targetKm: number, plannedRoute: RouteCandidate | null) => {
       impactMedium();
-      start(null, targetKm);
+      start(plannedRoute, targetKm);
       router.push('/run');
     },
     [start],
@@ -141,6 +164,52 @@ export default function HomeScreen() {
   const todayWorkout: PlannedWorkout | null = todayKey
     ? (workoutsOnDate(training, todayKey)[0] ?? null)
     : null;
+
+  // A saved route close to today's target distance, so the map preview shows
+  // something a runner can actually recognise instead of a bare dot (a
+  // planned workout carries no route of its own — see PlannedWorkout in
+  // training.ts). Checked first because it costs nothing — no request, no
+  // wait — before falling back to generating one below. Within 25% of the
+  // target, or nothing — never a route that doesn't actually match the plan.
+  const suggestedRoute = todayWorkout
+    ? closestSavedRoute(savedRoutes, todayWorkout.targetKm)
+    : null;
+
+  // No saved route matched — generate one for today's target, the same way
+  // Maps' "Generate a route" does, so the suggestion is a real route rather
+  // than an empty preview. Runs once per workout (tracked by id in the ref
+  // below), not on every render or every visit to Home, and fails silently:
+  // a routing outage must never make Home itself feel broken.
+  const [generatedRoute, setGeneratedRoute] = useState<RouteCandidate | null>(null);
+  const generatedForRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!todayWorkout || !origin || suggestedRoute) {
+      return;
+    }
+    if (generatedForRef.current === todayWorkout.id) {
+      return;
+    }
+    generatedForRef.current = todayWorkout.id;
+    setGeneratedRoute(null); // clear any route generated for a previous workout
+    let active = true;
+    void findRoutes({ origin, targetKm: todayWorkout.targetKm })
+      .then((candidates) => {
+        if (active && candidates.length > 0) {
+          setGeneratedRoute(candidates[0]);
+        }
+      })
+      .catch(() => {
+        // Home never blocks or breaks over a routing failure — the dot stays.
+      });
+    return () => {
+      active = false;
+    };
+  }, [todayWorkout, origin, suggestedRoute]);
+
+  // Cheap-first: a saved match, then a generated one, then nothing.
+  const displayRoute = suggestedRoute ?? generatedRoute;
+
   const upcoming = todayKey ? workoutsFrom(training, addDays(todayKey, 1)).slice(0, 3) : [];
   const recent = [...training.workouts]
     .filter((workout) => workout.date <= todayKey)
@@ -260,8 +329,9 @@ export default function HomeScreen() {
           <View style={[styles.minimap, { borderColor: theme.borderSubtle, backgroundColor: theme.background }]}>
             <MapCanvas
               origin={origin}
-              routes={[]}
-              cameraMode="center"
+              routes={displayRoute ? [displayRoute] : []}
+              selectedRouteId={displayRoute?.id}
+              cameraMode={displayRoute ? 'fit' : 'center'}
               onOriginMoved={handleOriginMoved}
               padding={{ top: 16, bottom: 16, left: 16, right: 16 }}
             />
@@ -270,7 +340,7 @@ export default function HomeScreen() {
           <Button
             label="Start run"
             variant="accent"
-            onPress={() => handleStart(todayWorkout?.targetKm ?? 0)}
+            onPress={() => handleStart(todayWorkout?.targetKm ?? 0, displayRoute)}
             disabled={locationStatus === 'denied'}
           />
         </View>
@@ -380,18 +450,18 @@ export default function HomeScreen() {
           />
         </Pressable>
 
-        {savedRoutes > 0 ? (
+        {savedRoutes.length > 0 ? (
           <Pressable
             onPress={() => router.push('/favorites?mode=run')}
             accessibilityRole="button"
-            accessibilityLabel={`Run a saved route. ${savedRoutes} saved.`}
+            accessibilityLabel={`Run a saved route. ${savedRoutes.length} saved.`}
             style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
             <SymbolView name="bookmark" size={layout.iconSizeSmall} tintColor={theme.textSecondary} />
             <Text variant="label" color="textTertiary" style={styles.rowLabel}>
               Run a saved route
             </Text>
             <Text variant="caption" color="textSecondary" tabular>
-              {savedRoutes}
+              {savedRoutes.length}
             </Text>
             <SymbolView
               name="chevron.right"

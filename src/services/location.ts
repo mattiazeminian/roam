@@ -20,6 +20,25 @@ export type LocationSubscription = {
  * A position fix with the metadata run tracking needs. `accuracyMeters` is the
  * radius of horizontal uncertainty reported by the OS — tracking uses it to
  * discard fixes too noisy to be trusted, so it must not be dropped here.
+ *
+ * Deliberately excludes altitude (#43). `location.coords.altitude` is
+ * available from the OS but is not captured: consumer GPS altitude is
+ * commonly noisier than horizontal position by 1.5–3x, and a typical run's
+ * total climb (tens of meters over a few kilometers) can be smaller than
+ * that noise band, especially with tree cover or between buildings — the
+ * conditions most runs actually happen in. There is no accuracy figure for
+ * altitude the way `accuracyMeters` exists for position, so there is nothing
+ * to filter noisy fixes against the way `applySample` already does for
+ * distance. Recording it would mean either showing a number the data cannot
+ * support, or building filtering infrastructure with no accuracy signal to
+ * filter against.
+ *
+ * A planned route's ascent (`RouteCandidate.ascentMeters`, from the routing
+ * provider's elevation data, not device GPS) remains the trustworthy source
+ * ROAM already shows — this decision only rules out computing a *second*,
+ * unreliable ascent figure from a recorded run's own track. If altitude
+ * ever gets a real accuracy signal to filter against, this is the file to
+ * revisit.
  */
 export type LocationSample = {
   coordinate: Coordinate;
@@ -39,6 +58,8 @@ export function toCoordinate(location: Location.LocationObject): Coordinate {
 }
 
 export function toSample(location: Location.LocationObject): LocationSample {
+  // `altitude`/`altitudeAccuracy` are available here but deliberately not
+  // read — see the "Deliberately excludes altitude" note on LocationSample.
   const { accuracy, speed } = location.coords;
   return {
     coordinate: toCoordinate(location),

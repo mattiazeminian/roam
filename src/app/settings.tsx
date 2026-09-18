@@ -2,12 +2,13 @@ import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Divider } from '@/components/divider';
 import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
+import { Wordmark } from '@/components/wordmark';
 import { errorFeedback, impactLight, selectionFeedback } from '@/lib/haptics';
 import { useAccount } from '@/services/account-context';
 import { writeRunsGpx } from '@/services/run-export';
@@ -280,6 +281,15 @@ export default function SettingsScreen() {
         </Section>
 
         <Section title="About">
+          <View style={styles.brandRow}>
+            <Image
+              source={require('../../assets/images/mark-green.png')}
+              style={styles.brandMark}
+              accessibilityIgnoresInvertColors
+            />
+            <Wordmark />
+          </View>
+          <Divider />
           <View style={styles.row}>
             <Text variant="body" color="textSecondary">
               Version
@@ -427,6 +437,16 @@ const styles = StyleSheet.create({
   },
   aboutBlock: {
     paddingVertical: spacing.sm,
+  },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  brandMark: {
+    width: 26,
+    height: 26,
   },
   footer: {
     paddingHorizontal: spacing.xxs,

@@ -12,6 +12,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
+import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
 import { useRoutes } from '@/services/route-context';
 import { layout, spacing, useTheme } from '@/theme';
@@ -99,8 +100,16 @@ export default function GeneratingScreen() {
     <View
       style={[
         styles.root,
-        { backgroundColor: theme.background, paddingTop: insets.top + spacing.xl },
+        { backgroundColor: theme.background, paddingTop: insets.top + spacing.xs },
       ]}>
+      {/* A runner who changes their mind, or whose search is taking too
+          long, was previously stuck here with no way out until it either
+          succeeded or failed — "Back"/"Try again" only appeared on failure.
+          A search can chain several ORS requests (retries, distance
+          refinement) and take a while, so being unable to leave made a slow
+          search feel broken rather than just slow. */}
+      <MapControl symbol="chevron.left" accessibilityLabel="Cancel and go back" onPress={() => router.back()} />
+
       <View style={styles.stage}>
         <Text variant="large" style={styles.headline}>
           {failed ? 'That did not work' : 'Building your route'}
@@ -121,7 +130,6 @@ export default function GeneratingScreen() {
       {failed ? (
         <View style={[styles.actions, { paddingBottom: insets.bottom + spacing.lg }]}>
           <Button label="Try again" variant="accent" onPress={() => void retry()} />
-          <Button label="Back" variant="secondary" onPress={() => router.back()} />
         </View>
       ) : (
         <View style={{ paddingBottom: insets.bottom + spacing.lg }} />

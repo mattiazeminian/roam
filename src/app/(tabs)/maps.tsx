@@ -64,7 +64,11 @@ export default function MapsScreen() {
             paddingBottom: insets.bottom + spacing.lg,
           },
         ]}>
-        <Text variant="large">Maps</Text>
+        {/* Matches the tab's own label — see _layout.tsx's "Labelled Routes
+            rather than Maps" comment. The heading contradicting the tab it
+            sits under is exactly the kind of drift #139 (UI copy audit)
+            flags. */}
+        <Text variant="large">Routes</Text>
 
         <View style={styles.savedRow}>
           <SymbolView

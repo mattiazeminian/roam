@@ -1,10 +1,11 @@
 import { router } from 'expo-router';
 import { useCallback } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
 import { Text } from '@/components/text';
+import { Wordmark } from '@/components/wordmark';
 import { impactLight } from '@/lib/haptics';
 import { useSettings } from '@/services/settings-context';
 import { layout, spacing, useTheme } from '@/theme';
@@ -39,6 +40,14 @@ export default function OnboardingScreen() {
         },
       ]}>
       <View style={styles.copy}>
+        <View style={styles.brand}>
+          <Image
+            source={require('../../assets/images/mark-green.png')}
+            style={styles.brandMark}
+            accessibilityIgnoresInvertColors
+          />
+          <Wordmark />
+        </View>
         <Text variant="display" accessibilityRole="header">
           Run somewhere new
         </Text>
@@ -69,5 +78,15 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     gap: spacing.md,
+  },
+  brand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  brandMark: {
+    width: 30,
+    height: 30,
   },
 });

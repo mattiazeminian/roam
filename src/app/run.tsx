@@ -35,6 +35,7 @@ export default function ActiveRunScreen() {
     distanceMeters,
     activeSeconds,
     paceMinPerKm,
+    currentPaceMinPerKm,
     track,
     progressMeters,
     degradedSignal,
@@ -191,9 +192,19 @@ export default function ActiveRunScreen() {
             />
             <Metric
               fill
-              label="Pace"
+              label="Avg pace"
               value={fmt.paceWithUnit(paceMinPerKm)}
               accessibilityLabel={fmt.paceSpoken(paceMinPerKm)}
+            />
+            {/* Current pace over a trailing window (#37) — withheld, not
+                guessed, when there isn't enough recent movement to trust it;
+                `fmt.paceWithUnit(null)` already renders the same placeholder
+                average pace uses before the run has moved. */}
+            <Metric
+              fill
+              label="Current"
+              value={fmt.paceWithUnit(currentPaceMinPerKm)}
+              accessibilityLabel={`Current pace ${fmt.paceSpoken(currentPaceMinPerKm)}`}
             />
           </MetricRow>
 

@@ -11,13 +11,16 @@ import {
   applySample,
   computeRecords,
   createTrackerState,
+  currentPaceMinPerKm,
   fastestSplit,
   preparePlannedRoute,
   trackerStateFromCheckpoint,
   type PlannedRoute,
+  type RecentFix,
   type SavedRun,
   type TrackerState,
 } from '../run-session';
+import { haversineMeters } from '../geo';
 import type { LocationSample } from '../location';
 
 /** A base point in Manhattan; offsets below are small enough to stay planar. */
@@ -691,5 +694,69 @@ describe('timed track and splits (#32)', () => {
     withGap[4] = null;
     // The winning window (3→6 km) does not touch index 4, so it still wins.
     expect(fastestSplit(track, withGap, WINDOW_METERS)?.durationSeconds).toBe(240);
+  });
+});
+
+describe('currentPaceMinPerKm (#37)', () => {
+  function fix(coordinate: ReturnType<typeof offset>, timestamp: number): RecentFix {
+    return { coordinate, timestamp };
+  }
+
+  test('fewer than two fixes cannot produce a pace', () => {
+    expect(currentPaceMinPerKm([], BASE_TIME)).toBeNull();
+    expect(currentPaceMinPerKm([fix(offset(0, 0), BASE_TIME)], BASE_TIME)).toBeNull();
+  });
+
+  test('a stale newest fix withholds pace rather than reporting a stopped runner\'s old effort', () => {
+    const recent = [fix(offset(0, 0), BASE_TIME), fix(offset(0, 100), BASE_TIME + 20_000)];
+    // 16s after the newest fix — past the 15s staleness threshold.
+    expect(currentPaceMinPerKm(recent, BASE_TIME + 20_000 + 16_000)).toBeNull();
+  });
+
+  test('too few fixes inside the trailing window withhold pace', () => {
+    const recent = [
+      fix(offset(0, 0), BASE_TIME), // 40s before "now" — outside the 30s window
+      fix(offset(0, 200), BASE_TIME + 40_000),
+    ];
+    expect(currentPaceMinPerKm(recent, BASE_TIME + 40_000)).toBeNull();
+  });
+
+  test('a window shorter than the minimum duration withholds pace', () => {
+    const recent = [
+      fix(offset(0, 0), BASE_TIME),
+      fix(offset(0, 50), BASE_TIME + 5_000), // 5s apart, below the 10s minimum
+    ];
+    expect(currentPaceMinPerKm(recent, BASE_TIME + 5_000)).toBeNull();
+  });
+
+  test('a window covering too little distance withholds pace, not a jittery number', () => {
+    const recent = [
+      fix(offset(0, 0), BASE_TIME),
+      fix(offset(0, 10), BASE_TIME + 20_000), // 20s, but only 10m — below the 40m minimum
+    ];
+    expect(currentPaceMinPerKm(recent, BASE_TIME + 20_000)).toBeNull();
+  });
+
+  test('a genuine trailing window produces a real pace', () => {
+    const a = offset(0, 0);
+    const b = offset(0, 100);
+    const recent = [fix(a, BASE_TIME), fix(b, BASE_TIME + 20_000)];
+    const pace = currentPaceMinPerKm(recent, BASE_TIME + 20_000);
+    const meters = haversineMeters(a, b);
+    expect(pace).toBeCloseTo(20 / 60 / (meters / 1000), 5);
+  });
+
+  test('only fixes inside the trailing window count, so pace tracks recent effort, not the whole run', () => {
+    const a = offset(0, 500);
+    const b = offset(0, 600);
+    const recent = [
+      fix(offset(0, 0), BASE_TIME - 5_000), // outside the 30s window ending at `now`
+      fix(a, BASE_TIME + 15_000),
+      fix(b, BASE_TIME + 30_000), // 15s, well past the 10s minimum
+    ];
+    const now = BASE_TIME + 30_000;
+    const pace = currentPaceMinPerKm(recent, now);
+    const meters = haversineMeters(a, b);
+    expect(pace).toBeCloseTo(15 / 60 / (meters / 1000), 5); // only the last leg counted
   });
 });
