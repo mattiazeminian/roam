@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ScrollView, Share, StyleSheet, View } from 'react-native';
+import { Alert, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -9,8 +9,11 @@ import { MapControl } from '@/components/map-control';
 import { Metric, MetricRow } from '@/components/metric';
 import { ShareCard } from '@/components/share-card';
 import { Text } from '@/components/text';
+import { errorFeedback, successFeedback } from '@/lib/haptics';
 import { runShareMessage } from '@/services/run-share';
+import { routeFromRun } from '@/services/run-to-route';
 import { formatDuration, formatRunDate, type SavedRun } from '@/services/run-session';
+import { isRouteSaved, saveRoute } from '@/services/route-storage';
 import { useFormatters } from '@/services/settings-context';
 import { getRun } from '@/services/run-storage';
 import { layout, radii, spacing, useTheme } from '@/theme';
@@ -46,6 +49,50 @@ export default function RunDetailScreen() {
 
   const hasTrack = (run?.coordinates.length ?? 0) >= 2;
   const cardRef = useRef<View>(null);
+  const [trackIsSaved, setTrackIsSaved] = useState(false);
+
+  // Whether this track is already kept as a route, so the control reflects
+  // reality rather than a local guess. Nothing is set synchronously in the
+  // effect: when there is no track the control is not rendered at all.
+  useEffect(() => {
+    let active = true;
+    const candidate = run ? routeFromRun(run) : null;
+    if (!candidate) {
+      return;
+    }
+    void isRouteSaved(candidate)
+      .then((saved) => {
+        if (active) {
+          setTrackIsSaved(saved);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [run]);
+
+  const routeSaved = hasTrack && trackIsSaved;
+
+  // A run's track can be kept as a route, so somewhere new becomes somewhere
+  // you can run again (#110). Never automatic — the runner chooses.
+  const handleSaveRoute = useCallback(async () => {
+    if (!run || routeSaved) {
+      return;
+    }
+    const candidate = routeFromRun(run);
+    if (!candidate) {
+      return;
+    }
+    try {
+      await saveRoute(candidate);
+      successFeedback();
+      setTrackIsSaved(true);
+    } catch {
+      errorFeedback();
+      Alert.alert('Could not save route', 'The route could not be written to this device.');
+    }
+  }, [run, routeSaved]);
 
   const handleShare = useCallback(async () => {
     if (!run) {
@@ -84,11 +131,22 @@ export default function RunDetailScreen() {
         <View style={styles.headerRow}>
           <MapControl symbol="chevron.left" accessibilityLabel="Back" onPress={() => router.back()} />
           {run ? (
-            <MapControl
-              symbol="square.and.arrow.up"
-              accessibilityLabel="Share run"
-              onPress={() => void handleShare()}
-            />
+            <View style={styles.headerActions}>
+              {hasTrack ? (
+                <MapControl
+                  symbol={routeSaved ? 'bookmark.fill' : 'bookmark'}
+                  accessibilityLabel={
+                    routeSaved ? 'Saved as a route' : 'Save this run as a route'
+                  }
+                  onPress={() => void handleSaveRoute()}
+                />
+              ) : null}
+              <MapControl
+                symbol="square.and.arrow.up"
+                accessibilityLabel="Share run"
+                onPress={() => void handleShare()}
+              />
+            </View>
           ) : null}
         </View>
 
@@ -171,6 +229,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   map: {
     alignSelf: 'stretch',
