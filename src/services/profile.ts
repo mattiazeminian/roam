@@ -12,7 +12,6 @@
  */
 
 import { Directory, File, Paths } from 'expo-file-system';
-import * as ImagePicker from 'expo-image-picker';
 
 export type Profile = {
   /** A runner-chosen display name, distinct from anything Apple returns. */
@@ -106,34 +105,62 @@ export async function saveProfile(profile: Profile): Promise<void> {
  * is free to evict, which would silently blank the avatar later. Written as
  * base64, which is what the picker gives us without a native copy step.
  *
- * Returns the new file URI, or null when the runner cancels or denies access.
+ * Returns the new file URI, or null when the runner cancels, denies access, or
+ * the picker is not built into this binary.
  */
+type ImagePickerModule = typeof import('expo-image-picker');
+
+/**
+ * The picker is required on demand rather than imported at module scope.
+ * `profile.ts` is imported by Home, so an eager import takes the whole app down
+ * on a build that has not linked the native module yet — which is exactly what
+ * happened when it was added. The same guard the map already uses (#49).
+ */
+function loadImagePicker(): ImagePickerModule | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('expo-image-picker') as ImagePickerModule;
+  } catch {
+    return null;
+  }
+}
+
 export async function pickAvatar(): Promise<string | null> {
-  const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (!permission.granted) {
+  const ImagePicker = loadImagePicker();
+  if (!ImagePicker) {
     return null;
   }
 
-  const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ['images'],
-    allowsEditing: true,
-    aspect: [1, 1],
-    quality: 0.7,
-    base64: true,
-  });
+  try {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      return null;
+    }
 
-  if (result.canceled || !result.assets?.[0]?.base64) {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+      base64: true,
+    });
+
+    if (result.canceled || !result.assets?.[0]?.base64) {
+      return null;
+    }
+
+    const directory = new Directory(Paths.document);
+    if (!directory.exists) {
+      directory.create({ intermediates: true });
+    }
+    const file = new File(Paths.document, AVATAR_FILE);
+    if (!file.exists) {
+      file.create();
+    }
+    file.write(result.assets[0].base64, { encoding: 'base64' });
+    return file.uri;
+  } catch {
+    // A missing or failing native picker must never take the profile down.
     return null;
   }
-
-  const directory = new Directory(Paths.document);
-  if (!directory.exists) {
-    directory.create({ intermediates: true });
-  }
-  const file = new File(Paths.document, AVATAR_FILE);
-  if (!file.exists) {
-    file.create();
-  }
-  file.write(result.assets[0].base64, { encoding: 'base64' });
-  return file.uri;
 }
