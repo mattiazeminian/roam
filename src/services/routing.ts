@@ -65,6 +65,13 @@ export type RouteAttributes = {
   roadPercent: number | null;
   /** Percent on a recognised unsealed surface: gravel, dirt, grass, sand, … */
   unpavedPercent: number | null;
+  /**
+   * Percent on steps (ORS waytype `Steps`). Additive and optional rather than
+   * required: a route stored before this was read has no value, and "we never
+   * asked" must stay distinguishable from the `null` that means "asked and the
+   * provider said nothing".
+   */
+  stepsPercent?: number | null;
 };
 
 export type RouteRequest = {
@@ -707,6 +714,7 @@ export async function findRoutesBetween({
       characteristics: describe(
         'one-way',
         candidate.ascentM,
+        candidate.distanceM,
         closestAvailable,
         candidate.attributes,
       ),
@@ -724,6 +732,7 @@ export async function findRoutesBetween({
  */
 const WAYTYPE_FOOT = new Set([4, 5, 6, 7, 8]); // Path, Track, Cycleway, Footway, Steps
 const WAYTYPE_ROAD = new Set([1, 2, 3]); // State road, Road, Street
+const WAYTYPE_STEPS = new Set([8]); // Steps
 
 /**
  * ORS `surface` codes that are not sealed. Sealed codes are deliberately not
@@ -771,9 +780,17 @@ export function pathAttributesFromExtras(extras: unknown): RouteAttributes {
     footwayPercent: percentForCodes(parsed, 'waytype', WAYTYPE_FOOT),
     roadPercent: percentForCodes(parsed, 'waytype', WAYTYPE_ROAD),
     unpavedPercent: percentForCodes(parsed, 'surface', SURFACE_UNPAVED),
+    stepsPercent: percentForCodes(parsed, 'waytype', WAYTYPE_STEPS),
   };
 }
 
+/**
+ * Steps are worth naming well below the other thresholds: 2% of a 5 km route is
+ * over 100 m of stairs, which a runner wants to know about in advance. Below
+ * this the percentage rounds into noise, so nothing is claimed.
+ */
+const STEPS_REPORT_PERCENT = 2;
+const STEPS_REPORT_METERS = 25;
 const MOSTLY_FOOTWAY_PERCENT = 80;
 const SOME_ROAD_PERCENT = 15;
 const SOME_UNPAVED_PERCENT = 15;
@@ -805,15 +822,38 @@ export function characteristicLabelsFor(attributes: RouteAttributes): string[] {
   return labels;
 }
 
+/**
+ * Steps as a distance in metres, or null when there is nothing worth saying.
+ * Distances are far more actionable than the share they came from: "140 m of
+ * steps" tells a runner something, "3% steps" does not. Never infers — an
+ * absent share yields null.
+ */
+export function stepsLabelFor(attributes: RouteAttributes, distanceM: number): string | null {
+  const { stepsPercent } = attributes;
+  if (typeof stepsPercent !== 'number' || !Number.isFinite(stepsPercent)) {
+    return null;
+  }
+  if (stepsPercent < STEPS_REPORT_PERCENT || distanceM <= 0) {
+    return null;
+  }
+  const meters = Math.round((stepsPercent / 100) * distanceM);
+  return meters >= STEPS_REPORT_METERS ? `${meters} m of steps` : null;
+}
+
 function describe(
   routeType: GeometryShape,
   ascentMeters: number | undefined,
+  distanceM: number,
   closestAvailable: boolean,
   attributes: RouteAttributes,
 ): string[] {
   const characteristics = [routeType === 'loop' ? 'Loop' : 'One-way'];
   if (typeof ascentMeters === 'number' && ascentMeters >= 10) {
     characteristics.push(`${Math.round(ascentMeters)} m climb`);
+  }
+  const steps = stepsLabelFor(attributes, distanceM);
+  if (steps !== null) {
+    characteristics.push(steps);
   }
   characteristics.push(...characteristicLabelsFor(attributes));
   // Honest rather than silent: when nothing landed near the request, every
@@ -975,7 +1015,7 @@ export async function findRoutes({
       distanceKm,
       estimatedMinutes: Math.max(1, Math.round(distanceKm * paceMinPerKm)),
       geometry: candidate.geometry,
-      characteristics: describe('loop', candidate.ascentM, closestAvailable, candidate.attributes),
+      characteristics: describe('loop', candidate.ascentM, candidate.distanceM, closestAvailable, candidate.attributes),
       ascentMeters: candidate.ascentM,
       attributes: candidate.attributes,
     };

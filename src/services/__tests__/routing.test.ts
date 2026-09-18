@@ -551,6 +551,21 @@ describe('path attributes (#14)', () => {
     ).toBeNull();
   });
 
+  test('reports the share of a route on steps, keeping it within the pedestrian share', () => {
+    const { pathAttributesFromExtras } = loadRouting('test-key');
+    const attributes = pathAttributesFromExtras({
+      waytype: { summary: [{ value: 8, amount: 6 }, { value: 7, amount: 94 }] },
+    });
+    expect(attributes.stepsPercent).toBe(6);
+    expect(attributes.footwayPercent).toBe(100);
+  });
+
+  test('leaves steps unknown rather than zero when there is no waytype summary', () => {
+    const { pathAttributesFromExtras } = loadRouting('test-key');
+    expect(pathAttributesFromExtras(undefined).stepsPercent).toBeNull();
+    expect(pathAttributesFromExtras({}).stepsPercent).toBeNull();
+  });
+
   test('ignores malformed summary entries rather than throwing', () => {
     const { pathAttributesFromExtras } = loadRouting('test-key');
     const attributes = pathAttributesFromExtras({
@@ -807,5 +822,49 @@ describe('findRoutesBetween (#17)', () => {
       findRoutesBetween({ origin: ORIGIN, finish: FINISH, targetKm: 5 }),
     ).rejects.toMatchObject({ code: 'missing-key' });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('steps reporting (#14)', () => {
+  test('turns a step share into metres', () => {
+    const { stepsLabelFor } = loadRouting('test-key');
+    expect(
+      stepsLabelFor(
+        { footwayPercent: 100, roadPercent: 0, unpavedPercent: 0, stepsPercent: 6 },
+        5000,
+      ),
+    ).toBe('300 m of steps');
+  });
+
+  test('ignores a step share below the reporting threshold', () => {
+    const { stepsLabelFor } = loadRouting('test-key');
+    expect(
+      stepsLabelFor(
+        { footwayPercent: 100, roadPercent: 0, unpavedPercent: 0, stepsPercent: 1 },
+        5000,
+      ),
+    ).toBeNull();
+  });
+
+  test('claims nothing when the provider reported no steps at all', () => {
+    const { stepsLabelFor } = loadRouting('test-key');
+    expect(stepsLabelFor({ footwayPercent: 100, roadPercent: 0, unpavedPercent: 0 }, 5000)).toBeNull();
+    expect(
+      stepsLabelFor(
+        { footwayPercent: 100, roadPercent: 0, unpavedPercent: 0, stepsPercent: null },
+        5000,
+      ),
+    ).toBeNull();
+  });
+
+  test('does not name a step distance too short to matter', () => {
+    const { stepsLabelFor } = loadRouting('test-key');
+    // 2% of a 400 m route is 8 m, under the reporting floor.
+    expect(
+      stepsLabelFor(
+        { footwayPercent: 100, roadPercent: 0, unpavedPercent: 0, stepsPercent: 2 },
+        400,
+      ),
+    ).toBeNull();
   });
 });
