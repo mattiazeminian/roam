@@ -9,6 +9,7 @@ import { describe, expect, test } from '@jest/globals';
 
 import {
   RECENT_WINDOW_DAYS,
+  weeklyRunStreak,
   filterRunsByPeriod,
   summarizeRuns,
 } from '../run-analytics';
@@ -99,5 +100,33 @@ describe('filterRunsByPeriod (#44)', () => {
 
   test('a period with no qualifying runs is empty, not an error', () => {
     expect(filterRunsByPeriod([run(200, 5, 'ancient')], '30d', NOW)).toEqual([]);
+  });
+});
+
+describe('weeklyRunStreak (#114)', () => {
+  // 2026-09-23 is a Wednesday, so its week runs Sunday 20th → Saturday 26th.
+  const TODAY = '2026-09-23';
+  const TODAY_MS = new Date(2026, 8, 23, 12).getTime();
+
+  function runAt(daysAgo: number, id: string): SavedRun {
+    return { ...run(0, 5, id), startedAt: TODAY_MS - daysAgo * DAY_MS };
+  }
+
+  test('is zero with no runs', () => {
+    expect(weeklyRunStreak([], TODAY)).toBe(0);
+  });
+
+  test('counts consecutive weeks that contain a run', () => {
+    expect(weeklyRunStreak([runAt(0, 'this'), runAt(7, 'last')], TODAY)).toBe(2);
+  });
+
+  test('a gap ends the streak', () => {
+    // This week and two weeks ago, but nothing last week.
+    expect(weeklyRunStreak([runAt(0, 'this'), runAt(14, 'older')], TODAY)).toBe(1);
+  });
+
+  test('a week with no run yet does not break an existing streak', () => {
+    // Nothing this week, but the last two weeks were run.
+    expect(weeklyRunStreak([runAt(7, 'last'), runAt(14, 'older')], TODAY)).toBe(2);
   });
 });

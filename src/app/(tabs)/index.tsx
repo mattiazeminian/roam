@@ -1,7 +1,7 @@
 import { router, useFocusEffect } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { useCallback, useEffect, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Pressable, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { Alert, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
@@ -11,32 +11,54 @@ import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
 import { errorFeedback, impactLight, impactMedium, selectionFeedback, successFeedback } from '@/lib/haptics';
-import { useAccount } from '@/services/account-context';
 import { describeCoordinate } from '@/services/geocoding';
 import { useLocation } from '@/services/location-context';
-import { loadProfile } from '@/services/profile';
-import { summarizeRuns, type RunOverview } from '@/services/run-analytics';
+import { summarizeRuns, weeklyRunStreak, type RunOverview } from '@/services/run-analytics';
 import { useRoutes } from '@/services/route-context';
 import { listRoutes } from '@/services/route-storage';
 import type { Coordinate } from '@/services/routing';
 import { useRun } from '@/services/run-context';
 import { listRuns } from '@/services/run-storage';
-import { useFormatters, useSettings } from '@/services/settings-context';
-import { toDateKey, weekdayOf, workoutsFrom, WORKOUT_LABELS } from '@/services/training';
+import { useFormatters, useSettings, type Formatters } from '@/services/settings-context';
+import {
+  addDays,
+  summarizeProgress,
+  toDateKey,
+  weekStartFor,
+  weekdayOf,
+  workoutsFrom,
+  workoutsOnDate,
+  WORKOUT_LABELS,
+  type PlannedWorkout,
+  type WorkoutStatus,
+} from '@/services/training';
 import { useTraining } from '@/services/training-context';
-import { layout, spacing, useTheme } from '@/theme';
+import { layout, radii, spacing, useTheme } from '@/theme';
+
+const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+/** Tall enough to be a real map, short enough that the dashboard is on screen. */
+const MAP_HEIGHT = 220;
+
+const STATUS_LABELS: Record<WorkoutStatus, string> = {
+  planned: 'Missed',
+  completed: 'Completed',
+  skipped: 'Skipped',
+  modified: 'Modified',
+};
 
 /**
- * Home — the training dashboard.
+ * Home — the training dashboard (#114).
  *
- * Two things, in order: who you are and how the week is going, then the one
- * action that matters, Start run. Route discovery is a single quiet button that
- * opens the distance and start-point choices in a sheet, so the choices exist
- * without standing between the runner and the run.
+ * It answers "what should I run today?" before anything else: today's session
+ * with the action that starts it, then what is coming, then what has happened,
+ * then the week in three numbers. Route discovery and saved routes sit below
+ * that, and the map is a header rather than the screen — Maps is the route
+ * workspace now.
  */
 export default function HomeScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const fmt = useFormatters();
   const {
     status: locationStatus,
     coordinate,
@@ -51,49 +73,41 @@ export default function HomeScreen() {
   const { status: routeStatus, errorMessage, find } = useRoutes();
   const { start, recoverable, resumeRecovered, discardRecovered } = useRun();
   const { settings, loaded: settingsLoaded, update } = useSettings();
-  const { state: training, loaded: trainingLoaded } = useTraining();
-  const { account } = useAccount();
-  const fmt = useFormatters();
-  const [displayName, setDisplayName] = useState<string | null>(null);
-  const [overview, setOverview] = useState<RunOverview | null>(null);
-  const [savedRoutes, setSavedRoutes] = useState(0);
-  // Captured with the rest of the focus data rather than read during render.
-  const [todayKey, setTodayKey] = useState('');
-  // Derived rather than an effect: settings load asynchronously, so seeding
-  // state from them would mean a setState inside an effect. Until the runner
-  // picks a distance this session, the remembered one is shown.
+  const { state: training } = useTraining();
+
   const [chosenKm, setChosenKm] = useState<number | null>(null);
   const distanceKm = chosenKm ?? settings.defaultDistanceKm ?? DEFAULT_DISTANCE_KM;
   const [recenterSignal, setRecenterSignal] = useState(0);
   const [findRoutesOpen, setFindRoutesOpen] = useState(false);
+  const [savedRoutes, setSavedRoutes] = useState(0);
+  const [streakWeeks, setStreakWeeks] = useState(0);
+  const [overview, setOverview] = useState<RunOverview | null>(null);
+  const [todayKey, setTodayKey] = useState('');
 
-  // Home shows who the runner is and what they have run, so statistics are
-  // visible without opening History (#108). Reloaded on focus, so a run saved
-  // moments ago is already counted, and a route saved after a run already
-  // appears as somewhere to run (#109).
+  // Read on focus rather than during render, so returning from a run or a plan
+  // change shows the current picture.
   useFocusEffect(
     useCallback(() => {
       let active = true;
       const now = Date.now();
-      void Promise.all([loadProfile(), listRuns(), listRoutes()])
-        .then(([profile, runs, routes]) => {
+      const today = toDateKey(new Date());
+      void Promise.all([listRuns(), listRoutes()])
+        .then(([runs, routes]) => {
           if (!active) {
             return;
           }
-          setDisplayName(profile.name ?? account?.name ?? null);
-          setOverview(summarizeRuns(runs, now, 7));
           setSavedRoutes(routes.length);
-          setTodayKey(toDateKey(new Date()));
+          setStreakWeeks(weeklyRunStreak(runs, today));
+          setOverview(summarizeRuns(runs, now, 7));
+          setTodayKey(today);
         })
         .catch(() => {});
       return () => {
         active = false;
       };
-    }, [account]),
+    }, []),
   );
 
-  // A new install meets the introduction first — before Home, and before any
-  // location permission dialog (#19). `replace` so back cannot return here.
   const needsOnboarding = settingsLoaded && !settings.hasCompletedOnboarding;
   useEffect(() => {
     if (needsOnboarding) {
@@ -101,36 +115,13 @@ export default function HomeScreen() {
     }
   }, [needsOnboarding]);
 
-  const isFinding = routeStatus === 'finding';
-  const hasError = routeStatus === 'error';
-  // Only a missing device position blocks the flow — a chosen start place works
-  // even when the device cannot locate itself.
-  const locationBlocked = origin === null && locationStatus !== 'requesting';
-
-  // Dropping the pin sets the start immediately; the name is filled in after,
-  // so a slow or failed lookup never delays the interaction.
-  const handleOriginMoved = useCallback(
-    (nextOrigin: Coordinate) => {
-      selectionFeedback();
-      setOrigin({ label: 'Dropped pin', coordinate: nextOrigin });
-      void describeCoordinate(nextOrigin).then((name) => {
-        if (name) {
-          setOrigin({ label: name, coordinate: nextOrigin });
-        }
-      });
-    },
-    [setOrigin],
-  );
-
-  // The app was killed or crashed mid-run. Offer to pick up where it left
-  // off before the runner can start something new over it.
   useEffect(() => {
     if (!recoverable) {
       return;
     }
     Alert.alert(
       'Resume your run?',
-      `ROAM found an interrupted run in progress (${(recoverable.distanceKm).toFixed(2)} km so far). Resume it or discard it.`,
+      `ROAM found an interrupted run in progress (${recoverable.distanceKm.toFixed(2)} km so far). Resume it or discard it.`,
       [
         { text: 'Discard', style: 'destructive', onPress: discardRecovered },
         {
@@ -144,50 +135,79 @@ export default function HomeScreen() {
     );
   }, [recoverable, resumeRecovered, discardRecovered]);
 
+  const isFinding = routeStatus === 'finding';
+  const hasError = routeStatus === 'error';
+
+  const handleOriginMoved = useCallback(
+    (nextOrigin: Coordinate) => {
+      selectionFeedback();
+      setOrigin({ label: 'Dropped pin', coordinate: nextOrigin });
+      void describeCoordinate(nextOrigin).then((name) => {
+        if (name) {
+          setOrigin({ label: name, coordinate: nextOrigin });
+        }
+      });
+    },
+    [setOrigin],
+  );
+
   const handleFindRoutes = useCallback(async () => {
     if (isFinding || !origin) {
       return;
     }
     impactLight();
-
     const found = await find(origin, distanceKm, finish?.coordinate ?? null);
     if (!found) {
-      // The visible message carries the failure; the haptic reinforces it.
       errorFeedback();
       return;
     }
     successFeedback();
-    // Remember the distance so the next run opens where this one left off.
     update({ defaultDistanceKm: distanceKm });
     router.push('/routes');
   }, [origin, distanceKm, finish, find, isFinding, update]);
 
-  // A run can start immediately, with no planned route (#33): route
-  // discovery supports the run rather than gating it. A route-less run has
-  // no target distance — there is nothing to hit a target *of* — so nothing
-  // here reads `distanceKm`; that control only ever feeds route generation.
-  const handleStartRun = useCallback(() => {
-    impactMedium();
-    start(null, 0);
-    router.push('/run');
-  }, [start]);
+  // -- Training, derived from the plan -------------------------------------
 
-  const nextWorkout = training.plan && todayKey ? (workoutsFrom(training, todayKey)[0] ?? null) : null;
-  const planLabel = !training.plan
-    ? 'Set up a training plan'
-    : nextWorkout
-      ? `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][weekdayOf(nextWorkout.date)]} · ${
-          WORKOUT_LABELS[nextWorkout.type]
-        } · ${fmt.distance(nextWorkout.targetKm * 1000)} ${fmt.unitLabel}`
-      : 'Training plan · no sessions yet';
+  const todayWorkout: PlannedWorkout | null = todayKey
+    ? (workoutsOnDate(training, todayKey)[0] ?? null)
+    : null;
+  const upcoming = todayKey ? workoutsFrom(training, addDays(todayKey, 1)).slice(0, 3) : [];
+  // A session whose day has passed without being completed is shown, not
+  // hidden: leaving it out would make a missed day simply vanish. The "missed"
+  // reading is derived from the date — nothing is written back to storage to
+  // say so, and today's session is never called missed while the day is still
+  // running.
+  const recent = [...training.workouts]
+    .filter((workout) => workout.date <= todayKey)
+    .filter((workout) => workout.status !== 'planned' || workout.date < todayKey)
+    .sort((a, b) => (a.date > b.date ? -1 : 1))
+    .slice(0, 3);
+
+  const weekStart = todayKey ? weekStartFor(todayKey) : '';
+  const progress = todayKey
+    ? summarizeProgress(training, weekStart, addDays(weekStart, 6))
+    : { planned: 0, completed: 0, skipped: 0, plannedKm: 0, completedKm: 0 };
+
+  const plannedMinutes = todayWorkout
+    ? Math.max(1, Math.round(todayWorkout.targetKm * settings.typicalPaceMinPerKm))
+    : 0;
+
+  const handleStart = useCallback(
+    (targetKm: number) => {
+      impactMedium();
+      start(null, targetKm);
+      router.push('/run');
+    },
+    [start],
+  );
 
   return (
     // The panel is in normal flow, so the standard iOS keyboard behaviour works
-    // — the map gives up height and the controls ride up with the keyboard.
+    // — the sheet's distance field rides up with the keyboard.
     <KeyboardAvoidingView
       style={[styles.root, { backgroundColor: theme.background }]}
       behavior="padding">
-      <View style={styles.mapRegion}>
+      <View style={[styles.mapRegion, { height: insets.top + MAP_HEIGHT }]}>
         <MapCanvas
           origin={origin}
           routes={[]}
@@ -196,7 +216,6 @@ export default function HomeScreen() {
           recenterSignal={recenterSignal}
           onOriginMoved={handleOriginMoved}
         />
-
         <View
           style={[
             styles.mapControls,
@@ -218,16 +237,14 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      <View
-        style={[
-          styles.panel,
-          {
-            backgroundColor: theme.background,
-            borderTopColor: theme.borderSubtle,
-            paddingBottom: insets.bottom + spacing.lg,
-          },
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.content,
+          // Clear the floating tab bar, which overlays the scroll view.
+          { paddingBottom: insets.bottom + spacing.xxl + 64 },
         ]}>
-        {locationBlocked ? (
+        {locationStatus === 'denied' || locationStatus === 'unavailable' ? (
           <Pressable
             onPress={locationStatus === 'denied' ? undefined : refresh}
             accessibilityRole={locationStatus === 'denied' ? 'text' : 'button'}>
@@ -239,100 +256,104 @@ export default function HomeScreen() {
           </Pressable>
         ) : null}
 
-        {hasError && errorMessage ? (
-          <Text variant="label" color="textSecondary" accessibilityLiveRegion="polite">
-            {errorMessage}
+        {/* Today */}
+        <View style={[styles.card, { borderColor: theme.borderSubtle }]}>
+          <Text variant="micro" color="textSecondary">
+            TODAY
+          </Text>
+          {todayWorkout ? (
+            <>
+              <Text variant="large">{WORKOUT_LABELS[todayWorkout.type]}</Text>
+              <Text variant="body" color="textSecondary" tabular>
+                {`${fmt.distance(todayWorkout.targetKm * 1000)} ${fmt.unitLabel} · about ${plannedMinutes} min`}
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text variant="large">{training.plan ? 'Rest day' : 'Ready to run'}</Text>
+              <Text variant="body" color="textSecondary">
+                {training.plan
+                  ? 'Nothing scheduled today. Run anyway if you feel like it.'
+                  : 'Start a run now, or set up a plan to follow.'}
+              </Text>
+            </>
+          )}
+          <Button
+            label="Start run"
+            variant="accent"
+            onPress={() => handleStart(todayWorkout?.targetKm ?? 0)}
+            disabled={locationStatus === 'denied'}
+            style={styles.cardAction}
+          />
+        </View>
+
+        {/* This week */}
+        <View style={styles.overviewRow}>
+          <Text variant="caption" color="textSecondary" tabular>
+            {`This week · ${progress.completed} of ${progress.planned} sessions`}
+          </Text>
+          <Text variant="caption" color="textSecondary" tabular>
+            {`${fmt.distance(progress.completedKm * 1000)} of ${fmt.distance(progress.plannedKm * 1000)} ${fmt.unitLabel}`}
+          </Text>
+        </View>
+        {streakWeeks > 0 ? (
+          <Text variant="caption" color="textSecondary">
+            {`${streakWeeks} week${streakWeeks === 1 ? '' : 's'} in a row with a run`}
           </Text>
         ) : null}
 
-        {/* Who the runner is, and what they have run this week — visible on
-            open rather than buried in History (#108). Deliberately quiet: it
-            must not compete with Start run below it. */}
-        <View style={styles.identityRow}>
-          <Pressable
-            onPress={() => router.push('/account')}
-            accessibilityRole="button"
-            accessibilityLabel={displayName ? `Your profile, ${displayName}` : 'Your profile'}
-            style={({ pressed }) => [styles.identity, pressed && styles.pressed]}>
-            <View style={[styles.avatar, { backgroundColor: theme.fill }]}>
-              <Text variant="label" color="textSecondary">
-                {(displayName?.trim()?.[0] ?? '·').toUpperCase()}
-              </Text>
-            </View>
-            <Text variant="body" numberOfLines={1} style={styles.identityName}>
-              {displayName ?? 'You'}
+        {/* Upcoming */}
+        <Section title="Upcoming">
+          {upcoming.length === 0 ? (
+            <Text variant="caption" color="textSecondary">
+              {training.plan ? 'Nothing scheduled yet.' : 'No plan yet.'}
             </Text>
-          </Pressable>
+          ) : (
+            upcoming.map((workout) => (
+              <WorkoutRow key={workout.id} workout={workout} fmt={fmt} />
+            ))
+          )}
+        </Section>
 
-          <Pressable
-            onPress={() => router.push('/history')}
-            accessibilityRole="button"
-            accessibilityLabel={
-              overview && overview.count > 0
-                ? `Statistics. This week, ${fmt.distance(overview.recentMeters)} ${fmt.unitSpoken} over ${overview.recentCount} runs.`
-                : 'Statistics. No runs yet.'
-            }
-            style={({ pressed }) => (pressed ? styles.pressed : undefined)}>
-            <Text variant="caption" color="textSecondary" tabular>
-              {overview && overview.count > 0
-                ? `This week · ${fmt.distance(overview.recentMeters)} ${fmt.unitLabel} · ${overview.recentCount} ${
-                    overview.recentCount === 1 ? 'run' : 'runs'
-                  }`
-                : 'No runs yet'}
+        {/* Completed */}
+        <Section title="Recent">
+          {recent.length === 0 ? (
+            <Text variant="caption" color="textSecondary">
+              Nothing completed yet.
             </Text>
-          </Pressable>
-        </View>
+          ) : (
+            recent.map((workout) => (
+              <WorkoutRow key={workout.id} workout={workout} fmt={fmt} showStatus />
+            ))
+          )}
+        </Section>
 
-        {/* The question Home asks on open is "do I want to run now?", not
-            "what route do I want?" (#34) — one accent action, nothing else
-            on the panel competing with it. */}
-        <Button
-          label="Start run"
-          variant="accent"
-          onPress={handleStartRun}
-          disabled={locationStatus === 'denied'}
-        />
+        <Pressable
+          onPress={() => router.push('/plan')}
+          accessibilityRole="button"
+          accessibilityLabel={training.plan ? 'Manage your training plan' : 'Set up a training plan'}
+          style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
+          <SymbolView name="calendar" size={layout.iconSizeSmall} tintColor={theme.textSecondary} />
+          <Text variant="label" color="textTertiary" style={styles.rowLabel}>
+            {training.plan
+              ? `Manage plan · ${training.plan.runsPerWeek} runs a week`
+              : 'Set up a training plan'}
+          </Text>
+          <SymbolView
+            name="chevron.right"
+            size={layout.iconSizeSmall}
+            tintColor={theme.textSecondary}
+          />
+        </Pressable>
 
-        {/* The training surface (#114) starts with a plan, and shows the next
-            session once one exists. Quiet either way: running now needs
-            neither. */}
-        {trainingLoaded ? (
-          <Pressable
-            onPress={() => router.push('/plan')}
-            accessibilityRole="button"
-            accessibilityLabel={planLabel}
-            style={({ pressed }) => [styles.originRow, pressed && styles.pressed]}>
-            <SymbolView
-              name="calendar"
-              size={layout.iconSizeSmall}
-              tintColor={theme.textSecondary}
-            />
-            <Text variant="label" color="textTertiary" numberOfLines={1} style={styles.originLabel}>
-              {planLabel}
-            </Text>
-            <SymbolView
-              name="chevron.right"
-              size={layout.iconSizeSmall}
-              tintColor={theme.textSecondary}
-            />
-          </Pressable>
-        ) : null}
-
-        {/* Planning and running are separate journeys (#107): a route kept
-            earlier can be run directly from here, without regenerating
-            anything (#109). Absent until there is something to run. */}
         {savedRoutes > 0 ? (
           <Pressable
             onPress={() => router.push('/favorites?mode=run')}
             accessibilityRole="button"
             accessibilityLabel={`Run a saved route. ${savedRoutes} saved.`}
-            style={({ pressed }) => [styles.originRow, pressed && styles.pressed]}>
-            <SymbolView
-              name="bookmark"
-              size={layout.iconSizeSmall}
-              tintColor={theme.textSecondary}
-            />
-            <Text variant="label" color="textTertiary" style={styles.originLabel}>
+            style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
+            <SymbolView name="bookmark" size={layout.iconSizeSmall} tintColor={theme.textSecondary} />
+            <Text variant="label" color="textTertiary" style={styles.rowLabel}>
               Run a saved route
             </Text>
             <Text variant="caption" color="textSecondary" tabular>
@@ -346,9 +367,12 @@ export default function HomeScreen() {
           </Pressable>
         ) : null}
 
-        {/* Route discovery is one quiet button now: it opens the start point,
-            distance and finish choices in a sheet, out of the way of running
-            (#107). The primary action above stays the only accent on screen. */}
+        {overview && overview.count > 0 ? (
+          <Text variant="caption" color="textSecondary" tabular style={styles.footnote}>
+            {`All time · ${overview.count} runs · ${fmt.distance(overview.totalMeters)} ${fmt.unitLabel}`}
+          </Text>
+        ) : null}
+
         <Button
           label="Find a route"
           variant="secondary"
@@ -358,10 +382,14 @@ export default function HomeScreen() {
           }}
           disabled={!origin}
         />
-      </View>
 
-      {/* The route choices, out of the way until asked for. A sheet rather than
-          a screen: choosing a route is a decision, not a destination. */}
+        {hasError && errorMessage ? (
+          <Text variant="label" color="textSecondary" accessibilityLiveRegion="polite">
+            {errorMessage}
+          </Text>
+        ) : null}
+      </ScrollView>
+
       <FindRouteSheet
         visible={findRoutesOpen}
         onClose={() => setFindRoutesOpen(false)}
@@ -384,12 +412,45 @@ export default function HomeScreen() {
   );
 }
 
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <View style={styles.section}>
+      <Text variant="micro" color="textSecondary">
+        {title.toUpperCase()}
+      </Text>
+      {children}
+    </View>
+  );
+}
+
+function WorkoutRow({
+  workout,
+  fmt,
+  showStatus = false,
+}: {
+  workout: PlannedWorkout;
+  fmt: Formatters;
+  showStatus?: boolean;
+}) {
+  return (
+    <View style={styles.workoutRow}>
+      <Text variant="body" tabular>
+        {`${WEEKDAY_SHORT[weekdayOf(workout.date)]} · ${WORKOUT_LABELS[workout.type]}`}
+      </Text>
+      <Text variant="caption" color="textSecondary" tabular>
+        {`${fmt.distance(workout.targetKm * 1000)} ${fmt.unitLabel}${
+          showStatus ? ` · ${STATUS_LABELS[workout.status]}` : ''
+        }`}
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
   mapRegion: {
-    flex: 1,
     overflow: 'hidden',
   },
   mapControls: {
@@ -400,45 +461,55 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  panel: {
-    borderTopWidth: StyleSheet.hairlineWidth,
+  scroll: {
+    flex: 1,
+  },
+  content: {
     paddingHorizontal: layout.screenMargin,
     paddingTop: spacing.lg,
     gap: spacing.md,
   },
-  identityRow: {
+  card: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radii.small,
+    borderCurve: 'continuous',
+    padding: spacing.md,
+    gap: spacing.xxs,
+  },
+  cardAction: {
+    marginTop: spacing.sm,
+  },
+  overviewRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm,
   },
-  identity: {
+  section: {
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  workoutRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
     gap: spacing.sm,
-    flexShrink: 1,
+    minHeight: layout.minTouchTarget,
+    paddingVertical: spacing.xxs,
   },
-  avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  identityName: {
-    flexShrink: 1,
-  },
-  originRow: {
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
     minHeight: layout.minTouchTarget,
-    marginBottom: -spacing.xs,
+  },
+  rowLabel: {
+    flex: 1,
+  },
+  footnote: {
+    marginTop: spacing.xs,
   },
   pressed: {
     opacity: 0.6,
-  },
-  originLabel: {
-    flex: 1,
   },
 });

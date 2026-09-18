@@ -10,6 +10,7 @@
  */
 
 import type { SavedRun } from './run-session';
+import { addDays, toDateKey, weekStartFor } from './training';
 
 const DAY_MS = 86_400_000;
 
@@ -91,4 +92,34 @@ export function filterRunsByPeriod(
   }
   const cutoff = nowMs - option.days * DAY_MS;
   return runs.filter((run) => run.startedAt >= cutoff);
+}
+
+/**
+ * Consecutive calendar weeks, ending with the current one, that contain at
+ * least one recorded run.
+ *
+ * The current week not having a run yet does not break a streak — it simply
+ * has not extended it. This is a plain count of what happened, not a game: no
+ * badges, no "don't break it" copy, and it is derived from recorded runs only.
+ */
+export function weeklyRunStreak(runs: SavedRun[], todayKey: string): number {
+  if (runs.length === 0) {
+    return 0;
+  }
+
+  const weeksWithRuns = new Set(
+    runs.map((run) => weekStartFor(toDateKey(new Date(run.startedAt)))),
+  );
+
+  let week = weekStartFor(todayKey);
+  if (!weeksWithRuns.has(week)) {
+    week = addDays(week, -7);
+  }
+
+  let streak = 0;
+  while (weeksWithRuns.has(week)) {
+    streak += 1;
+    week = addDays(week, -7);
+  }
+  return streak;
 }
