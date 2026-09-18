@@ -1,5 +1,8 @@
 # ROAM — Phase 1A: Real Map + Location
 
+> **Historical.** Phase notes from 2026-09-15. The map and location are long
+> since implemented and much has changed; kept as a record of that phase.
+
 Date: 2026-09-15
 Status: implemented **and verified on the iOS 26 simulator** with a real Mapbox
 public token. TypeScript, Expo Doctor and the iOS export pass. A development

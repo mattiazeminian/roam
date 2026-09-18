@@ -1,10 +1,10 @@
 # ROAM — Map Style
 
-Status: direction only. No map provider is installed and none should be until
-this work is explicitly scheduled. The map will be added later, most likely via
-Mapbox on iOS. Until then, `src/components/map/` renders a dependency-free
-placeholder surface (neutral land, subtle roads and buildings) that follows this
-direction.
+Status: direction, partially implemented. Mapbox is installed and is the map
+provider (`@rnmapbox/maps`); the palette and structure below are applied, but
+the base-map styling, road hierarchy and terrain treatment are still being
+developed — see the "Map visual system v2" issue in the backlog. A
+dependency-free placeholder surface remains for builds without a token.
 
 The map is the dominant surface of ROAM. It is the one place in the product
 where color and geography are allowed — and even there, the treatment stays

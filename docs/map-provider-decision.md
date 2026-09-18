@@ -1,5 +1,9 @@
 # ROAM — Map Provider Decision (Phase 0)
 
+> **Decision record.** The rationale below still holds — Mapbox for the map,
+> OpenRouteService for routing — and both are in the app today. Kept as the
+> record of *why*, not as current implementation guidance.
+
 Date: 2026-09-15
 Status: decision. No source, config, or dependency was changed.
 

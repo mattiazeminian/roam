@@ -1,5 +1,9 @@
 # ROAM — Project Audit
 
+> **Historical.** An audit of the `create-expo-app` starter before any ROAM
+> feature existed, on 2026-09-15. Kept for context; see `product.md` and
+> `architecture.md` for the current state.
+
 Date: 2026-09-15
 Repo state: initial commit (`4d8eb94 Initial commit`), working tree clean before audit.
 

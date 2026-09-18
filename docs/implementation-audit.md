@@ -1,5 +1,9 @@
 # ROAM — Implementation Audit
 
+> **Historical.** Written on 2026-09-15 against an early prototype, long before
+> accounts, training, Health or sharing existed. Kept for context only; it does
+> not describe the current codebase. See `product.md` and `architecture.md`.
+
 Date: 2026-09-15
 Scope: read-only audit of the current prototype against the goal of a real,
 working iOS route-discovery MVP. No source, config, or dependency was changed.
