@@ -14,6 +14,8 @@ import {
   WORKOUT_TYPES,
   addWorkouts,
   buildPlan,
+  generateWeek,
+  weekdayOf,
   createPlan,
   createWorkout,
   loadTraining,
@@ -26,6 +28,7 @@ import {
   workoutsFrom,
   workoutsOnDate,
   type PlannedWorkout,
+  type TrainingPlan,
   type TrainingState,
 } from '../training';
 
@@ -330,5 +333,119 @@ describe('building a plan (#69)', () => {
   test('an unusable level falls back rather than being stored', () => {
     // @ts-expect-error deliberately invalid input from a caller
     expect(buildPlan({ ...input, level: 'olympian' }).level).toBe('occasional');
+  });
+});
+
+/** Shortest gap between two weekdays around the week. */
+function circularGap(a: number, b: number): number {
+  const delta = Math.abs(a - b) % 7;
+  return Math.min(delta, 7 - delta);
+}
+
+describe('generating a week (#70)', () => {
+  const planFor = (overrides: Partial<TrainingPlan> = {}): TrainingPlan => ({
+    ...createPlan({
+      goal: { kind: 'fitness', targetKm: null, raceDate: null },
+      runsPerWeek: 3,
+      preferredDays: [2, 4, 6],
+      level: 'occasional',
+      id: 'p1',
+    }),
+    ...overrides,
+  });
+
+  const weekStart = '2026-09-20'; // a Sunday
+
+  test('places sessions only on the chosen days', () => {
+    const { workouts } = generateWeek(planFor(), weekStart);
+    expect(workouts.map((w) => weekdayOf(w.date))).toEqual([2, 4, 6]);
+  });
+
+  test('gives the long run the last chosen day and keeps hard work away from it', () => {
+    const { workouts } = generateWeek(planFor(), weekStart);
+    const long = workouts.find((w) => w.type === 'long');
+    expect(weekdayOf(long!.date)).toBe(6);
+
+    const hard = workouts.filter((w) => w.type === 'tempo' || w.type === 'intervals');
+    expect(hard).toHaveLength(1);
+    expect(circularGap(weekdayOf(hard[0].date), 6)).toBeGreaterThan(1);
+  });
+
+  test('puts a recovery run after the hard session for a frequent runner', () => {
+    const { workouts } = generateWeek(
+      planFor({ runsPerWeek: 5, preferredDays: [1, 2, 3, 4, 5] }),
+      weekStart,
+    );
+    const hard = workouts.find((w) => w.type === 'tempo' || w.type === 'intervals')!;
+    const recovery = workouts.find((w) => w.type === 'recovery');
+    expect(recovery).toBeDefined();
+    expect(recovery!.date > hard.date).toBe(true);
+  });
+
+  test('reports an over-full week rather than using days the runner did not choose', () => {
+    const { workouts, overfull } = generateWeek(
+      planFor({ runsPerWeek: 5, preferredDays: [1, 3] }),
+      weekStart,
+    );
+    expect(overfull).toBe(true);
+    expect(workouts).toHaveLength(2);
+    expect(workouts.every((w) => [1, 3].includes(weekdayOf(w.date)))).toBe(true);
+  });
+
+  test('a plan with no days yields nothing', () => {
+    const { workouts, overfull } = generateWeek(planFor({ preferredDays: [] }), weekStart);
+    expect(workouts).toEqual([]);
+    expect(overfull).toBe(true);
+  });
+
+  test('derives distances from the runner\'s own baseline, capped at the goal', () => {
+    const { workouts } = generateWeek(planFor({ runsPerWeek: 3, preferredDays: [2, 4, 6] }), weekStart, {
+      baselineKm: 6,
+    });
+    const byType = Object.fromEntries(workouts.map((w) => [w.type, w.targetKm]));
+    expect(byType.easy).toBe(6);
+    expect(byType.long).toBe(8); // 6 × 1.3, rounded to the nearest 0.5
+
+    const capped = generateWeek(
+      planFor({
+        runsPerWeek: 3,
+        preferredDays: [2, 4, 6],
+        level: 'experienced',
+        goal: { kind: 'distance', targetKm: 8, raceDate: null },
+      }),
+      weekStart,
+      { baselineKm: 6 },
+    );
+    // 6 × 1.7 would be 10.5, but the goal is 8.
+    expect(capped.workouts.find((w) => w.type === 'long')!.targetKm).toBe(8);
+  });
+
+  test('uses intervals only for a distance or race goal at the experienced level', () => {
+    const race = generateWeek(
+      planFor({
+        level: 'experienced',
+        goal: { kind: 'race', targetKm: 21.1, raceDate: '2026-11-01' },
+      }),
+      weekStart,
+    );
+    expect(race.workouts.some((w) => w.type === 'intervals')).toBe(true);
+
+    const fitness = generateWeek(planFor({ level: 'experienced' }), weekStart);
+    expect(fitness.workouts.some((w) => w.type === 'intervals')).toBe(false);
+  });
+
+  test('regenerating a week is idempotent and never rewrites what happened', () => {
+    const first = generateWeek(planFor(), weekStart).workouts;
+    const completed = { ...first[0], status: 'completed' as const, runId: 'run-1' };
+    const existing: TrainingState = { plan: planFor(), workouts: [completed] };
+
+    const regenerated = generateWeek(planFor(), weekStart).workouts;
+    const merged = addWorkouts(existing, regenerated);
+
+    expect(merged.workouts).toHaveLength(first.length);
+    expect(merged.workouts.find((w) => w.id === completed.id)).toMatchObject({
+      status: 'completed',
+      runId: 'run-1',
+    });
   });
 });

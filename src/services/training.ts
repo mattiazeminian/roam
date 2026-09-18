@@ -239,6 +239,211 @@ export function buildPlan(input: PlanInput): TrainingPlan {
   });
 }
 
+// -- Scheduling (#70) -------------------------------------------------------
+
+function parseDateKey(key: string): Date {
+  const [year, month, day] = key.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+export function addDays(key: string, days: number): string {
+  const date = parseDateKey(key);
+  date.setDate(date.getDate() + days);
+  return toDateKey(date);
+}
+
+/** 0 = Sunday … 6 = Saturday, for a `yyyy-mm-dd` key. */
+export function weekdayOf(key: string): number {
+  return parseDateKey(key).getDay();
+}
+
+/** The Sunday of the week containing `key`. Weekday numbering is Sunday-first. */
+export function weekStartFor(key: string): string {
+  return addDays(key, -weekdayOf(key));
+}
+
+/** Shortest distance between two weekdays around the week. */
+function circularDistance(a: number, b: number): number {
+  const delta = Math.abs(a - b) % 7;
+  return Math.min(delta, 7 - delta);
+}
+
+/**
+ * The roles a week of `count` runs is made of, per the rules in
+ * `docs/training-rules.md`. Exactly one long run (from two runs up), one hard
+ * session, and a recovery run once the runner is out often enough.
+ */
+export function rolesForWeek(
+  count: number,
+  level: TrainingLevel,
+  goalKind: TrainingGoalKind,
+): WorkoutType[] {
+  if (count <= 0) {
+    return [];
+  }
+  // Intervals only for a goal that is about distance or a race, and only once
+  // the runner is running regularly. No goal, or a new runner, gets tempo.
+  const hard: WorkoutType =
+    goalKind !== 'fitness' && level === 'experienced' ? 'intervals' : 'tempo';
+
+  const table: Record<number, WorkoutType[]> = {
+    1: ['easy'],
+    2: ['easy', 'long'],
+    3: ['easy', hard, 'long'],
+    4: ['easy', 'easy', hard, 'long'],
+    5: ['easy', 'recovery', hard, 'easy', 'long'],
+    6: ['easy', 'recovery', hard, 'easy', 'easy', 'long'],
+  };
+
+  if (table[count]) {
+    return table[count];
+  }
+  // Beyond six, the extra sessions are easy runs in front of the six-run week.
+  return [...Array(count - 6).fill('easy' as WorkoutType), ...table[6]];
+}
+
+function longFactorFor(level: TrainingLevel): number {
+  if (level === 'experienced') {
+    return 1.7;
+  }
+  if (level === 'regular') {
+    return 1.5;
+  }
+  return 1.3;
+}
+
+/**
+ * Distances are derived from the runner's own running, never a generic table
+ * (Rule 3). `baselineKm` is the runner's recent typical distance; when there is
+ * no history, the plan's own target stands in, and 5 km after that.
+ */
+export function distanceFor(
+  type: WorkoutType,
+  baselineKm: number,
+  level: TrainingLevel,
+  ceilingKm: number | null,
+): number {
+  const factors: Record<WorkoutType, number> = {
+    easy: 1,
+    recovery: 0.5,
+    short: 0.75,
+    long: longFactorFor(level),
+    tempo: 1.1,
+    intervals: 0.8,
+  };
+
+  const raw = baselineKm * factors[type];
+  const capped = ceilingKm !== null ? Math.min(raw, ceilingKm) : raw;
+  // Half-kilometre steps, floored at 2 km: finer than that is false precision.
+  return Math.max(2, Math.round(capped * 2) / 2);
+}
+
+export type WeekContext = {
+  /** The runner's recent typical distance, or null when there is no history. */
+  baselineKm: number | null;
+};
+
+export type GeneratedWeek = {
+  workouts: PlannedWorkout[];
+  /**
+   * True when the plan asks for more runs than there are chosen days. The
+   * sessions are not forced onto unchosen days; the caller can ask the runner
+   * to add a day instead.
+   */
+  overfull: boolean;
+};
+
+/**
+ * Turn a plan into dated workouts for one week (#70).
+ *
+ * Only the plan's chosen days are used. The long run takes the last chosen day,
+ * the hard session is placed as far from it as those days allow and never
+ * adjacent to it, and a recovery run follows the hard session when there is a
+ * day available.
+ *
+ * Ids are derived from the plan and the date, so regenerating a week is
+ * idempotent: `addWorkouts` ignores what is already there, which is how a
+ * completed or skipped day survives a regeneration untouched.
+ */
+export function generateWeek(
+  plan: TrainingPlan,
+  weekStart: string,
+  context: WeekContext = { baselineKm: null },
+): GeneratedWeek {
+  const days = normalizePreferredDays(plan.preferredDays);
+  if (days.length === 0) {
+    return { workouts: [], overfull: plan.runsPerWeek > 0 };
+  }
+
+  const overfull = plan.runsPerWeek > days.length;
+  const sessionCount = Math.min(plan.runsPerWeek, days.length);
+  const roles = rolesForWeek(sessionCount, plan.level, plan.goal.kind);
+
+  const longWeekday = days[days.length - 1];
+  const placed: { weekday: number; type: WorkoutType }[] = [];
+  let remaining = days.filter((day) => day !== longWeekday);
+
+  if (roles.includes('long')) {
+    placed.push({ weekday: longWeekday, type: 'long' });
+  }
+
+  const hardType = roles.find((role) => role === 'tempo' || role === 'intervals');
+  let hardWeekday: number | null = null;
+  if (hardType) {
+    const candidates = remaining.filter((day) => circularDistance(day, longWeekday) > 1);
+    if (candidates.length > 0) {
+      hardWeekday = [...candidates].sort(
+        (a, b) => circularDistance(b, longWeekday) - circularDistance(a, longWeekday) || a - b,
+      )[0];
+      placed.push({ weekday: hardWeekday, type: hardType });
+      remaining = remaining.filter((day) => day !== hardWeekday);
+    }
+  }
+
+  const fill: WorkoutType[] = roles.filter(
+    (role) => role !== 'long' && !(hardType !== undefined && role === hardType),
+  );
+  // A hard session that could not be placed — every chosen day sits next to the
+  // long run — still happens, as an easy run rather than being silently lost.
+  const fillTypes: WorkoutType[] =
+    hardType && hardWeekday === null ? [...fill, 'easy'] : fill;
+  while (fillTypes.length < remaining.length) {
+    fillTypes.push('easy');
+  }
+  const fillOrdered: WorkoutType[] = fillTypes.slice(0, remaining.length);
+
+  // Recovery belongs after the hard session, so the day following it takes that
+  // role when there is one.
+  if (hardWeekday !== null && fillOrdered.includes('recovery')) {
+    remaining = [...remaining].sort(
+      (a, b) =>
+        circularDistance(a, hardWeekday as number) - circularDistance(b, hardWeekday as number) || a - b,
+    );
+  }
+
+  remaining.forEach((weekday, index) => {
+    placed.push({ weekday, type: fillOrdered[index] ?? 'easy' });
+  });
+
+  const baseline = context.baselineKm ?? plan.goal.targetKm ?? 5;
+  const ceiling = plan.goal.kind === 'fitness' ? null : plan.goal.targetKm;
+
+  const workouts = placed
+    .map((entry) => {
+      const date = addDays(weekStart, entry.weekday);
+      return createWorkout({
+        id: `plan-${plan.id}-${date}`,
+        date,
+        type: entry.type,
+        targetKm: distanceFor(entry.type, baseline, plan.level, ceiling),
+      });
+    })
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+  return { workouts, overfull };
+}
+
+
 // -- Queries ----------------------------------------------------------------
 
 export function workoutsOnDate(state: TrainingState, date: string): PlannedWorkout[] {

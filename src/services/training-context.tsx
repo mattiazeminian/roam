@@ -12,10 +12,13 @@ import {
   addWorkouts,
   buildPlan,
   EMPTY_TRAINING,
+  generateWeek,
   loadTraining,
   removeWorkout as removeWorkoutFrom,
   saveTraining,
   setWorkoutStatus,
+  toDateKey,
+  weekStartFor,
   type PlanInput,
   type PlannedWorkout,
   type TrainingState,
@@ -30,6 +33,8 @@ export type TrainingContextValue = {
   createPlanFor: (input: PlanInput) => Promise<void>;
   /** Drop the plan. Workouts already recorded are kept. */
   clearPlan: () => Promise<void>;
+  /** Schedule (or re-schedule) a week from the current plan. */
+  generateWeekFor: (weekStart: string) => Promise<{ overfull: boolean; added: number }>;
   /** Add scheduled workouts, ignoring any already present. */
   scheduleWorkouts: (workouts: readonly PlannedWorkout[]) => Promise<void>;
   /** Move a workout's status; completing it links the run that did it. */
@@ -72,9 +77,29 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
 
   const createPlanFor = useCallback(
     async (input: PlanInput) => {
-      const next: TrainingState = { ...state, plan: buildPlan(input) };
+      const plan = buildPlan(input);
+      // A plan that produces nothing is not a plan, so creating one schedules
+      // its first week immediately (#70). Regeneration is additive, so a day
+      // already completed in this week is never overwritten.
+      const firstWeek = generateWeek(plan, weekStartFor(toDateKey(new Date())));
+      const scheduled = addWorkouts({ plan, workouts: state.workouts }, firstWeek.workouts);
+      setState(scheduled);
+      await saveTraining(scheduled);
+    },
+    [state],
+  );
+
+  /** Schedule a week (or re-schedule it) for the current plan. */
+  const generateWeekFor = useCallback(
+    async (weekStart: string) => {
+      if (!state.plan) {
+        return { overfull: false, added: 0 };
+      }
+      const generated = generateWeek(state.plan, weekStart);
+      const next = addWorkouts(state, generated.workouts);
       setState(next);
       await saveTraining(next);
+      return { overfull: generated.overfull, added: next.workouts.length - state.workouts.length };
     },
     [state],
   );
@@ -113,8 +138,17 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<TrainingContextValue>(
-    () => ({ state, loaded, createPlanFor, clearPlan, scheduleWorkouts, markWorkout, removeWorkout }),
-    [state, loaded, createPlanFor, clearPlan, scheduleWorkouts, markWorkout, removeWorkout],
+    () => ({
+      state,
+      loaded,
+      createPlanFor,
+      clearPlan,
+      generateWeekFor,
+      scheduleWorkouts,
+      markWorkout,
+      removeWorkout,
+    }),
+    [state, loaded, createPlanFor, clearPlan, generateWeekFor, scheduleWorkouts, markWorkout, removeWorkout],
   );
 
   return <TrainingContext.Provider value={value}>{children}</TrainingContext.Provider>;
