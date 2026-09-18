@@ -8,6 +8,12 @@ import { Divider } from '@/components/divider';
 import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
 import {
+  RUN_PERIODS,
+  filterRunsByPeriod,
+  summarizeRuns,
+  type RunPeriod,
+} from '@/services/run-analytics';
+import {
   computeRecords,
   formatDuration,
   formatRunDate,
@@ -16,7 +22,7 @@ import {
 } from '@/services/run-session';
 import { useFormatters, type Formatters } from '@/services/settings-context';
 import { listRuns } from '@/services/run-storage';
-import { layout, spacing, useTheme } from '@/theme';
+import { layout, radii, spacing, useTheme } from '@/theme';
 
 /**
  * History — saved runs, newest first, with records folded in above them.
@@ -24,33 +30,53 @@ import { layout, spacing, useTheme } from '@/theme';
  * A plain list rather than cards: the useful act here is comparing one run to
  * another, which only works when a run is one scannable line. Records are two
  * facts, not a destination, so they sit in the header instead of owning a tab.
+ *
+ * The overview and period filter answer "how much have I run?" without turning
+ * the screen into a dashboard, and records stay all-time even when the list is
+ * filtered — a record is not a property of the last 30 days.
  */
 export default function HistoryScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const fmt = useFormatters();
   const [runs, setRuns] = useState<SavedRun[] | null>(null);
+  const [period, setPeriod] = useState<RunPeriod>('all');
+  // Captured when the list loads rather than during render: reading the clock
+  // in render is impure, and the period boundary only needs to be stable for
+  // as long as the list on screen is.
+  const [loadedAt, setLoadedAt] = useState(0);
 
   // Reload on focus so a run saved moments ago is already here.
   useFocusEffect(
     useCallback(() => {
       let active = true;
+      const settle = (stored: SavedRun[]) => {
+        if (active) {
+          setRuns(stored);
+          setLoadedAt(Date.now());
+        }
+      };
       void listRuns()
-        .then((stored) => active && setRuns(stored))
-        .catch(() => active && setRuns([]));
+        .then(settle)
+        .catch(() => settle([]));
       return () => {
         active = false;
       };
     }, []),
   );
 
-  const records = computeRecords(runs ?? []);
-  const isEmpty = runs !== null && runs.length === 0;
+  const now = loadedAt;
+  const allRuns = runs ?? [];
+  const records = computeRecords(allRuns);
+  const overview = summarizeRuns(allRuns, now);
+  const visibleRuns = filterRunsByPeriod(allRuns, period, now);
+  const hasRuns = runs !== null && runs.length > 0;
+  const filteredEmpty = hasRuns && visibleRuns.length === 0;
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
       <FlatList
-        data={runs ?? []}
+        data={visibleRuns}
         keyExtractor={(run) => run.id}
         contentContainerStyle={[
           styles.content,
@@ -76,13 +102,60 @@ export default function HistoryScreen() {
               Your runs
             </Text>
 
+            {overview.count > 0 ? (
+              <View style={styles.overview}>
+                <Text variant="caption" color="textSecondary">
+                  {`${overview.count} ${overview.count === 1 ? 'run' : 'runs'} · ${fmt.distance(overview.totalMeters)} ${fmt.unitLabel} total`}
+                </Text>
+                <Text variant="caption" color="textSecondary">
+                  {`Past ${overview.recentWindowDays} days · ${overview.recentCount} ${
+                    overview.recentCount === 1 ? 'run' : 'runs'
+                  } · ${fmt.distance(overview.recentMeters)} ${fmt.unitLabel}`}
+                </Text>
+              </View>
+            ) : null}
+
+            {hasRuns ? (
+              <View style={styles.filters}>
+                {RUN_PERIODS.map((option) => {
+                  const selected = option.id === period;
+                  return (
+                    <Pressable
+                      key={option.id}
+                      onPress={() => setPeriod(option.id)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      accessibilityLabel={`Show ${option.label}`}
+                      style={({ pressed }) => [
+                        styles.filter,
+                        { backgroundColor: selected ? theme.accent : theme.fill },
+                        pressed && !selected && styles.filterPressed,
+                      ]}>
+                      <Text
+                        variant="caption"
+                        color={selected ? 'accentForeground' : 'textSecondary'}>
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+
             <RecordList records={records} fmt={fmt} />
           </View>
         }
         ItemSeparatorComponent={() => <Divider />}
         renderItem={({ item }) => <RunRow run={item} fmt={fmt} />}
         ListEmptyComponent={
-          isEmpty ? (
+          filteredEmpty ? (
+            <View style={styles.empty}>
+              <Text variant="title">Nothing in this period</Text>
+              <Text variant="body" color="textSecondary" style={styles.emptyBody}>
+                No runs in the chosen period. Choose a longer one to see more.
+              </Text>
+            </View>
+          ) : runs !== null && runs.length === 0 ? (
             <View style={styles.empty}>
               <Text variant="title">No runs yet</Text>
               <Text variant="body" color="textSecondary" style={styles.emptyBody}>
@@ -238,6 +311,22 @@ const styles = StyleSheet.create({
   },
   title: {
     marginTop: spacing.xs,
+  },
+  overview: {
+    gap: 2,
+  },
+  filters: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  filter: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radii.small,
+    borderCurve: 'continuous',
+  },
+  filterPressed: {
+    opacity: 0.7,
   },
   records: {
     gap: spacing.sm,
