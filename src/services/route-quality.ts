@@ -269,3 +269,149 @@ function simplify(points: Coordinate[], tolerance: number): Coordinate[] {
   const right = simplify(points.slice(index), tolerance);
   return [...left.slice(0, -1), ...right];
 }
+
+type XY = { x: number; y: number };
+
+/** Local equirectangular metres, good enough at the scale of one route. */
+function projectToMeters(track: Coordinate[]): XY[] {
+  const origin = track[0];
+  const longitudeScale = 111_320 * Math.cos((origin.latitude * Math.PI) / 180);
+  return track.map((point) => ({
+    x: (point.longitude - origin.longitude) * longitudeScale,
+    y: (point.latitude - origin.latitude) * 111_320,
+  }));
+}
+
+function cross(o: XY, a: XY, b: XY): number {
+  return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+}
+
+/** Strict crossing: touching endpoints do not count. */
+function properIntersection(a: XY, b: XY, c: XY, d: XY): boolean {
+  const d1 = cross(c, d, a);
+  const d2 = cross(c, d, b);
+  const d3 = cross(a, b, c);
+  const d4 = cross(a, b, d);
+  return (
+    ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+    ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+  );
+}
+
+function countSelfIntersections(points: XY[]): number {
+  if (points.length < 4) {
+    return 0;
+  }
+  const lastSegment = points.length - 2;
+  let crossings = 0;
+
+  for (let i = 0; i < lastSegment; i += 1) {
+    for (let j = i + 1; j <= lastSegment; j += 1) {
+      // Adjacent segments share a point; the first and last are adjacent too
+      // when the ring closes.
+      if (j === i + 1 || (i === 0 && j === lastSegment)) {
+        continue;
+      }
+      if (properIntersection(points[i], points[i + 1], points[j], points[j + 1])) {
+        crossings += 1;
+      }
+    }
+  }
+
+  return crossings;
+}
+
+/** Principal-axis ratio: 1 for a circle, larger for an elongated loop. */
+function elongationOf(points: XY[]): number {
+  const count = points.length;
+  if (count < 2) {
+    return 1;
+  }
+
+  let meanX = 0;
+  let meanY = 0;
+  for (const point of points) {
+    meanX += point.x;
+    meanY += point.y;
+  }
+  meanX /= count;
+  meanY /= count;
+
+  let xx = 0;
+  let yy = 0;
+  let xy = 0;
+  for (const point of points) {
+    const dx = point.x - meanX;
+    const dy = point.y - meanY;
+    xx += dx * dx;
+    yy += dy * dy;
+    xy += dx * dy;
+  }
+  xx /= count;
+  yy /= count;
+  xy /= count;
+
+  const trace = xx + yy;
+  const determinant = xx * yy - xy * xy;
+  const discriminant = Math.sqrt(Math.max(0, (trace * trace) / 4 - determinant));
+  const major = trace / 2 + discriminant;
+  const minor = trace / 2 - discriminant;
+
+  if (major <= 0 || minor <= 0) {
+    return 1;
+  }
+  return Math.sqrt(major / minor);
+}
+
+export type LoopShape = {
+  /**
+   * Polsby–Popper compactness: `4πA / P²`. 1 is a perfect circle, ~0.785 a
+   * square, and near 0 for a line that encloses almost nothing.
+   */
+  compactness: number;
+  /** Major-to-minor axis ratio of the loop's spread. 1 is round. */
+  elongation: number;
+  /** Times the route crosses itself. */
+  selfIntersections: number;
+};
+
+/**
+ * How good a *loop* the geometry is, independent of length.
+ *
+ * Shape is what separates a route a runner enjoys from one that merely closes:
+ * a round, compact loop reads as designed, while a long thin or self-crossing
+ * shape does not. Compactness is unreliable for a self-intersecting ring
+ * (the shoelace area stops meaning "enclosed"); callers that care should check
+ * `selfIntersections` first.
+ */
+export function loopShape(track: Coordinate[]): LoopShape {
+  if (track.length < 3) {
+    return { compactness: 0, elongation: 1, selfIntersections: 0 };
+  }
+
+  const projected = projectToMeters(track);
+
+  let doubleArea = 0;
+  for (let index = 0; index < projected.length - 1; index += 1) {
+    doubleArea +=
+      projected[index].x * projected[index + 1].y -
+      projected[index + 1].x * projected[index].y;
+  }
+  const area = Math.abs(doubleArea) / 2;
+
+  let perimeter = 0;
+  for (let index = 1; index < track.length; index += 1) {
+    perimeter += haversineMeters(track[index - 1], track[index]);
+  }
+
+  const compactness =
+    perimeter > 0 ? Math.min(1, Math.max(0, (4 * Math.PI * area) / (perimeter * perimeter))) : 0;
+
+  const simplified = projectToMeters(simplify(track, SIMPLIFY_TOLERANCE_M));
+
+  return {
+    compactness,
+    elongation: elongationOf(projected),
+    selfIntersections: countSelfIntersections(simplified),
+  };
+}

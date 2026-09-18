@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from '@jest/globals';
 
-import { backtracking, turnDensity } from '../route-quality';
+import { backtracking, loopShape, turnDensity } from '../route-quality';
 import type { Coordinate } from '../routing';
 
 const ORIGIN = { latitude: 40.7484, longitude: -73.9857 };
@@ -131,5 +131,60 @@ describe('turnDensity (#54)', () => {
     expect(shortL.turns).toBe(1);
     expect(longL.turns).toBe(1);
     expect(longL.perKm).toBeLessThan(shortL.perKm);
+  });
+});
+
+describe('loopShape (#58)', () => {
+  test('returns neutral defaults for too few points', () => {
+    expect(loopShape([])).toEqual({ compactness: 0, elongation: 1, selfIntersections: 0 });
+    expect(loopShape([offset(0, 0), offset(0, 100)])).toEqual({
+      compactness: 0,
+      elongation: 1,
+      selfIntersections: 0,
+    });
+  });
+
+  test('scores a square as compact and round', () => {
+    const result = loopShape([
+      offset(0, 0),
+      offset(0, 500),
+      offset(500, 500),
+      offset(500, 0),
+      offset(0, 0),
+    ]);
+    // π/4 ≈ 0.785 is the exact Polsby–Popper value for a square.
+    expect(result.compactness).toBeGreaterThan(0.7);
+    expect(result.compactness).toBeLessThan(0.85);
+    expect(result.elongation).toBeGreaterThan(0.7);
+    expect(result.elongation).toBeLessThan(1.4);
+    expect(result.selfIntersections).toBe(0);
+  });
+
+  test('scores a long thin rectangle as poorly compact and elongated', () => {
+    const result = loopShape([
+      offset(0, 0),
+      offset(0, 1000),
+      offset(200, 1000),
+      offset(200, 0),
+      offset(0, 0),
+    ]);
+    expect(result.compactness).toBeLessThan(0.5);
+    expect(result.elongation).toBeGreaterThan(4);
+  });
+
+  test('counts a self-crossing figure-eight', () => {
+    const result = loopShape([
+      offset(0, 0),
+      offset(1000, 1000),
+      offset(1000, 0),
+      offset(0, 1000),
+      offset(0, 0),
+    ]);
+    expect(result.selfIntersections).toBeGreaterThanOrEqual(1);
+  });
+
+  test('gives a straight line almost no compactness', () => {
+    const result = loopShape([offset(0, 0), offset(0, 500), offset(0, 1000)]);
+    expect(result.compactness).toBeLessThan(0.05);
   });
 });
