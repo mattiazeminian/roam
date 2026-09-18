@@ -1,6 +1,6 @@
 import { router, useFocusEffect } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ComponentProps, type ReactNode } from 'react';
 import { Alert, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -10,6 +10,7 @@ import { FindRouteSheet } from '@/components/find-route-sheet';
 import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
+import { WORKOUT_SYMBOLS } from '@/components/workout-icon';
 import { errorFeedback, impactLight, impactMedium, selectionFeedback, successFeedback } from '@/lib/haptics';
 import { describeCoordinate } from '@/services/geocoding';
 import { useLocation } from '@/services/location-context';
@@ -35,9 +36,9 @@ import {
 import { useTraining } from '@/services/training-context';
 import { layout, radii, spacing, useTheme } from '@/theme';
 
-const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-/** Tall enough to be a real map, short enough that the dashboard is on screen. */
-const MAP_HEIGHT = 220;
+const DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+type SymbolName = ComponentProps<typeof SymbolView>['name'];
 
 const STATUS_LABELS: Record<WorkoutStatus, string> = {
   planned: 'Missed',
@@ -49,11 +50,9 @@ const STATUS_LABELS: Record<WorkoutStatus, string> = {
 /**
  * Home — the training dashboard (#114).
  *
- * It answers "what should I run today?" before anything else: today's session
- * with the action that starts it, then what is coming, then what has happened,
- * then the week in three numbers. Route discovery and saved routes sit below
- * that, and the map is a header rather than the screen — Maps is the route
- * workspace now.
+ * Plan first, not map first: what to run today, how the week is shaped, what is
+ * next, and what has happened. The map survives only as a small window inside
+ * today's session, because Maps is the route workspace now.
  */
 export default function HomeScreen() {
   const theme = useTheme();
@@ -61,7 +60,6 @@ export default function HomeScreen() {
   const fmt = useFormatters();
   const {
     status: locationStatus,
-    coordinate,
     origin,
     originLabel,
     hasCustomOrigin,
@@ -77,15 +75,12 @@ export default function HomeScreen() {
 
   const [chosenKm, setChosenKm] = useState<number | null>(null);
   const distanceKm = chosenKm ?? settings.defaultDistanceKm ?? DEFAULT_DISTANCE_KM;
-  const [recenterSignal, setRecenterSignal] = useState(0);
   const [findRoutesOpen, setFindRoutesOpen] = useState(false);
   const [savedRoutes, setSavedRoutes] = useState(0);
   const [streakWeeks, setStreakWeeks] = useState(0);
   const [overview, setOverview] = useState<RunOverview | null>(null);
   const [todayKey, setTodayKey] = useState('');
 
-  // Read on focus rather than during render, so returning from a run or a plan
-  // change shows the current picture.
   useFocusEffect(
     useCallback(() => {
       let active = true;
@@ -135,9 +130,6 @@ export default function HomeScreen() {
     );
   }, [recoverable, resumeRecovered, discardRecovered]);
 
-  const isFinding = routeStatus === 'finding';
-  const hasError = routeStatus === 'error';
-
   const handleOriginMoved = useCallback(
     (nextOrigin: Coordinate) => {
       selectionFeedback();
@@ -150,6 +142,9 @@ export default function HomeScreen() {
     },
     [setOrigin],
   );
+
+  const isFinding = routeStatus === 'finding';
+  const hasError = routeStatus === 'error';
 
   const handleFindRoutes = useCallback(async () => {
     if (isFinding || !origin) {
@@ -166,17 +161,21 @@ export default function HomeScreen() {
     router.push('/routes');
   }, [origin, distanceKm, finish, find, isFinding, update]);
 
+  const handleStart = useCallback(
+    (targetKm: number) => {
+      impactMedium();
+      start(null, targetKm);
+      router.push('/run');
+    },
+    [start],
+  );
+
   // -- Training, derived from the plan -------------------------------------
 
   const todayWorkout: PlannedWorkout | null = todayKey
     ? (workoutsOnDate(training, todayKey)[0] ?? null)
     : null;
   const upcoming = todayKey ? workoutsFrom(training, addDays(todayKey, 1)).slice(0, 3) : [];
-  // A session whose day has passed without being completed is shown, not
-  // hidden: leaving it out would make a missed day simply vanish. The "missed"
-  // reading is derived from the date — nothing is written back to storage to
-  // say so, and today's session is never called missed while the day is still
-  // running.
   const recent = [...training.workouts]
     .filter((workout) => workout.date <= todayKey)
     .filter((workout) => workout.status !== 'planned' || workout.date < todayKey)
@@ -192,58 +191,50 @@ export default function HomeScreen() {
     ? Math.max(1, Math.round(todayWorkout.targetKm * settings.typicalPaceMinPerKm))
     : 0;
 
-  const handleStart = useCallback(
-    (targetKm: number) => {
-      impactMedium();
-      start(null, targetKm);
-      router.push('/run');
-    },
-    [start],
-  );
+  const weekDays = weekStart
+    ? Array.from({ length: 7 }, (_, index) => {
+        const date = addDays(weekStart, index);
+        return {
+          date,
+          letter: DAY_LETTERS[index],
+          workout: workoutsOnDate(training, date)[0] ?? null,
+          isToday: date === todayKey,
+          isPast: date < todayKey,
+        };
+      })
+    : [];
+
+  const todayLabel = todayKey
+    ? new Date(
+        Number(todayKey.slice(0, 4)),
+        Number(todayKey.slice(5, 7)) - 1,
+        Number(todayKey.slice(8, 10)),
+      ).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
+    : '';
 
   return (
-    // The panel is in normal flow, so the standard iOS keyboard behaviour works
-    // — the sheet's distance field rides up with the keyboard.
     <KeyboardAvoidingView
       style={[styles.root, { backgroundColor: theme.background }]}
       behavior="padding">
-      <View style={[styles.mapRegion, { height: insets.top + MAP_HEIGHT }]}>
-        <MapCanvas
-          origin={origin}
-          routes={[]}
-          cameraMode="center"
-          searching={isFinding}
-          recenterSignal={recenterSignal}
-          onOriginMoved={handleOriginMoved}
-        />
-        <View
-          style={[
-            styles.mapControls,
-            { top: insets.top + spacing.xs, paddingHorizontal: layout.screenMargin },
-          ]}
-          pointerEvents="box-none">
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: insets.top + spacing.sm, paddingBottom: insets.bottom + spacing.xxl + 64 },
+        ]}>
+        <View style={styles.headerRow}>
+          <View>
+            <Text variant="micro" color="textSecondary">
+              {todayLabel.toUpperCase()}
+            </Text>
+            <Text variant="large">{training.plan ? 'Your training' : 'Run somewhere new'}</Text>
+          </View>
           <MapControl
             symbol="clock.arrow.circlepath"
             accessibilityLabel="Your runs"
             onPress={() => router.push('/history')}
           />
-          {coordinate ? (
-            <MapControl
-              symbol="location"
-              accessibilityLabel="Recenter on current location"
-              onPress={() => setRecenterSignal((value) => value + 1)}
-            />
-          ) : null}
         </View>
-      </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[
-          styles.content,
-          // Clear the floating tab bar, which overlays the scroll view.
-          { paddingBottom: insets.bottom + spacing.xxl + 64 },
-        ]}>
         {locationStatus === 'denied' || locationStatus === 'unavailable' ? (
           <Pressable
             onPress={locationStatus === 'denied' ? undefined : refresh}
@@ -256,53 +247,118 @@ export default function HomeScreen() {
           </Pressable>
         ) : null}
 
-        {/* Today */}
-        <View style={[styles.card, { borderColor: theme.borderSubtle }]}>
-          <Text variant="micro" color="textSecondary">
-            TODAY
+        {/* Today — the one thing the screen is for. */}
+        <View style={[styles.card, { backgroundColor: theme.fill, borderColor: theme.borderSubtle }]}>
+          <View style={styles.cardHeader}>
+            <View style={[styles.iconBadge, { backgroundColor: theme.background }]}>
+              <SymbolView
+                name={
+                  todayWorkout
+                    ? WORKOUT_SYMBOLS[todayWorkout.type]
+                    : training.plan
+                      ? 'moon.zzz'
+                      : 'figure.run'
+                }
+                size={layout.iconSize}
+                tintColor={theme.accentText}
+              />
+            </View>
+            <View style={styles.cardHeaderText}>
+              <Text variant="micro" color="textSecondary">
+                TODAY
+              </Text>
+              <Text variant="title">
+                {todayWorkout ? WORKOUT_LABELS[todayWorkout.type] : training.plan ? 'Rest day' : 'Ready to run'}
+              </Text>
+            </View>
+          </View>
+
+          <Text variant="body" color="textSecondary" tabular>
+            {todayWorkout
+              ? `${fmt.distance(todayWorkout.targetKm * 1000)} ${fmt.unitLabel} · about ${plannedMinutes} min`
+              : training.plan
+                ? 'Nothing scheduled today. Run anyway if you feel like it.'
+                : 'Start a run now, or set up a plan to follow.'}
           </Text>
-          {todayWorkout ? (
-            <>
-              <Text variant="large">{WORKOUT_LABELS[todayWorkout.type]}</Text>
-              <Text variant="body" color="textSecondary" tabular>
-                {`${fmt.distance(todayWorkout.targetKm * 1000)} ${fmt.unitLabel} · about ${plannedMinutes} min`}
-              </Text>
-            </>
-          ) : (
-            <>
-              <Text variant="large">{training.plan ? 'Rest day' : 'Ready to run'}</Text>
-              <Text variant="body" color="textSecondary">
-                {training.plan
-                  ? 'Nothing scheduled today. Run anyway if you feel like it.'
-                  : 'Start a run now, or set up a plan to follow.'}
-              </Text>
-            </>
-          )}
+
+          {/* The map as a window, not the screen. */}
+          <View style={[styles.minimap, { borderColor: theme.borderSubtle, backgroundColor: theme.background }]}>
+            <MapCanvas
+              origin={origin}
+              routes={[]}
+              cameraMode="center"
+              onOriginMoved={handleOriginMoved}
+              padding={{ top: 16, bottom: 16, left: 16, right: 16 }}
+            />
+          </View>
+
           <Button
             label="Start run"
             variant="accent"
             onPress={() => handleStart(todayWorkout?.targetKm ?? 0)}
             disabled={locationStatus === 'denied'}
-            style={styles.cardAction}
           />
         </View>
 
-        {/* This week */}
-        <View style={styles.overviewRow}>
-          <Text variant="caption" color="textSecondary" tabular>
-            {`This week · ${progress.completed} of ${progress.planned} sessions`}
-          </Text>
-          <Text variant="caption" color="textSecondary" tabular>
-            {`${fmt.distance(progress.completedKm * 1000)} of ${fmt.distance(progress.plannedKm * 1000)} ${fmt.unitLabel}`}
-          </Text>
-        </View>
-        {streakWeeks > 0 ? (
-          <Text variant="caption" color="textSecondary">
-            {`${streakWeeks} week${streakWeeks === 1 ? '' : 's'} in a row with a run`}
-          </Text>
+        {/* The week, at a glance. */}
+        {training.plan ? (
+          <View style={[styles.card, { backgroundColor: theme.fill, borderColor: theme.borderSubtle }]}>
+            <Text variant="micro" color="textSecondary">
+              THIS WEEK
+            </Text>
+            <View style={styles.weekStrip}>
+              {weekDays.map((day) => (
+                <View key={day.date} style={styles.weekDay}>
+                  <Text variant="micro" color="textSecondary">
+                    {day.letter}
+                  </Text>
+                  <View
+                    style={[
+                      styles.weekDot,
+                      {
+                        backgroundColor: day.workout
+                          ? day.workout.status === 'completed'
+                            ? theme.accent
+                            : theme.background
+                          : 'transparent',
+                        borderColor: day.isToday
+                          ? theme.accentText
+                          : day.workout
+                            ? theme.border
+                            : 'transparent',
+                        opacity: !day.workout || (day.isPast && day.workout.status === 'planned') ? 0.45 : 1,
+                      },
+                    ]}>
+                    {day.workout ? (
+                      <SymbolView
+                        name={WORKOUT_SYMBOLS[day.workout.type]}
+                        size={12}
+                        tintColor={
+                          day.workout.status === 'completed' ? theme.accentForeground : theme.textSecondary
+                        }
+                      />
+                    ) : null}
+                  </View>
+                </View>
+              ))}
+            </View>
+
+            <View style={styles.tileRow}>
+              <Tile
+                symbol="checkmark.circle"
+                label="Sessions"
+                value={`${progress.completed}/${progress.planned}`}
+              />
+              <Tile
+                symbol="point.topleft.down.to.point.bottomright.curvepath"
+                label="Distance"
+                value={`${Math.round(progress.completedKm)}/${Math.round(progress.plannedKm)} ${fmt.unitLabel}`}
+              />
+              <Tile symbol="calendar" label="Streak" value={`${streakWeeks}w`} />
+            </View>
+          </View>
         ) : null}
 
-        {/* Upcoming */}
         <Section title="Upcoming">
           {upcoming.length === 0 ? (
             <Text variant="caption" color="textSecondary">
@@ -315,7 +371,6 @@ export default function HomeScreen() {
           )}
         </Section>
 
-        {/* Completed */}
         <Section title="Recent">
           {recent.length === 0 ? (
             <Text variant="caption" color="textSecondary">
@@ -367,12 +422,6 @@ export default function HomeScreen() {
           </Pressable>
         ) : null}
 
-        {overview && overview.count > 0 ? (
-          <Text variant="caption" color="textSecondary" tabular style={styles.footnote}>
-            {`All time · ${overview.count} runs · ${fmt.distance(overview.totalMeters)} ${fmt.unitLabel}`}
-          </Text>
-        ) : null}
-
         <Button
           label="Find a route"
           variant="secondary"
@@ -382,6 +431,12 @@ export default function HomeScreen() {
           }}
           disabled={!origin}
         />
+
+        {overview && overview.count > 0 ? (
+          <Text variant="caption" color="textSecondary" tabular style={styles.footnote}>
+            {`All time · ${overview.count} runs · ${fmt.distance(overview.totalMeters)} ${fmt.unitLabel}`}
+          </Text>
+        ) : null}
 
         {hasError && errorMessage ? (
           <Text variant="label" color="textSecondary" accessibilityLiveRegion="polite">
@@ -412,6 +467,21 @@ export default function HomeScreen() {
   );
 }
 
+function Tile({ symbol, label, value }: { symbol: SymbolName; label: string; value: string }) {
+  const theme = useTheme();
+  return (
+    <View style={styles.tile}>
+      <SymbolView name={symbol} size={layout.iconSizeSmall} tintColor={theme.textSecondary} />
+      <Text variant="title" tabular>
+        {value}
+      </Text>
+      <Text variant="micro" color="textSecondary">
+        {label.toUpperCase()}
+      </Text>
+    </View>
+  );
+}
+
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <View style={styles.section}>
@@ -432,16 +502,26 @@ function WorkoutRow({
   fmt: Formatters;
   showStatus?: boolean;
 }) {
+  const theme = useTheme();
   return (
     <View style={styles.workoutRow}>
-      <Text variant="body" tabular>
-        {`${WEEKDAY_SHORT[weekdayOf(workout.date)]} · ${WORKOUT_LABELS[workout.type]}`}
-      </Text>
-      <Text variant="caption" color="textSecondary" tabular>
-        {`${fmt.distance(workout.targetKm * 1000)} ${fmt.unitLabel}${
-          showStatus ? ` · ${STATUS_LABELS[workout.status]}` : ''
-        }`}
-      </Text>
+      <View style={[styles.rowIcon, { backgroundColor: theme.fill }]}>
+        <SymbolView
+          name={WORKOUT_SYMBOLS[workout.type]}
+          size={layout.iconSizeSmall}
+          tintColor={theme.textSecondary}
+        />
+      </View>
+      <View style={styles.workoutText}>
+        <Text variant="body" numberOfLines={1}>
+          {WORKOUT_LABELS[workout.type]}
+        </Text>
+        <Text variant="caption" color="textSecondary" tabular>
+          {`${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][weekdayOf(workout.date)]} · ${fmt.distance(
+            workout.targetKm * 1000,
+          )} ${fmt.unitLabel}${showStatus ? ` · ${STATUS_LABELS[workout.status]}` : ''}`}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -450,40 +530,69 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  mapRegion: {
-    overflow: 'hidden',
-  },
-  mapControls: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  scroll: {
-    flex: 1,
-  },
   content: {
     paddingHorizontal: layout.screenMargin,
-    paddingTop: spacing.lg,
     gap: spacing.md,
   },
-  card: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radii.small,
-    borderCurve: 'continuous',
-    padding: spacing.md,
-    gap: spacing.xxs,
-  },
-  cardAction: {
-    marginTop: spacing.sm,
-  },
-  overviewRow: {
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm,
+  },
+  card: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radii.medium,
+    borderCurve: 'continuous',
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  cardHeaderText: {
+    gap: 2,
+  },
+  iconBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  minimap: {
+    height: 128,
+    borderRadius: radii.small,
+    borderCurve: 'continuous',
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+  },
+  weekStrip: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  weekDay: {
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  weekDot: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tileRow: {
+    flexDirection: 'row',
+    marginTop: spacing.xs,
+  },
+  tile: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 2,
   },
   section: {
     gap: spacing.xs,
@@ -491,11 +600,20 @@ const styles = StyleSheet.create({
   },
   workoutRow: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
+    alignItems: 'center',
     gap: spacing.sm,
     minHeight: layout.minTouchTarget,
-    paddingVertical: spacing.xxs,
+  },
+  rowIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  workoutText: {
+    flex: 1,
+    gap: 2,
   },
   row: {
     flexDirection: 'row',

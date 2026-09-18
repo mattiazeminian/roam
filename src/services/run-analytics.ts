@@ -123,3 +123,36 @@ export function weeklyRunStreak(runs: SavedRun[], todayKey: string): number {
   }
   return streak;
 }
+
+export type DayBucket = {
+  date: string;
+  meters: number;
+  seconds: number;
+};
+
+/**
+ * One bucket per day of a week, from recorded runs only.
+ *
+ * This is what a week actually looked like, day by day — the shape Strava and
+ * Nike Run Club both lead with. Days with nothing are zeroes rather than
+ * missing, so a chart can show a rest day as a rest day.
+ */
+export function weekDayBuckets(runs: SavedRun[], weekStart: string): DayBucket[] {
+  const buckets: DayBucket[] = Array.from({ length: 7 }, (_, index) => ({
+    date: addDays(weekStart, index),
+    meters: 0,
+    seconds: 0,
+  }));
+  const byDate = new Map(buckets.map((bucket, index) => [bucket.date, index]));
+
+  for (const run of runs) {
+    const index = byDate.get(toDateKey(new Date(run.startedAt)));
+    if (index === undefined) {
+      continue;
+    }
+    buckets[index].meters += run.distanceKm * 1000;
+    buckets[index].seconds += run.durationSeconds;
+  }
+
+  return buckets;
+}

@@ -19,7 +19,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 
 const TRAINING_FILE = 'training.json';
 
-export type WorkoutType = 'easy' | 'recovery' | 'long' | 'tempo' | 'intervals' | 'short';
+export type WorkoutType = 'easy' | 'recovery' | 'long' | 'tempo' | 'intervals' | 'fartlek' | 'short';
 
 export const WORKOUT_TYPES: readonly WorkoutType[] = [
   'easy',
@@ -27,6 +27,7 @@ export const WORKOUT_TYPES: readonly WorkoutType[] = [
   'long',
   'tempo',
   'intervals',
+  'fartlek',
   'short',
 ] as const;
 
@@ -40,6 +41,7 @@ export const WORKOUT_DESCRIPTIONS: Record<WorkoutType, string> = {
   long: 'The longest run of the week, at an easy pace.',
   tempo: 'A sustained, comfortably hard effort in the middle of the run.',
   intervals: 'Short faster efforts separated by easier running.',
+  fartlek: 'Unstructured faster efforts inside an easy run, as you feel like them.',
   short: 'A brief run, shorter than your usual.',
 };
 
@@ -50,6 +52,7 @@ export const WORKOUT_LABELS: Record<WorkoutType, string> = {
   long: 'Long run',
   tempo: 'Tempo run',
   intervals: 'Intervals',
+  fartlek: 'Fartlek',
   short: 'Short run',
 };
 
@@ -340,6 +343,7 @@ export function distanceFor(
     long: longFactorFor(level),
     tempo: 1.1,
     intervals: 0.8,
+    fartlek: 0.9,
   };
 
   const raw = baselineKm * factors[type];

@@ -9,6 +9,7 @@ import { describe, expect, test } from '@jest/globals';
 
 import {
   RECENT_WINDOW_DAYS,
+  weekDayBuckets,
   weeklyRunStreak,
   filterRunsByPeriod,
   summarizeRuns,
@@ -128,5 +129,28 @@ describe('weeklyRunStreak (#114)', () => {
   test('a week with no run yet does not break an existing streak', () => {
     // Nothing this week, but the last two weeks were run.
     expect(weeklyRunStreak([runAt(7, 'last'), runAt(14, 'older')], TODAY)).toBe(2);
+  });
+});
+
+describe('weekDayBuckets (#114)', () => {
+  const WEEK_START = '2026-09-20';
+  const WEEK_MS = new Date(2026, 8, 20, 9).getTime();
+
+  test('is seven days, most of them empty', () => {
+    expect(weekDayBuckets([], WEEK_START)).toHaveLength(7);
+    expect(weekDayBuckets([], WEEK_START).every((day) => day.meters === 0)).toBe(true);
+  });
+
+  test('adds runs to the day they happened, and ignores other weeks', () => {
+    const runs = [
+      { ...run(0, 5, 'tue'), startedAt: WEEK_MS },
+      { ...run(0, 3, 'tue2'), startedAt: WEEK_MS + 3600_000 },
+      { ...run(0, 8, 'sat'), startedAt: WEEK_MS + 4 * 86_400_000 },
+      { ...run(0, 9, 'last-week'), startedAt: WEEK_MS - 7 * 86_400_000 },
+    ];
+    const buckets = weekDayBuckets(runs, WEEK_START);
+    expect(buckets[0].meters).toBeCloseTo(8000, 0); // Sunday
+    expect(buckets[4].meters).toBeCloseTo(8000, 0); // Thursday (index 4)
+    expect(buckets.reduce((total, day) => total + day.meters, 0)).toBeCloseTo(16000, 0);
   });
 });

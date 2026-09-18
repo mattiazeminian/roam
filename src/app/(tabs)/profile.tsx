@@ -10,6 +10,16 @@ import { Text } from '@/components/text';
 import { impactLight, selectionFeedback } from '@/lib/haptics';
 import { useAccount } from '@/services/account-context';
 import { loadProfile, pickAvatar, saveProfile, type Profile } from '@/services/profile';
+import {
+  addShoe,
+  createShoe,
+  loadShoes,
+  removeShoe,
+  saveShoes,
+  setShoeRetired,
+  shoeName,
+  type Shoe,
+} from '@/services/shoes';
 import { summarizeRuns, type RunOverview } from '@/services/run-analytics';
 import {
   computeRecords,
@@ -37,18 +47,20 @@ export default function ProfileScreen() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [runs, setRuns] = useState<SavedRun[] | null>(null);
   const [loadedAt, setLoadedAt] = useState(0);
+  const [shoes, setShoes] = useState<Shoe[]>([]);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
       const now = Date.now();
-      void Promise.all([loadProfile(), listRuns()])
-        .then(([stored, saved]) => {
+      void Promise.all([loadProfile(), listRuns(), loadShoes()])
+        .then(([stored, saved, storedShoes]) => {
           if (!active) {
             return;
           }
           setProfile(stored);
           setRuns(saved);
+          setShoes(storedShoes);
           setLoadedAt(now);
         })
         .catch(() => {});
@@ -99,6 +111,50 @@ export default function ProfileScreen() {
       );
     },
     [profile, persist],
+  );
+
+  const persistShoes = useCallback(async (next: Shoe[]) => {
+    setShoes(next);
+    await saveShoes(next);
+  }, []);
+
+  // Two short prompts rather than a form screen, matching how the rest of the
+  // profile is edited. iOS-only, and ROAM is iOS-first.
+  const addAShoe = useCallback(() => {
+    if (Platform.OS !== 'ios') {
+      return;
+    }
+    Alert.prompt('Add a shoe', 'Brand', (brand) => {
+      const trimmedBrand = brand.trim();
+      if (trimmedBrand.length === 0) {
+        return;
+      }
+      Alert.prompt('Add a shoe', 'Model', (model) => {
+        const trimmedModel = model.trim();
+        if (trimmedModel.length === 0) {
+          return;
+        }
+        void persistShoes(addShoe(shoes, createShoe({ brand: trimmedBrand, model: trimmedModel })));
+      });
+    });
+  }, [shoes, persistShoes]);
+
+  const editShoe = useCallback(
+    (shoe: Shoe) => {
+      Alert.alert(shoeName(shoe), `${shoe.brand} ${shoe.model}`, [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: shoe.retired ? 'Bring back' : 'Retire',
+          onPress: () => void persistShoes(setShoeRetired(shoes, shoe.id, !shoe.retired)),
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => void persistShoes(removeShoe(shoes, shoe.id)),
+        },
+      ]);
+    },
+    [shoes, persistShoes],
   );
 
   const changeAvatar = useCallback(async () => {
@@ -259,6 +315,41 @@ export default function ProfileScreen() {
               <Text variant="caption" color="textSecondary" tabular>
                 {fmt.paceWithUnit(run.averagePaceMinPerKm)}
               </Text>
+            </Pressable>
+          ))
+        )}
+
+        <View style={styles.sectionHeader}>
+          <Text variant="title">My shoes</Text>
+          <Pressable
+            onPress={addAShoe}
+            accessibilityRole="button"
+            accessibilityLabel="Add a shoe"
+            hitSlop={spacing.sm}>
+            <Text variant="body" color="accentText">
+              Add
+            </Text>
+          </Pressable>
+        </View>
+
+        {shoes.length === 0 ? (
+          <Text variant="body" color="textSecondary">
+            Add the shoes you run in to keep track of them here.
+          </Text>
+        ) : (
+          shoes.map((shoe) => (
+            <Pressable
+              key={shoe.id}
+              onPress={() => editShoe(shoe)}
+              accessibilityRole="button"
+              accessibilityLabel={`${shoeName(shoe)}${shoe.retired ? ', retired' : ''}. Edit shoe.`}
+              style={({ pressed }) => [styles.runRow, pressed && styles.pressed]}>
+              <View>
+                <Text variant="body">{shoeName(shoe)}</Text>
+                <Text variant="caption" color="textSecondary">
+                  {`${shoe.brand} ${shoe.model}${shoe.retired ? ' · retired' : ''}`}
+                </Text>
+              </View>
             </Pressable>
           ))
         )}

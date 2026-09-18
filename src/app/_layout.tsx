@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
 
 // Imported for its side effect: it registers the background location task with
 // TaskManager, which must happen at the bundle's global scope so the task
@@ -10,6 +11,7 @@ import { LocationProvider } from '@/services/location-context';
 import { RouteProvider } from '@/services/route-context';
 import { RunProvider } from '@/services/run-context';
 import { SettingsProvider } from '@/services/settings-context';
+import { seedSampleDataIfEmpty } from '@/services/sample-data';
 import { TrainingProvider } from '@/services/training-context';
 import { motion, useTheme } from '@/theme';
 
@@ -23,6 +25,12 @@ import { motion, useTheme } from '@/theme';
  */
 export default function RootLayout() {
   const theme = useTheme();
+
+  // Fills a fresh install with plausible history so the interface can be
+  // judged. Development only, and only when there is nothing there already.
+  useEffect(() => {
+    void seedSampleDataIfEmpty();
+  }, []);
 
   return (
     <SettingsProvider>
