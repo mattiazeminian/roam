@@ -14,30 +14,58 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/components/button';
 import { Text } from '@/components/text';
 import { useRoutes } from '@/services/route-context';
-import { layout, radii, spacing, useTheme } from '@/theme';
+import { layout, spacing, useTheme } from '@/theme';
 
 /** Long enough to read as deliberate work, short enough not to be a wait. */
 const MIN_DURATION_MS = 3500;
-const STEP_INTERVAL_MS = 640;
 
-const STEPS = [
-  'Reading the map',
-  'Finding paths around you',
-  'Following the quiet streets',
-  'Checking the turns',
-  'Almost there',
-];
+/** The route that draws itself while the search runs. */
+const TRACE_WIDTH = 300;
+const TRACE_HEIGHT = 120;
+const TRACE_THICKNESS = 4;
+const TRACE_SEGMENTS = 24;
+const TRACE_DOT = 9;
+/** How far behind the leading dot each segment fades in, as a fraction of the loop. */
+const TRACE_REVEAL = 0.14;
 
-const TRACK_WIDTH = 260;
-const DASH_SPACING = 26;
-const GROUND_DASHES = 12;
+/**
+ * A closed loop the dot runs around — a route that ends where it began, not a
+ * line with an end. The wobble keeps it from reading as a perfect circle: a
+ * little irregular, like a real loop picked out of the street grid.
+ */
+const TRACE_XS: number[] = [];
+const TRACE_YS: number[] = [];
+for (let i = 0; i <= TRACE_SEGMENTS; i += 1) {
+  const t = i / TRACE_SEGMENTS;
+  const angle = t * Math.PI * 2;
+  const rx = (TRACE_WIDTH / 2 - 14) * (1 + 0.12 * Math.sin(t * Math.PI * 6));
+  const ry = (TRACE_HEIGHT / 2 - 14) * (1 + 0.1 * Math.sin(t * Math.PI * 4 + 1.2));
+  TRACE_XS.push(TRACE_WIDTH / 2 + rx * Math.cos(angle));
+  TRACE_YS.push(TRACE_HEIGHT / 2 + ry * Math.sin(angle));
+}
+
+const TRACE_SEGMENTS_DATA = Array.from({ length: TRACE_SEGMENTS }, (_, i) => {
+  const dx = TRACE_XS[i + 1] - TRACE_XS[i];
+  const dy = TRACE_YS[i + 1] - TRACE_YS[i];
+  const length = Math.hypot(dx, dy);
+  const midX = (TRACE_XS[i] + TRACE_XS[i + 1]) / 2;
+  const midY = (TRACE_YS[i] + TRACE_YS[i + 1]) / 2;
+  return {
+    length,
+    angle: (Math.atan2(dy, dx) * 180) / Math.PI,
+    left: midX - length / 2,
+    top: midY - TRACE_THICKNESS / 2,
+  };
+});
 
 /**
  * Generating — the moment a route is built.
  *
  * The search is already running when this opens; this screen exists so that
  * three seconds of work is a considered moment rather than a frozen button. The
- * words are the real steps the router and the quality scorer take, in order.
+ * route draws itself, closing into a loop, while the search runs; there is
+ * deliberately no staged checklist or percentage, because the search is a
+ * single call with no milestones to report honestly.
  */
 export default function GeneratingScreen() {
   const theme = useTheme();
@@ -46,20 +74,11 @@ export default function GeneratingScreen() {
   const reduceMotion = useReducedMotion();
 
   const sawFinding = useRef(false);
-  const [step, setStep] = useState(0);
   const [minElapsed, setMinElapsed] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setMinElapsed(true), MIN_DURATION_MS);
     return () => clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    const timer = setInterval(
-      () => setStep((current) => Math.min(current + 1, STEPS.length - 1)),
-      STEP_INTERVAL_MS,
-    );
-    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -80,14 +99,8 @@ export default function GeneratingScreen() {
     <View
       style={[
         styles.root,
-        { backgroundColor: theme.background, paddingTop: insets.top + spacing.lg },
+        { backgroundColor: theme.background, paddingTop: insets.top + spacing.xl },
       ]}>
-      <View style={styles.topline}>
-        <View style={[styles.liveDot, { backgroundColor: theme.accent }]} />
-        <Text variant="micro" color="textSecondary">
-          ROUTE SEARCH
-        </Text>
-      </View>
       <View style={styles.stage}>
         <Text variant="large" style={styles.headline}>
           {failed ? 'That did not work' : 'Building your route'}
@@ -97,55 +110,10 @@ export default function GeneratingScreen() {
             ? (errorMessage ?? 'ROAM could not find a route near you.')
             : 'Finding a route with fewer turns and useful paths.'}
         </Text>
+
         {!failed ? (
-          <View
-            style={[styles.searchCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
-            accessibilityRole="progressbar"
-            accessibilityLabel="Route generation progress"
-            accessibilityValue={{ min: 0, max: STEPS.length, now: step + 1 }}>
-            <Runner reduceMotion={reduceMotion} />
-            <View style={styles.progressHeader}>
-              <Text variant="label">{STEPS[step]}</Text>
-              <Text variant="micro" color="textSecondary">
-                {step + 1}/{STEPS.length}
-              </Text>
-            </View>
-            <View style={[styles.progressTrack, { backgroundColor: theme.fill }]}>
-              <View
-                style={[
-                  styles.progressFill,
-                  {
-                    width: `${((step + 1) / STEPS.length) * 100}%`,
-                    backgroundColor: theme.accent,
-                  },
-                ]}
-              />
-            </View>
-            <View style={styles.stepList}>
-              {STEPS.map((label, index) => {
-                const complete = index < step;
-                const current = index === step;
-                return (
-                  <View key={label} style={styles.stepRow}>
-                    <View
-                      style={[
-                        styles.stepDot,
-                        {
-                          backgroundColor: complete || current ? theme.accent : theme.fill,
-                          borderColor: complete || current ? theme.accent : theme.borderSubtle,
-                        },
-                      ]}
-                    />
-                    <Text
-                      variant="caption"
-                      color={current ? 'text' : 'textSecondary'}
-                      style={complete ? styles.completedStep : undefined}>
-                      {label}
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
+          <View style={styles.visual} accessibilityLabel="Route being drawn">
+            <RouteTrace reduceMotion={reduceMotion} />
           </View>
         ) : null}
       </View>
@@ -162,79 +130,85 @@ export default function GeneratingScreen() {
   );
 }
 
-/**
- * A small stylized runner marking time while the route is built.
- *
- * Drawn from simple bars rather than an image, so it stays crisp and cheap: a
- * head, a torso and four limbs whose rotation follows one shared stride cycle,
- * with the ground scrolling underneath to give the running some movement.
- * Reduce Motion holds every limb at a fixed point in the cycle.
- */
-function Runner({ reduceMotion }: { reduceMotion: boolean }) {
+/** A lime route line tracing itself, led by a dot. Loops until the search ends. */
+function RouteTrace({ reduceMotion }: { reduceMotion: boolean }) {
   const theme = useTheme();
-  const stride = useSharedValue(0);
-  const ground = useSharedValue(0);
+  const progress = useSharedValue(reduceMotion ? 1 : 0);
 
   useEffect(() => {
     if (reduceMotion) {
+      progress.value = 1;
       return;
     }
-    stride.value = withRepeat(
-      withTiming(1, { duration: 620, easing: Easing.linear }),
+    progress.value = withRepeat(
+      withTiming(1, { duration: 2200, easing: Easing.inOut(Easing.quad) }),
       -1,
       false,
     );
-    ground.value = withRepeat(
-      withTiming(1, { duration: 460, easing: Easing.linear }),
-      -1,
-      false,
-    );
-  }, [stride, ground, reduceMotion]);
+  }, [progress, reduceMotion]);
 
-  const cycle = () => {
-    'worklet';
-    return reduceMotion ? 0.25 : stride.value;
-  };
-  const swing = (degrees: number) => {
-    'worklet';
-    return `${Math.sin(cycle() * Math.PI * 2) * degrees}deg`;
-  };
-
-  const leftLeg = useAnimatedStyle(() => ({ transform: [{ rotate: swing(30) }] }));
-  const rightLeg = useAnimatedStyle(() => ({ transform: [{ rotate: swing(-30) }] }));
-  const leftArm = useAnimatedStyle(() => ({ transform: [{ rotate: swing(-26) }] }));
-  const rightArm = useAnimatedStyle(() => ({ transform: [{ rotate: swing(26) }] }));
-  const bob = useAnimatedStyle(() => ({
-    transform: [{ translateY: -Math.abs(Math.sin(cycle() * Math.PI * 4)) * 2 }],
-  }));
-  const groundStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: reduceMotion ? 0 : -ground.value * DASH_SPACING }],
-  }));
+  const dotStyle = useAnimatedStyle(() => {
+    const scaled = progress.value * TRACE_SEGMENTS;
+    const index = Math.min(TRACE_SEGMENTS - 1, Math.floor(scaled));
+    const frac = scaled - index;
+    const x = TRACE_XS[index] + (TRACE_XS[index + 1] - TRACE_XS[index]) * frac;
+    const y = TRACE_YS[index] + (TRACE_YS[index + 1] - TRACE_YS[index]) * frac;
+    return {
+      transform: [{ translateX: x - TRACE_DOT / 2 }, { translateY: y - TRACE_DOT / 2 }],
+    };
+  });
 
   return (
-    <View style={styles.track}>
-      <Animated.View style={[styles.ground, groundStyle]}>
-        {Array.from({ length: GROUND_DASHES }).map((_, index) => (
-          <View key={index} style={[styles.dash, { backgroundColor: theme.borderSubtle }]} />
-        ))}
-      </Animated.View>
-      <Animated.View style={[styles.runner, bob]}>
-        <View style={[styles.head, { backgroundColor: theme.accent }]} />
-        <View style={[styles.torso, { backgroundColor: theme.accent }]} />
-        <Animated.View
-          style={[styles.arm, styles.leftArm, { backgroundColor: theme.accent }, leftArm]}
+    <View style={styles.trace}>
+      {TRACE_SEGMENTS_DATA.map((segment, index) => (
+        <TraceSegment
+          key={index}
+          index={index}
+          segment={segment}
+          progress={progress}
+          reduceMotion={reduceMotion}
+          color={theme.accent}
         />
-        <Animated.View
-          style={[styles.arm, styles.rightArm, { backgroundColor: theme.accent }, rightArm]}
-        />
-        <Animated.View
-          style={[styles.leg, styles.leftLeg, { backgroundColor: theme.accent }, leftLeg]}
-        />
-        <Animated.View
-          style={[styles.leg, styles.rightLeg, { backgroundColor: theme.accent }, rightLeg]}
-        />
-      </Animated.View>
+      ))}
+      <Animated.View style={[styles.dot, { backgroundColor: theme.accent }, dotStyle]} />
     </View>
+  );
+}
+
+function TraceSegment({
+  index,
+  segment,
+  progress,
+  reduceMotion,
+  color,
+}: {
+  index: number;
+  segment: (typeof TRACE_SEGMENTS_DATA)[number];
+  progress: { value: number };
+  reduceMotion: boolean;
+  color: string;
+}) {
+  const threshold = index / TRACE_SEGMENTS;
+  const style = useAnimatedStyle(() => {
+    const ahead = progress.value - threshold;
+    const opacity = reduceMotion ? 1 : ahead <= 0 ? 0 : Math.min(1, ahead / TRACE_REVEAL);
+    return { opacity };
+  });
+
+  return (
+    <Animated.View
+      style={[
+        styles.segment,
+        {
+          left: segment.left,
+          top: segment.top,
+          width: segment.length,
+          backgroundColor: color,
+          transform: [{ rotate: `${segment.angle}deg` }],
+        },
+        style,
+      ]}
+    />
   );
 }
 
@@ -244,16 +218,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: layout.screenMargin,
     justifyContent: 'space-between',
   },
-  topline: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  liveDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-  },
   stage: {
     flex: 1,
     alignItems: 'center',
@@ -262,119 +226,28 @@ const styles = StyleSheet.create({
   },
   headline: {
     textAlign: 'center',
-    marginTop: spacing.md,
   },
-  searchCard: {
-    width: '100%',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radii.medium,
-    borderCurve: 'continuous',
-    padding: spacing.md,
+  visual: {
+    alignItems: 'center',
+    gap: spacing.md,
     marginTop: spacing.lg,
-    gap: spacing.sm,
   },
-  progressHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  trace: {
+    width: TRACE_WIDTH,
+    height: TRACE_HEIGHT,
   },
-  progressTrack: {
-    height: 5,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  stepList: {
-    gap: spacing.xs,
-    paddingTop: spacing.xs,
-  },
-  stepRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    minHeight: layout.iconSizeSmall,
-  },
-  stepDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  completedStep: {
-    textDecorationLine: 'line-through',
-    opacity: 0.65,
-  },
-  track: {
-    width: TRACK_WIDTH,
-    height: 96,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.lg,
-  },
-  ground: {
+  segment: {
     position: 'absolute',
-    bottom: 22,
+    height: TRACE_THICKNESS,
+    borderRadius: TRACE_THICKNESS / 2,
+  },
+  dot: {
+    position: 'absolute',
     left: 0,
-    flexDirection: 'row',
-  },
-  dash: {
-    width: 14,
-    height: 2,
-    borderRadius: 1,
-    marginRight: DASH_SPACING - 14,
-  },
-  runner: {
-    position: 'absolute',
-    bottom: 22,
-    width: 36,
-    height: 46,
-  },
-  head: {
-    position: 'absolute',
     top: 0,
-    left: 13,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  torso: {
-    position: 'absolute',
-    top: 10,
-    left: 16,
-    width: 4,
-    height: 17,
-    borderRadius: 2,
-  },
-  arm: {
-    position: 'absolute',
-    top: 12,
-    width: 3,
-    height: 13,
-    borderRadius: 1.5,
-    transformOrigin: '50% 0%',
-  },
-  leftArm: {
-    left: 15,
-  },
-  rightArm: {
-    left: 18,
-  },
-  leg: {
-    position: 'absolute',
-    top: 26,
-    width: 3,
-    height: 15,
-    borderRadius: 1.5,
-    transformOrigin: '50% 0%',
-  },
-  leftLeg: {
-    left: 15,
-  },
-  rightLeg: {
-    left: 18,
+    width: TRACE_DOT,
+    height: TRACE_DOT,
+    borderRadius: TRACE_DOT / 2,
   },
   actions: {
     gap: spacing.xs,

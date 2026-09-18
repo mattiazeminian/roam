@@ -4,7 +4,6 @@ import { Alert, Image, Platform, Pressable, ScrollView, StyleSheet, View } from 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
-import { Divider } from '@/components/divider';
 import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
 import { impactLight, selectionFeedback } from '@/lib/haptics';
@@ -20,16 +19,20 @@ import {
   shoeName,
   type Shoe,
 } from '@/services/shoes';
-import { summarizeRuns, type RunOverview } from '@/services/run-analytics';
-import {
-  computeRecords,
-  formatRunDate,
-  type RunRecords,
-  type SavedRun,
-} from '@/services/run-session';
+import { summarizeRuns, weekDayBuckets, type RunOverview } from '@/services/run-analytics';
+import { formatDuration, formatRunDate, type SavedRun } from '@/services/run-session';
 import { listRuns } from '@/services/run-storage';
-import { useFormatters } from '@/services/settings-context';
-import { layout, spacing, useTheme } from '@/theme';
+import { useFormatters, type Formatters } from '@/services/settings-context';
+import { toDateKey, weekStartFor } from '@/services/training';
+import { layout, radii, spacing, useTheme } from '@/theme';
+
+/** Sunday-first, matching how the week is drawn everywhere else. */
+const DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+/** Bar heights for the week chart, in points. */
+const BAR_MAX = 52;
+const BAR_MIN = 10;
+const BAR_EMPTY = 4;
 
 /**
  * Profile — who the runner is, and what they have done.
@@ -48,6 +51,7 @@ export default function ProfileScreen() {
   const [runs, setRuns] = useState<SavedRun[] | null>(null);
   const [loadedAt, setLoadedAt] = useState(0);
   const [shoes, setShoes] = useState<Shoe[]>([]);
+  const [todayKey, setTodayKey] = useState('');
 
   useFocusEffect(
     useCallback(() => {
@@ -62,6 +66,7 @@ export default function ProfileScreen() {
           setRuns(saved);
           setShoes(storedShoes);
           setLoadedAt(now);
+          setTodayKey(toDateKey(new Date(now)));
         })
         .catch(() => {});
       return () => {
@@ -171,8 +176,9 @@ export default function ProfileScreen() {
 
   const allRuns = runs ?? [];
   const overview: RunOverview = summarizeRuns(allRuns, loadedAt, 7);
-  const records: RunRecords = computeRecords(allRuns);
   const recent = allRuns.slice(0, 5);
+  const totalSeconds = allRuns.reduce((sum, run) => sum + run.durationSeconds, 0);
+  const weekBuckets = todayKey ? weekDayBuckets(allRuns, weekStartFor(todayKey)) : [];
   const initial = (profile?.name?.trim()?.[0] ?? account?.name?.trim()?.[0] ?? '·').toUpperCase();
 
   return (
@@ -237,45 +243,21 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        <StatRow
-          label="Runs"
-          value={overview.count === 0 ? '—' : String(overview.count)}
-          onPress={() => router.push('/history')}
-        />
-        <Divider />
-        <StatRow
-          label="Total distance"
-          value={
-            overview.count === 0
-              ? '—'
-              : `${fmt.distance(overview.totalMeters)} ${fmt.unitLabel}`
-          }
-          onPress={() => router.push('/history')}
-        />
-        <Divider />
-        <StatRow
-          label="This week"
-          value={
-            overview.count === 0
-              ? '—'
-              : `${fmt.distance(overview.recentMeters)} ${fmt.unitLabel} · ${overview.recentCount}`
-          }
-          onPress={() => router.push('/history')}
-        />
-        <Divider />
-        <StatRow
-          label="Longest run"
-          value={
-            records.longest
-              ? `${fmt.distance(records.longest.distanceKm * 1000)} ${fmt.unitLabel}`
-              : '—'
-          }
-        />
-        <Divider />
-        <StatRow
-          label="Fastest pace"
-          value={records.fastest ? fmt.paceWithUnit(records.fastest.averagePaceMinPerKm) : '—'}
-        />
+        <View style={[styles.statsCard, { backgroundColor: theme.fill, borderColor: theme.borderSubtle }]}>
+          <StatBar
+            items={[
+              { label: 'Runs', value: overview.count === 0 ? '—' : String(overview.count) },
+              {
+                label: 'Distance',
+                value: overview.count === 0 ? '—' : fmt.distance(overview.totalMeters),
+                unit: overview.count === 0 ? undefined : fmt.unitLabel,
+              },
+              { label: 'Time', value: totalSeconds > 0 ? formatDuration(totalSeconds) : '—' },
+            ]}
+          />
+        </View>
+
+        {runs !== null ? <WeekChart buckets={weekBuckets} todayKey={todayKey} fmt={fmt} /> : null}
 
         <View style={styles.sectionHeader}>
           <Text variant="title">Recent runs</Text>
@@ -376,37 +358,95 @@ export default function ProfileScreen() {
   );
 }
 
-function StatRow({
-  label,
-  value,
-  onPress,
+function StatBar({
+  items,
 }: {
-  label: string;
-  value: string;
-  onPress?: () => void;
+  items: { label: string; value: string; unit?: string }[];
 }) {
-  const content = (
-    <View style={styles.statRow}>
-      <Text variant="body" color="textSecondary">
-        {label}
-      </Text>
-      <Text variant="title" tabular>
-        {value}
-      </Text>
+  return (
+    <View style={styles.statBar}>
+      {items.map((item) => (
+        <View key={item.label} style={styles.statCell}>
+          <View style={styles.statValueRow}>
+            <Text variant="title" tabular>
+              {item.value}
+            </Text>
+            {item.unit ? (
+              <Text variant="caption" color="textSecondary">
+                {item.unit}
+              </Text>
+            ) : null}
+          </View>
+          <Text variant="micro" color="textSecondary">
+            {item.label.toUpperCase()}
+          </Text>
+        </View>
+      ))}
     </View>
   );
+}
 
-  if (!onPress) {
-    return content;
-  }
+function WeekChart({
+  buckets,
+  todayKey,
+  fmt,
+}: {
+  buckets: ReturnType<typeof weekDayBuckets>;
+  todayKey: string;
+  fmt: Formatters;
+}) {
+  const theme = useTheme();
+  const maxMeters = Math.max(...buckets.map((bucket) => bucket.meters), 1);
+  const total = buckets.reduce((sum, bucket) => sum + bucket.meters, 0);
+
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`${label}, ${value}. See all runs.`}
-      style={({ pressed }) => (pressed ? styles.pressed : undefined)}>
-      {content}
-    </Pressable>
+    <View style={[styles.weekCard, { backgroundColor: theme.fill, borderColor: theme.borderSubtle }]}>
+      <View style={styles.weekHeader}>
+        <Text variant="micro" color="textSecondary">
+          THIS WEEK
+        </Text>
+        {total > 0 ? (
+          <Text variant="caption" color="textSecondary" tabular>
+            {`${fmt.distance(total)} ${fmt.unitLabel}`}
+          </Text>
+        ) : null}
+      </View>
+
+      <View style={styles.weekBars}>
+        {buckets.map((bucket, index) => {
+          const active = bucket.meters > 0;
+          const isToday = bucket.date === todayKey;
+          const height = active
+            ? BAR_MIN + (bucket.meters / maxMeters) * (BAR_MAX - BAR_MIN)
+            : BAR_EMPTY;
+          return (
+            <View key={bucket.date} style={styles.weekBar}>
+              <View style={styles.barTrack}>
+                <View
+                  style={[
+                    styles.bar,
+                    {
+                      height,
+                      backgroundColor: active
+                        ? isToday
+                          ? theme.accentText
+                          : theme.accent
+                        : theme.borderSubtle,
+                    },
+                  ]}
+                />
+              </View>
+              <Text
+                variant="micro"
+                color={isToday ? 'accentText' : 'textSecondary'}
+                style={isToday ? styles.todayLetter : undefined}>
+                {DAY_LETTERS[index]}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
   );
 }
 
@@ -449,6 +489,59 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: spacing.sm,
     minHeight: layout.minTouchTarget,
+  },
+  statsCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radii.medium,
+    borderCurve: 'continuous',
+    padding: spacing.md,
+    marginTop: spacing.md,
+  },
+  statBar: {
+    flexDirection: 'row',
+  },
+  statCell: {
+    flex: 1,
+    alignItems: 'flex-start',
+    gap: spacing.xxs,
+  },
+  statValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: spacing.xxs,
+  },
+  weekCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radii.medium,
+    borderCurve: 'continuous',
+    padding: spacing.md,
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  weekHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  weekBars: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  weekBar: {
+    flex: 1,
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  barTrack: {
+    height: BAR_MAX,
+    justifyContent: 'flex-end',
+  },
+  bar: {
+    width: 16,
+    borderRadius: 4,
+  },
+  todayLetter: {
+    fontWeight: '600',
   },
   sectionHeader: {
     flexDirection: 'row',

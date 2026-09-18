@@ -239,13 +239,22 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          <Text variant="body" color="textSecondary" tabular>
-            {todayWorkout
-              ? `${fmt.distance(todayWorkout.targetKm * 1000)} ${fmt.unitLabel} · about ${plannedMinutes} min`
-              : training.plan
+          {todayWorkout ? (
+            <View style={styles.todayHero}>
+              <Text variant="display" color="accentText" tabular>
+                {fmt.distance(todayWorkout.targetKm * 1000)}
+              </Text>
+              <Text variant="body" color="textSecondary" tabular>
+                {`${fmt.unitLabel} · about ${plannedMinutes} min`}
+              </Text>
+            </View>
+          ) : (
+            <Text variant="body" color="textSecondary" tabular>
+              {training.plan
                 ? 'Nothing scheduled today. Run anyway if you feel like it.'
                 : 'Start a run now, or set up a plan to follow.'}
-          </Text>
+            </Text>
+          )}
 
           {/* The map as a window, not the screen. */}
           <View style={[styles.minimap, { borderColor: theme.borderSubtle, backgroundColor: theme.background }]}>
@@ -419,7 +428,7 @@ function Tile({ symbol, label, value }: { symbol: SymbolName; label: string; val
   return (
     <View style={styles.tile}>
       <SymbolView name={symbol} size={layout.iconSizeSmall} tintColor={theme.textSecondary} />
-      <Text variant="title" tabular>
+      <Text variant="title" color="accentText" tabular>
         {value}
       </Text>
       <Text variant="micro" color="textSecondary">
@@ -501,6 +510,11 @@ const styles = StyleSheet.create({
   },
   cardHeaderText: {
     gap: 2,
+  },
+  todayHero: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: spacing.xs,
   },
   iconBadge: {
     width: 44,
