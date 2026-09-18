@@ -16,6 +16,7 @@ import type { Coordinate, RouteCandidate } from './routing';
 import {
   applySample,
   createTrackerState,
+  currentPaceMinPerKm,
   paceMinPerKm,
   preparePlannedRoute,
   trackerStateFromCheckpoint,
@@ -37,6 +38,8 @@ export type RunSnapshot = {
   distanceMeters: number;
   activeSeconds: number;
   paceMinPerKm: number | null;
+  /** Pace over the last ~30s, or null when it cannot be trusted. */
+  currentPaceMinPerKm: number | null;
   /** The runner's recorded track. */
   track: Coordinate[];
   /** Distance covered along the planned route, in meters. */
@@ -91,6 +94,7 @@ const EMPTY_SNAPSHOT: RunSnapshot = {
   distanceMeters: 0,
   activeSeconds: 0,
   paceMinPerKm: null,
+  currentPaceMinPerKm: null,
   track: [],
   progressMeters: 0,
   degradedSignal: false,
@@ -190,6 +194,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       distanceMeters: state.distanceMeters,
       activeSeconds: seconds,
       paceMinPerKm: paceMinPerKm(state.distanceMeters, seconds),
+      currentPaceMinPerKm: currentPaceMinPerKm(state.recent, Date.now()),
       track: state.coordinates,
       progressMeters: state.progressMeters,
       degradedSignal: state.degradedSignal || trackingError.current,
@@ -397,6 +402,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       distanceMeters: tracker.current.distanceMeters,
       activeSeconds: run.durationSeconds,
       paceMinPerKm: paceMinPerKm(tracker.current.distanceMeters, run.durationSeconds),
+      currentPaceMinPerKm: null,
       track: tracker.current.coordinates,
       progressMeters: 0,
       degradedSignal: false,

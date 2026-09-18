@@ -98,6 +98,20 @@ const COMPLETION_CONFIRM_FIXES = 3;
  */
 const OFF_ROUTE_CONFIRM_FIXES = 3;
 
+/** A recent accepted fix, kept only to measure current pace. */
+export type RecentFix = { coordinate: Coordinate; timestamp: number };
+
+/** Current pace is measured over this trailing window. */
+const CURRENT_PACE_WINDOW_MS = 30_000;
+/**
+ * Withhold current pace when the newest fix is older than this: the runner has
+ * stopped, and a pace over a stale window would be fiction.
+ */
+const CURRENT_PACE_STALE_MS = 15_000;
+/** Below these, a window is too short to be a pace rather than noise. */
+const MIN_CURRENT_SECONDS = 10;
+const MIN_CURRENT_DISTANCE_METERS = 40;
+
 export type TrackerState = {
   /** Accepted GPS track, in order. */
   coordinates: Coordinate[];
@@ -108,6 +122,8 @@ export type TrackerState = {
    * distance/projection consumers of the track are untouched by #32.
    */
   timestamps: (number | null)[];
+  /** Accepted fixes inside the current-pace window. Not persisted. */
+  recent: RecentFix[];
   /** Distance accumulated from accepted samples, in meters. */
   distanceMeters: number;
   /** Distance along the planned route, in meters. Monotonic. */
@@ -136,6 +152,7 @@ export function createTrackerState(): TrackerState {
   return {
     coordinates: [],
     timestamps: [],
+    recent: [],
     distanceMeters: 0,
     progressMeters: 0,
     segmentIndex: 0,
@@ -324,6 +341,7 @@ export function applySample(
       ...state,
       coordinates: [...state.coordinates, sample.coordinate],
       timestamps: [...state.timestamps, sample.timestamp],
+      recent: pushRecent(state.recent, sample),
       lastSample: sample,
       degradedSignal: false,
       ...projectProgress(state, sample.coordinate, planned),
@@ -376,6 +394,7 @@ export function applySample(
     ...state,
     coordinates: [...state.coordinates, sample.coordinate],
     timestamps: [...state.timestamps, sample.timestamp],
+    recent: pushRecent(state.recent, sample),
     distanceMeters: state.distanceMeters + moved,
     lastSample: sample,
     degradedSignal: false,
@@ -428,6 +447,56 @@ export function paceMinPerKm(distanceMeters: number, activeSeconds: number): num
     return null;
   }
   return activeSeconds / 60 / (distanceMeters / 1000);
+}
+
+/**
+ * Trims the current-pace window and adds the newest accepted fix.
+ *
+ * Deliberately a trailing window rather than the whole run, so current pace
+ * moves with the runner instead of converging on the average.
+ */
+function pushRecent(recent: RecentFix[], sample: LocationSample): RecentFix[] {
+  const cutoff = sample.timestamp - CURRENT_PACE_WINDOW_MS;
+  return [
+    ...recent.filter((fix) => fix.timestamp >= cutoff),
+    { coordinate: sample.coordinate, timestamp: sample.timestamp },
+  ];
+}
+
+/**
+ * Current pace over the trailing window, or null when it cannot be trusted.
+ *
+ * Withheld rather than approximated when there are too few fixes, when the
+ * newest fix is stale (the runner has stopped), when the window is shorter than
+ * `MIN_CURRENT_SECONDS`, or when it covers less than
+ * `MIN_CURRENT_DISTANCE_METERS`. It never returns a value the data does not
+ * support; the UI shows its own placeholder for null.
+ */
+export function currentPaceMinPerKm(recent: RecentFix[], nowMs: number): number | null {
+  if (recent.length < 2) {
+    return null;
+  }
+  const newest = recent[recent.length - 1];
+  if (nowMs - newest.timestamp > CURRENT_PACE_STALE_MS) {
+    return null;
+  }
+  const windowStart = nowMs - CURRENT_PACE_WINDOW_MS;
+  const within = recent.filter((fix) => fix.timestamp >= windowStart);
+  if (within.length < 2) {
+    return null;
+  }
+  const seconds = (within[within.length - 1].timestamp - within[0].timestamp) / 1000;
+  if (seconds < MIN_CURRENT_SECONDS) {
+    return null;
+  }
+  let meters = 0;
+  for (let i = 1; i < within.length; i += 1) {
+    meters += haversineMeters(within[i - 1].coordinate, within[i].coordinate);
+  }
+  if (meters < MIN_CURRENT_DISTANCE_METERS) {
+    return null;
+  }
+  return seconds / 60 / (meters / 1000);
 }
 
 /** `5.24` — two decimals, the convention runners expect for distance. */
