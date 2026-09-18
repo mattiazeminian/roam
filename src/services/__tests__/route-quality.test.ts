@@ -7,7 +7,14 @@
  */
 import { describe, expect, test } from '@jest/globals';
 
-import { backtracking, loopShape, turnDensity } from '../route-quality';
+import {
+  analyzeRoute,
+  backtracking,
+  loopShape,
+  scoreRoute,
+  turnDensity,
+  type RouteQualityMetrics,
+} from '../route-quality';
 import type { Coordinate } from '../routing';
 
 const ORIGIN = { latitude: 40.7484, longitude: -73.9857 };
@@ -186,5 +193,94 @@ describe('loopShape (#58)', () => {
   test('gives a straight line almost no compactness', () => {
     const result = loopShape([offset(0, 0), offset(0, 500), offset(0, 1000)]);
     expect(result.compactness).toBeLessThan(0.05);
+  });
+});
+
+function metrics(overrides: Partial<RouteQualityMetrics> = {}): RouteQualityMetrics {
+  return {
+    backtracking: { meters: 0, ratio: 0 },
+    turniness: { turns: 0, perKm: 0 },
+    shape: { compactness: 0.785, elongation: 1, selfIntersections: 0 },
+    ...overrides,
+  };
+}
+
+describe('scoreRoute (#52)', () => {
+  const TARGET = 5000;
+  const TOLERANCE = 750;
+
+  test('scores a clean, on-target loop near the top', () => {
+    const score = scoreRoute(metrics(), TARGET, TARGET, TOLERANCE);
+    expect(score.components.distance).toBeCloseTo(1, 3);
+    expect(score.components.backtracking).toBeCloseTo(1, 3);
+    expect(score.components.turns).toBeCloseTo(1, 3);
+    expect(score.components.shape).toBeCloseTo(0.785, 3);
+    expect(score.total).toBeGreaterThan(0.9);
+    expect(score.total).toBeLessThanOrEqual(1);
+  });
+
+  test('drops the distance component to zero at the tolerance edge', () => {
+    expect(scoreRoute(metrics(), TARGET + TOLERANCE, TARGET, TOLERANCE).components.distance).toBe(0);
+    expect(scoreRoute(metrics(), TARGET + TOLERANCE / 2, TARGET, TOLERANCE).components.distance).toBeCloseTo(0.5, 3);
+  });
+
+  test('zeroes a component at its documented limit', () => {
+    expect(scoreRoute(metrics({ backtracking: { meters: 1200, ratio: 0.25 } }), TARGET, TARGET, TOLERANCE).components.backtracking).toBe(0);
+    expect(scoreRoute(metrics({ turniness: { turns: 60, perKm: 12 } }), TARGET, TARGET, TOLERANCE).components.turns).toBe(0);
+    expect(scoreRoute(metrics({ shape: { compactness: 0.785, elongation: 3, selfIntersections: 0 } }), TARGET, TARGET, TOLERANCE).components.shape).toBe(0);
+  });
+
+  test('penalises self-intersections', () => {
+    const clean = scoreRoute(metrics(), TARGET, TARGET, TOLERANCE).components.shape;
+    const crossing = scoreRoute(
+      metrics({ shape: { compactness: 0.785, elongation: 1, selfIntersections: 1 } }),
+      TARGET,
+      TARGET,
+      TOLERANCE,
+    ).components.shape;
+    expect(crossing).toBeLessThan(clean);
+  });
+
+  test('is monotonic in backtracking', () => {
+    const some = scoreRoute(metrics({ backtracking: { meters: 250, ratio: 0.05 } }), TARGET, TARGET, TOLERANCE);
+    const more = scoreRoute(metrics({ backtracking: { meters: 500, ratio: 0.1 } }), TARGET, TARGET, TOLERANCE);
+    expect(more.total).toBeLessThan(some.total);
+  });
+
+  test('a clean loop beats an equal-distance route that doubles back', () => {
+    const clean = scoreRoute(metrics(), TARGET, TARGET, TOLERANCE);
+    const doublesBack = scoreRoute(metrics({ backtracking: { meters: 2500, ratio: 0.5 } }), TARGET, TARGET, TOLERANCE);
+    expect(doublesBack.total).toBeLessThan(clean.total);
+  });
+
+  test('every component stays within 0–1 for extreme inputs', () => {
+    const extreme = scoreRoute(
+      metrics({
+        backtracking: { meters: 9999, ratio: 5 },
+        turniness: { turns: 999, perKm: 99 },
+        shape: { compactness: 5, elongation: 99, selfIntersections: 9 },
+      }),
+      TARGET,
+      0,
+      TOLERANCE,
+    );
+    for (const value of Object.values(extreme.components)) {
+      expect(value).toBeGreaterThanOrEqual(0);
+      expect(value).toBeLessThanOrEqual(1);
+    }
+    expect(extreme.total).toBeGreaterThanOrEqual(0);
+    expect(extreme.total).toBeLessThanOrEqual(1);
+  });
+
+  test('the harness metrics feed it directly', () => {
+    const track = [
+      offset(0, 0),
+      offset(0, 500),
+      offset(500, 500),
+      offset(500, 0),
+      offset(0, 0),
+    ];
+    const score = scoreRoute(analyzeRoute(track), 2000, 2000, 300);
+    expect(score.total).toBeGreaterThan(0.5);
   });
 });

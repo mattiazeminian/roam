@@ -12,6 +12,7 @@
  */
 
 import { pathLengthMeters } from './geo';
+import { analyzeRoute, scoreRoute } from './route-quality';
 
 export type Coordinate = {
   latitude: number;
@@ -272,6 +273,36 @@ export function rankByCloseness<T extends { distanceM: number }>(
   return [...candidates].sort(
     (a, b) => Math.abs(a.distanceM - targetM) - Math.abs(b.distanceM - targetM),
   );
+}
+
+/**
+ * Rank usable candidates by how good a run they are (#52), not by distance
+ * alone.
+ *
+ * Distance is still gated by the caller before this point — a candidate outside
+ * tolerance never reaches the ranking — and it remains the largest single
+ * component of the score. Ties fall back to closeness, which is exactly what
+ * identical geometry produces, so the previous behaviour survives wherever
+ * quality is equal.
+ */
+function rankByQuality(candidates: RawCandidate[], targetM: number): RawCandidate[] {
+  const tolerance = toleranceMetersFor(targetM);
+  return [...candidates]
+    .map((candidate) => ({
+      candidate,
+      score: scoreRoute(
+        analyzeRoute(candidate.geometry),
+        candidate.distanceM,
+        targetM,
+        tolerance,
+      ).total,
+    }))
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        Math.abs(a.candidate.distanceM - targetM) - Math.abs(b.candidate.distanceM - targetM),
+    )
+    .map((entry) => entry.candidate);
 }
 
 /** A coordinate is renderable only if it holds two finite, in-range numbers. */
@@ -908,7 +939,7 @@ export async function findRoutes({
     }
   }
 
-  const ranked = rankByCloseness(safe, targetM).slice(0, CANDIDATE_COUNT);
+  const ranked = rankByQuality(safe, targetM).slice(0, CANDIDATE_COUNT);
   const closestAvailable = !ranked.some((candidate) => isWithinTolerance(candidate.distanceM, targetM));
 
   return ranked.map((candidate, index) => {

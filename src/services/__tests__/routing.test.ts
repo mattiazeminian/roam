@@ -10,6 +10,8 @@
  */
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 
+import { analyzeRoute } from '../route-quality';
+
 type RoutingModule = typeof import('../routing');
 
 function loadRouting(apiKey: string | undefined): RoutingModule {
@@ -81,6 +83,18 @@ function orsFixture(distanceM: number, ascentM = 12, extras?: unknown) {
 
 function jsonResponse(body: unknown, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
+}
+
+/** A response whose geometry is supplied directly, for quality-aware tests. */
+function orsFixtureWithGeometry(coordinates: [number, number][], distanceM: number) {
+  return {
+    features: [
+      {
+        geometry: { coordinates },
+        properties: { summary: { distance: distanceM, duration: distanceM * 0.9 }, ascent: 5 },
+      },
+    ],
+  };
 }
 
 /**
@@ -456,6 +470,44 @@ describe('findRoutes', () => {
       findRoutes({ origin: { latitude: 999, longitude: 0 }, targetKm: 5 }),
     ).rejects.toMatchObject({ code: 'invalid-origin' });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('ranks a clean loop above an equal-distance route that doubles back (#52)', async () => {
+    const { findRoutes } = loadRouting('test-key');
+
+    // Straight north and straight back: half its length retraces the other half.
+    const outAndBack = orsFixtureWithGeometry(
+      [
+        [ORIGIN.longitude, ORIGIN.latitude],
+        [ORIGIN.longitude, ORIGIN.latitude + 0.005],
+        [ORIGIN.longitude, ORIGIN.latitude + 0.01],
+        [ORIGIN.longitude, ORIGIN.latitude + 0.005],
+        [ORIGIN.longitude, ORIGIN.latitude],
+      ],
+      5000,
+    );
+    const loop = orsFixtureWithGeometry(
+      [
+        [ORIGIN.longitude, ORIGIN.latitude],
+        [ORIGIN.longitude, ORIGIN.latitude + 0.004],
+        [ORIGIN.longitude + 0.004, ORIGIN.latitude + 0.004],
+        [ORIGIN.longitude + 0.004, ORIGIN.latitude],
+        [ORIGIN.longitude, ORIGIN.latitude],
+      ],
+      5000,
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(outAndBack) as never);
+    fetchMock.mockResolvedValueOnce(jsonResponse(loop) as never);
+    fetchMock.mockResolvedValueOnce(jsonResponse(loop) as never);
+
+    const routes = await findRoutes({ origin: ORIGIN, targetKm: 5 });
+    const ratios = routes.map((route) => analyzeRoute(route.geometry).backtracking.ratio);
+
+    // All three are "on target"; quality decides, so the clean loops come first
+    // and the out-and-back is last despite matching the distance exactly.
+    expect(ratios[0]).toBeLessThan(0.1);
+    expect(ratios[ratios.length - 1]).toBeGreaterThan(0.3);
   });
 });
 

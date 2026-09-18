@@ -450,3 +450,81 @@ export function formatMetrics(label: string, metrics: RouteQualityMetrics): stri
     `crossings ${metrics.shape.selfIntersections}`,
   ].join('  ');
 }
+
+/**
+ * Ranking weights. Distance keeps the largest single share — the runner did ask
+ * for a distance — but no longer decides alone. Stated here so the ranking can
+ * be reasoned about and tuned in one place rather than inferred from code.
+ */
+export const QUALITY_WEIGHTS = {
+  distance: 0.4,
+  backtracking: 0.25,
+  turns: 0.2,
+  shape: 0.15,
+} as const;
+
+/** At or above these, the component scores zero. */
+const BACKTRACK_ZERO_SCORE_RATIO = 0.25;
+const TURNS_ZERO_SCORE_PER_KM = 12;
+const ELONGATION_ZERO_SCORE = 3;
+
+/** Each self-crossing removes this much of the shape component. */
+const SELF_INTERSECTION_PENALTY = 0.5;
+
+export type RouteScore = {
+  /** 0–1, higher is better. */
+  total: number;
+  components: {
+    distance: number;
+    backtracking: number;
+    turns: number;
+    shape: number;
+  };
+};
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
+/**
+ * A comparable score for ranking candidates (#52).
+ *
+ * Each component is normalised to 0–1 and combined with `QUALITY_WEIGHTS`. This
+ * is a ranking device, not a judgement shown to the runner: nothing here is ever
+ * surfaced as a "quality" or "safety" figure, and distance remains gated
+ * separately by the caller's tolerance — a route outside tolerance is rejected
+ * before it reaches this function.
+ *
+ * `toleranceM` is the caller's soft distance tolerance, so the distance
+ * component falls to 0 exactly at the edge of what the caller considers a match.
+ */
+export function scoreRoute(
+  metrics: RouteQualityMetrics,
+  distanceM: number,
+  targetM: number,
+  toleranceM: number,
+): RouteScore {
+  const distance =
+    toleranceM > 0 ? clamp01(1 - Math.abs(distanceM - targetM) / toleranceM) : 1;
+
+  const backtracking = clamp01(
+    1 - metrics.backtracking.ratio / BACKTRACK_ZERO_SCORE_RATIO,
+  );
+  const turns = clamp01(1 - metrics.turniness.perKm / TURNS_ZERO_SCORE_PER_KM);
+
+  const elongationPenalty = clamp01(
+    (metrics.shape.elongation - 1) / (ELONGATION_ZERO_SCORE - 1),
+  );
+  const shape = clamp01(
+    clamp01(metrics.shape.compactness) * (1 - elongationPenalty) -
+      metrics.shape.selfIntersections * SELF_INTERSECTION_PENALTY,
+  );
+
+  const total =
+    distance * QUALITY_WEIGHTS.distance +
+    backtracking * QUALITY_WEIGHTS.backtracking +
+    turns * QUALITY_WEIGHTS.turns +
+    shape * QUALITY_WEIGHTS.shape;
+
+  return { total, components: { distance, backtracking, turns, shape } };
+}
