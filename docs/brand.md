@@ -67,6 +67,23 @@ values use tabular figures so distance, time and pace align in columns.
 - Borders: **1px**, black (white in dark mode).
 - No pill buttons, no large rounded cards.
 
+## App icon
+
+The mark is a route drawn as an **R**: one rounded lime path that reads as both
+the initial and a loop with a start point (the dot). It sits on near-black
+(`#0E0F0C`) so the lime carries the whole identity, and the silhouette survives
+down to the 40px sizes a phone actually shows.
+
+Deliberately avoided: a running figure, a shoe, a map pin, or a generic
+direction arrow.
+
+- Assets live in `assets/images/`: `icon.png` (iOS, 1024), `android-icon-foreground/background/monochrome.png`
+  (adaptive), `favicon.png`, `splash-icon.png`.
+- The Android foreground keeps the mark inside the adaptive safe zone; the
+  monochrome layer is a single flat colour for system tinting.
+- The Expo Icon Composer asset was removed, so iOS uses `icon.png` directly.
+  Dark and tinted icon variants (iOS 18+) remain a follow-up.
+
 ## Interaction principles
 
 - Every control should feel like a physical object: solid, square, immediate.
