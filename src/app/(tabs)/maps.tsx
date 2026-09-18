@@ -5,15 +5,11 @@ import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
-import { DEFAULT_DISTANCE_KM } from '@/components/distance-control';
-import { FindRouteSheet } from '@/components/find-route-sheet';
 import { MapCanvas } from '@/components/map/map-canvas';
 import { Text } from '@/components/text';
-import { errorFeedback, impactLight, successFeedback } from '@/lib/haptics';
+import { impactLight } from '@/lib/haptics';
 import { useLocation } from '@/services/location-context';
-import { useRoutes } from '@/services/route-context';
 import { listRoutes, type SavedRoute } from '@/services/route-storage';
-import { useSettings } from '@/services/settings-context';
 import { layout, spacing, useTheme } from '@/theme';
 
 /**
@@ -26,17 +22,9 @@ import { layout, spacing, useTheme } from '@/theme';
 export default function MapsScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const { origin, originLabel, hasCustomOrigin, finish, clearFinish } = useLocation();
-  const { status: routeStatus, errorMessage, find } = useRoutes();
-  const { settings, update } = useSettings();
+  const { origin } = useLocation();
 
   const [savedRoutes, setSavedRoutes] = useState<SavedRoute[]>([]);
-  const [distanceKm, setDistanceKm] = useState<number | null>(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
-
-  const isFinding = routeStatus === 'finding';
-  const hasError = routeStatus === 'error';
-  const targetKm = distanceKm ?? settings.defaultDistanceKm ?? DEFAULT_DISTANCE_KM;
 
   useFocusEffect(
     useCallback(() => {
@@ -50,19 +38,6 @@ export default function MapsScreen() {
     }, []),
   );
 
-  const handleGenerate = useCallback(async () => {
-    if (isFinding || !origin) {
-      return;
-    }
-    const found = await find(origin, targetKm, finish?.coordinate ?? null);
-    if (!found) {
-      errorFeedback();
-      return;
-    }
-    successFeedback();
-    update({ defaultDistanceKm: targetKm });
-    router.push('/routes');
-  }, [isFinding, origin, targetKm, finish, find, update]);
 
   const howMany = savedRoutes.length;
 
@@ -114,7 +89,7 @@ export default function MapsScreen() {
           variant="accent"
           onPress={() => {
             impactLight();
-            setSheetOpen(true);
+            router.push('/generate-route');
           }}
           disabled={!origin}
         />
@@ -128,24 +103,6 @@ export default function MapsScreen() {
         ) : null}
       </View>
 
-      <FindRouteSheet
-        visible={sheetOpen}
-        onClose={() => setSheetOpen(false)}
-        startLabel={originLabel}
-        hasCustomStart={hasCustomOrigin}
-        onChangeStart={() => router.push('/location-search')}
-        finishLabel={finish?.label ?? null}
-        onChangeFinish={() => router.push('/location-search?mode=finish')}
-        onClearFinish={clearFinish}
-        distanceKm={targetKm}
-        onChangeDistance={setDistanceKm}
-        busy={isFinding}
-        errorMessage={hasError ? errorMessage : null}
-        onSubmit={() => {
-          setSheetOpen(false);
-          void handleGenerate();
-        }}
-      />
     </View>
   );
 }

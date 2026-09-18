@@ -5,17 +5,14 @@ import { Alert, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, View } 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
-import { DEFAULT_DISTANCE_KM } from '@/components/distance-control';
-import { FindRouteSheet } from '@/components/find-route-sheet';
 import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
 import { WORKOUT_SYMBOLS } from '@/components/workout-icon';
-import { errorFeedback, impactLight, impactMedium, selectionFeedback, successFeedback } from '@/lib/haptics';
+import { impactLight, impactMedium, selectionFeedback } from '@/lib/haptics';
 import { describeCoordinate } from '@/services/geocoding';
 import { useLocation } from '@/services/location-context';
 import { summarizeRuns, weeklyRunStreak, type RunOverview } from '@/services/run-analytics';
-import { useRoutes } from '@/services/route-context';
 import { listRoutes } from '@/services/route-storage';
 import type { Coordinate } from '@/services/routing';
 import { useRun } from '@/services/run-context';
@@ -58,24 +55,11 @@ export default function HomeScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const fmt = useFormatters();
-  const {
-    status: locationStatus,
-    origin,
-    originLabel,
-    hasCustomOrigin,
-    setOrigin,
-    finish,
-    clearFinish,
-    refresh,
-  } = useLocation();
-  const { status: routeStatus, errorMessage, find } = useRoutes();
+  const { status: locationStatus, origin, setOrigin, refresh } = useLocation();
   const { start, recoverable, resumeRecovered, discardRecovered } = useRun();
-  const { settings, loaded: settingsLoaded, update } = useSettings();
+  const { settings, loaded: settingsLoaded } = useSettings();
   const { state: training } = useTraining();
 
-  const [chosenKm, setChosenKm] = useState<number | null>(null);
-  const distanceKm = chosenKm ?? settings.defaultDistanceKm ?? DEFAULT_DISTANCE_KM;
-  const [findRoutesOpen, setFindRoutesOpen] = useState(false);
   const [savedRoutes, setSavedRoutes] = useState(0);
   const [streakWeeks, setStreakWeeks] = useState(0);
   const [overview, setOverview] = useState<RunOverview | null>(null);
@@ -142,24 +126,6 @@ export default function HomeScreen() {
     },
     [setOrigin],
   );
-
-  const isFinding = routeStatus === 'finding';
-  const hasError = routeStatus === 'error';
-
-  const handleFindRoutes = useCallback(async () => {
-    if (isFinding || !origin) {
-      return;
-    }
-    impactLight();
-    const found = await find(origin, distanceKm, finish?.coordinate ?? null);
-    if (!found) {
-      errorFeedback();
-      return;
-    }
-    successFeedback();
-    update({ defaultDistanceKm: distanceKm });
-    router.push('/routes');
-  }, [origin, distanceKm, finish, find, isFinding, update]);
 
   const handleStart = useCallback(
     (targetKm: number) => {
@@ -306,7 +272,11 @@ export default function HomeScreen() {
             <Text variant="micro" color="textSecondary">
               THIS WEEK
             </Text>
-            <View style={styles.weekStrip}>
+            <Pressable
+              onPress={() => router.push('/schedule')}
+              accessibilityRole="button"
+              accessibilityLabel="Open the schedule to change your running days"
+              style={styles.weekStrip}>
               {weekDays.map((day) => (
                 <View key={day.date} style={styles.weekDay}>
                   <Text variant="micro" color="textSecondary">
@@ -341,7 +311,7 @@ export default function HomeScreen() {
                   </View>
                 </View>
               ))}
-            </View>
+            </Pressable>
 
             <View style={styles.tileRow}>
               <Tile
@@ -423,11 +393,11 @@ export default function HomeScreen() {
         ) : null}
 
         <Button
-          label="Find a route"
+          label="Generate a route"
           variant="secondary"
           onPress={() => {
             impactLight();
-            setFindRoutesOpen(true);
+            router.push('/generate-route');
           }}
           disabled={!origin}
         />
@@ -438,31 +408,8 @@ export default function HomeScreen() {
           </Text>
         ) : null}
 
-        {hasError && errorMessage ? (
-          <Text variant="label" color="textSecondary" accessibilityLiveRegion="polite">
-            {errorMessage}
-          </Text>
-        ) : null}
       </ScrollView>
 
-      <FindRouteSheet
-        visible={findRoutesOpen}
-        onClose={() => setFindRoutesOpen(false)}
-        startLabel={originLabel}
-        hasCustomStart={hasCustomOrigin}
-        onChangeStart={() => router.push('/location-search')}
-        finishLabel={finish?.label ?? null}
-        onChangeFinish={() => router.push('/location-search?mode=finish')}
-        onClearFinish={clearFinish}
-        distanceKm={distanceKm}
-        onChangeDistance={setChosenKm}
-        busy={isFinding}
-        errorMessage={hasError ? errorMessage : null}
-        onSubmit={() => {
-          setFindRoutesOpen(false);
-          void handleFindRoutes();
-        }}
-      />
     </KeyboardAvoidingView>
   );
 }
