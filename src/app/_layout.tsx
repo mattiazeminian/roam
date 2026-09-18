@@ -69,6 +69,7 @@ export default function RootLayout() {
               <Stack.Screen name="run-detail" />
               <Stack.Screen name="settings" />
               <Stack.Screen name="account" />
+              <Stack.Screen name="profile" />
               {/* A route opened from a share link lands here, then hands off
                   to the normal selection flow (#23). */}
               <Stack.Screen name="shared-route" />

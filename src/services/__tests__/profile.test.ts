@@ -65,22 +65,50 @@ describe('profile', () => {
   });
 
   test('a name round-trips', async () => {
-    await saveProfile({ name: 'Jamie' });
-    expect(await loadProfile()).toEqual({ name: 'Jamie' });
+    await saveProfile({ ...DEFAULT_PROFILE, name: 'Jamie' });
+    expect(await loadProfile()).toEqual({ ...DEFAULT_PROFILE, name: 'Jamie' });
   });
 
   test('an empty or whitespace-only name is stored as no name, not as an empty string', async () => {
-    await saveProfile({ name: '   ' });
-    expect(await loadProfile()).toEqual({ name: null });
+    await saveProfile({ ...DEFAULT_PROFILE, name: '   ' });
+    expect(await loadProfile()).toEqual({ ...DEFAULT_PROFILE, name: null });
   });
 
   test('a name is trimmed', async () => {
-    await saveProfile({ name: '  Jamie  ' });
-    expect(await loadProfile()).toEqual({ name: 'Jamie' });
+    await saveProfile({ ...DEFAULT_PROFILE, name: '  Jamie  ' });
+    expect(await loadProfile()).toEqual({ ...DEFAULT_PROFILE, name: 'Jamie' });
   });
 
   test('a damaged file falls back to the default rather than crashing', async () => {
     mockFiles.set('doc/profile.json', '{not json');
     expect(await loadProfile()).toEqual(DEFAULT_PROFILE);
+  });
+
+  test('age, weight and avatar round-trip (#108)', async () => {
+    await saveProfile({
+      ...DEFAULT_PROFILE,
+      name: 'Jamie',
+      age: 34,
+      weightKg: 72,
+      avatarUri: 'file://doc/avatar.jpg',
+    });
+    expect(await loadProfile()).toEqual({
+      name: 'Jamie',
+      age: 34,
+      weightKg: 72,
+      avatarUri: 'file://doc/avatar.jpg',
+    });
+  });
+
+  test('implausible age or weight is stored as absent, not clamped to a wrong number', async () => {
+    await saveProfile({ ...DEFAULT_PROFILE, age: 999, weightKg: -5 });
+    expect(await loadProfile()).toEqual(DEFAULT_PROFILE);
+  });
+
+  test('a fractional age or weight is rounded to a whole number', async () => {
+    await saveProfile({ ...DEFAULT_PROFILE, age: 34.6, weightKg: 72.4 });
+    const loaded = await loadProfile();
+    expect(loaded.age).toBe(35);
+    expect(loaded.weightKg).toBe(72);
   });
 });

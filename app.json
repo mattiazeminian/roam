@@ -43,6 +43,12 @@
       "@rnmapbox/maps",
       "expo-apple-authentication",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "ROAM uses your photo library only when you choose a profile picture."
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "ROAM uses your location to find running routes near you.",

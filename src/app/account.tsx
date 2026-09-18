@@ -11,7 +11,7 @@ import { MapControl } from '@/components/map-control';
 import { Metric, MetricRow } from '@/components/metric';
 import { Text } from '@/components/text';
 import { useAccount } from '@/services/account-context';
-import { loadProfile, saveProfile } from '@/services/profile';
+import { loadProfile, saveProfile, DEFAULT_PROFILE, type Profile } from '@/services/profile';
 import { listRuns } from '@/services/run-storage';
 import { useFormatters } from '@/services/settings-context';
 import { layout, radii, spacing, useTheme } from '@/theme';
@@ -34,12 +34,14 @@ export default function AccountScreen() {
 
   const [name, setName] = useState('');
   const [stats, setStats] = useState<Stats | null>(null);
+  const [profile, setProfile] = useState<Profile>(DEFAULT_PROFILE);
 
   useEffect(() => {
     let active = true;
-    void loadProfile().then((profile) => {
+    void loadProfile().then((stored) => {
       if (active) {
-        setName(profile.name ?? '');
+        setProfile(stored);
+        setName(stored.name ?? '');
       }
     });
     void listRuns().then((runs) => {
@@ -58,8 +60,12 @@ export default function AccountScreen() {
   const handleNameBlur = useCallback(() => {
     const trimmed = name.trim();
     setName(trimmed);
-    void saveProfile({ name: trimmed.length > 0 ? trimmed : null });
-  }, [name]);
+    // Merged, not replaced: the profile now carries age, weight and the avatar
+    // too, and renaming must not wipe them.
+    const next = { ...profile, name: trimmed.length > 0 ? trimmed : null };
+    setProfile(next);
+    void saveProfile(next);
+  }, [name, profile]);
 
   return (
     <View
