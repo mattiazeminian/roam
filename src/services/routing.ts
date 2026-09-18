@@ -138,6 +138,14 @@ const POINT_COUNT_RANGE = [4, 5, 6, 7] as const;
 const REQUEST_TIMEOUT_MS = 20_000;
 
 /**
+ * How many extra refinement requests may follow the first pass, each using the
+ * ratio the previous results actually showed. Two is enough to converge in the
+ * cases measured; a third has never been the difference between a match and a
+ * miss. Worst case per search: 3 first-pass + 2 refinements.
+ */
+const REFINEMENT_ATTEMPTS = 2;
+
+/**
  * Build a fresh, randomised set of request variants for one search.
  *
  * This used to be a fixed constant (`seed: 1, 7, 13`), which meant the same
@@ -921,21 +929,38 @@ export async function findRoutes({
     }
   } else if (!safe.some((candidate) => isWithinTolerance(candidate.distanceM, targetM))) {
     // At least one usable candidate, but none within the tighter soft
-    // tolerance — adapt using its own observed ratio, which reflects this
-    // origin's actual street network rather than just the tiered average.
-    const closest = rankByCloseness(safe, targetM)[0];
-    const observedRatio = closest.distanceM / correctedLengthM;
-    if (Number.isFinite(observedRatio) && observedRatio > 0) {
-      const adaptiveLengthM = targetM / observedRatio;
-      const extraVariant = pickUnusedVariant(
-        new Set(firstPassVariants.map((v) => v.seed)),
-        new Set(firstPassVariants.map((v) => v.points)),
-      );
-      const adaptive = await requestLoop(origin, adaptiveLengthM, extraVariant).catch(() => null);
-      // The adaptive request is sanity-checked too — an adaptive request can
-      // still individually hit the same catastrophic failure mode.
-      if (adaptive && isWithinHardTolerance(adaptive.distanceM, targetM)) {
-        safe = [...safe, adaptive];
+    // tolerance. Refine against this origin's own behaviour rather than the
+    // global tiers: ask for what the closest candidate says we should have
+    // asked for, up to twice. A runner who asks for 5 km should not be shown
+    // 6.6 km because the provider's `round_trip.length` is only a preference.
+    let askedLengthM = correctedLengthM;
+    const usedSeeds = new Set(firstPassVariants.map((variant) => variant.seed));
+    const usedPoints = new Set(firstPassVariants.map((variant) => variant.points));
+
+    for (let attempt = 0; attempt < REFINEMENT_ATTEMPTS; attempt += 1) {
+      const closest = rankByCloseness(safe, targetM)[0];
+      const observedRatio = closest ? closest.distanceM / askedLengthM : NaN;
+      if (!Number.isFinite(observedRatio) || observedRatio <= 0) {
+        break;
+      }
+
+      const nextLengthM = targetM / observedRatio;
+      const variant = pickUnusedVariant(usedSeeds, usedPoints);
+      usedSeeds.add(variant.seed);
+      usedPoints.add(variant.points);
+
+      const refined = await requestLoop(origin, nextLengthM, variant).catch(() => null);
+      // A refinement is sanity-checked like any other result: it can hit the
+      // same catastrophic failure mode.
+      if (!refined || !isWithinHardTolerance(refined.distanceM, targetM)) {
+        break;
+      }
+
+      safe = [...safe, refined];
+      askedLengthM = nextLengthM;
+
+      if (isWithinTolerance(refined.distanceM, targetM)) {
+        break;
       }
     }
   }

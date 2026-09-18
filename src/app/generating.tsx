@@ -6,7 +6,6 @@ import Animated, {
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
-  withDelay,
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
@@ -29,7 +28,9 @@ const STEPS = [
   'Almost there',
 ];
 
-const PARTICLE_COUNT = 18;
+const TRACK_WIDTH = 260;
+const DASH_SPACING = 26;
+const GROUND_DASHES = 12;
 
 /**
  * Generating — the moment a route is built.
@@ -82,7 +83,7 @@ export default function GeneratingScreen() {
         { backgroundColor: theme.background, paddingTop: insets.top + spacing.xxl },
       ]}>
       <View style={styles.stage}>
-        {!failed ? <ParticleField reduceMotion={reduceMotion} /> : null}
+        {!failed ? <Runner reduceMotion={reduceMotion} /> : null}
         <Text variant="micro" color="textSecondary">
           {failed ? 'NO ROUTE YET' : 'GENERATING'}
         </Text>
@@ -107,52 +108,78 @@ export default function GeneratingScreen() {
 }
 
 /**
- * Dots travelling outward from the mark and fading, so the work has motion
- * without a spinner. Reduce Motion replaces it with a still, quiet field.
+ * A small stylized runner marking time while the route is built.
+ *
+ * Drawn from simple bars rather than an image, so it stays crisp and cheap: a
+ * head, a torso and four limbs whose rotation follows one shared stride cycle,
+ * with the ground scrolling underneath to give the running some movement.
+ * Reduce Motion holds every limb at a fixed point in the cycle.
  */
-function ParticleField({ reduceMotion }: { reduceMotion: boolean }) {
-  return (
-    <View style={styles.particles} pointerEvents="none">
-      {Array.from({ length: PARTICLE_COUNT }, (_, index) => (
-        <Particle key={index} index={index} reduceMotion={reduceMotion} />
-      ))}
-    </View>
-  );
-}
-
-function Particle({ index, reduceMotion }: { index: number; reduceMotion: boolean }) {
+function Runner({ reduceMotion }: { reduceMotion: boolean }) {
   const theme = useTheme();
-  const progress = useSharedValue(reduceMotion ? 0.5 : 0);
-  const angle = (index / PARTICLE_COUNT) * Math.PI * 2;
-  const radius = 90;
+  const stride = useSharedValue(0);
+  const ground = useSharedValue(0);
 
   useEffect(() => {
     if (reduceMotion) {
       return;
     }
-    progress.value = withDelay(
-      index * 90,
-      withRepeat(withTiming(1, { duration: 1800, easing: Easing.out(Easing.quad) }), -1, false),
+    stride.value = withRepeat(
+      withTiming(1, { duration: 620, easing: Easing.linear }),
+      -1,
+      false,
     );
-  }, [index, progress, reduceMotion]);
+    ground.value = withRepeat(
+      withTiming(1, { duration: 460, easing: Easing.linear }),
+      -1,
+      false,
+    );
+  }, [stride, ground, reduceMotion]);
 
-  const style = useAnimatedStyle(() => ({
-    opacity: reduceMotion ? 0.3 : 1 - progress.value,
-    transform: [
-      { translateX: Math.cos(angle) * progress.value * radius },
-      { translateY: Math.sin(angle) * progress.value * radius },
-      { scale: 1 - progress.value * 0.6 },
-    ],
+  const cycle = () => {
+    'worklet';
+    return reduceMotion ? 0.25 : stride.value;
+  };
+  const swing = (degrees: number) => {
+    'worklet';
+    return `${Math.sin(cycle() * Math.PI * 2) * degrees}deg`;
+  };
+
+  const leftLeg = useAnimatedStyle(() => ({ transform: [{ rotate: swing(30) }] }));
+  const rightLeg = useAnimatedStyle(() => ({ transform: [{ rotate: swing(-30) }] }));
+  const leftArm = useAnimatedStyle(() => ({ transform: [{ rotate: swing(-26) }] }));
+  const rightArm = useAnimatedStyle(() => ({ transform: [{ rotate: swing(26) }] }));
+  const bob = useAnimatedStyle(() => ({
+    transform: [{ translateY: -Math.abs(Math.sin(cycle() * Math.PI * 4)) * 2 }],
+  }));
+  const groundStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: reduceMotion ? 0 : -ground.value * DASH_SPACING }],
   }));
 
   return (
-    <Animated.View
-      style={[
-        styles.particle,
-        { backgroundColor: index % 3 === 0 ? theme.accent : theme.textSecondary },
-        style,
-      ]}
-    />
+    <View style={styles.track}>
+      <Animated.View style={[styles.ground, groundStyle]}>
+        {Array.from({ length: GROUND_DASHES }).map((_, index) => (
+          <View key={index} style={[styles.dash, { backgroundColor: theme.borderSubtle }]} />
+        ))}
+      </Animated.View>
+      <Animated.View style={[styles.runner, bob]}>
+        <View style={[styles.head, { backgroundColor: theme.accent }]} />
+        <View style={[styles.torso, { backgroundColor: theme.accent }]} />
+        <Animated.View
+          style={[styles.arm, styles.leftArm, { backgroundColor: theme.accent }, leftArm]}
+        />
+        <Animated.View
+          style={[styles.arm, styles.rightArm, { backgroundColor: theme.accent }, rightArm]}
+        />
+        <Animated.View
+          style={[styles.leg, styles.leftLeg, { backgroundColor: theme.accent }, leftLeg]}
+        />
+        <Animated.View
+          style={[styles.leg, styles.rightLeg, { backgroundColor: theme.accent }, rightLeg]}
+        />
+      </Animated.View>
+    </View>
   );
 }
 
@@ -171,18 +198,74 @@ const styles = StyleSheet.create({
   headline: {
     textAlign: 'center',
   },
-  particles: {
-    width: 260,
-    height: 260,
+  track: {
+    width: TRACK_WIDTH,
+    height: 96,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.lg,
   },
-  particle: {
+  ground: {
     position: 'absolute',
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    bottom: 22,
+    left: 0,
+    flexDirection: 'row',
+  },
+  dash: {
+    width: 14,
+    height: 2,
+    borderRadius: 1,
+    marginRight: DASH_SPACING - 14,
+  },
+  runner: {
+    position: 'absolute',
+    bottom: 22,
+    width: 36,
+    height: 46,
+  },
+  head: {
+    position: 'absolute',
+    top: 0,
+    left: 13,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  torso: {
+    position: 'absolute',
+    top: 10,
+    left: 16,
+    width: 4,
+    height: 17,
+    borderRadius: 2,
+  },
+  arm: {
+    position: 'absolute',
+    top: 12,
+    width: 3,
+    height: 13,
+    borderRadius: 1.5,
+    transformOrigin: '50% 0%',
+  },
+  leftArm: {
+    left: 15,
+  },
+  rightArm: {
+    left: 18,
+  },
+  leg: {
+    position: 'absolute',
+    top: 26,
+    width: 3,
+    height: 15,
+    borderRadius: 1.5,
+    transformOrigin: '50% 0%',
+  },
+  leftLeg: {
+    left: 15,
+  },
+  rightLeg: {
+    left: 18,
   },
   actions: {
     gap: spacing.xs,
