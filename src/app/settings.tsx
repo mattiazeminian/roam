@@ -2,14 +2,15 @@ import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Divider } from '@/components/divider';
 import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
-import { impactLight, selectionFeedback } from '@/lib/haptics';
+import { errorFeedback, impactLight, selectionFeedback } from '@/lib/haptics';
 import { useAccount } from '@/services/account-context';
+import { writeRunsGpx } from '@/services/run-export';
 import { useSettings } from '@/services/settings-context';
 import {
   MAX_PACE_MIN_PER_KM,
@@ -35,6 +36,7 @@ export default function SettingsScreen() {
   const { settings, update, formatters } = useSettings();
   const { account } = useAccount();
   const [runCount, setRunCount] = useState<number | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -93,6 +95,47 @@ export default function SettingsScreen() {
       ],
     );
   }, [runCount]);
+
+  // Export is honest about what it can carry: a run recorded without GPS has no
+  // track to write, so it is skipped and said so rather than exported empty.
+  const handleExport = useCallback(async () => {
+    if (exporting) {
+      return;
+    }
+    setExporting(true);
+    try {
+      const runs = await listRuns();
+      if (runs.length === 0) {
+        Alert.alert('Nothing to export', 'There are no saved runs on this device.');
+        return;
+      }
+
+      const { uri, exported, skipped } = await writeRunsGpx(runs);
+      if (exported === 0) {
+        Alert.alert(
+          'Nothing to export',
+          'None of your saved runs have a recorded track to export.',
+        );
+        return;
+      }
+
+      await Share.share({ url: uri });
+
+      if (skipped > 0) {
+        Alert.alert(
+          'Exported',
+          `${exported} ${exported === 1 ? 'run' : 'runs'} exported. ${
+            skipped === 1 ? '1 run' : `${skipped} runs`
+          } without a recorded track ${skipped === 1 ? 'was' : 'were'} skipped.`,
+        );
+      }
+    } catch {
+      errorFeedback();
+      Alert.alert('Could not export', 'The export file could not be created.');
+    } finally {
+      setExporting(false);
+    }
+  }, [exporting]);
 
   const paceDisplay = paceToDisplay(settings.typicalPaceMinPerKm, settings.unit);
   const paceMinutes = Math.floor(paceDisplay);
@@ -213,6 +256,26 @@ export default function SettingsScreen() {
               size={layout.iconSizeSmall}
               tintColor={theme.textSecondary}
             />
+          </Pressable>
+        </Section>
+
+        <Section title="Your data">
+          <View style={styles.aboutBlock}>
+            <Text variant="caption" color="textSecondary">
+              Your runs, saved routes and preferences are stored on this device. Generating a route
+              sends only your start point and chosen distance to the routing service — nothing else
+              leaves the phone, and no account is required.
+            </Text>
+          </View>
+          <Divider />
+          <Pressable
+            onPress={() => void handleExport()}
+            accessibilityRole="button"
+            accessibilityLabel="Export saved runs as a GPX file"
+            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
+            <Text variant="body" color="accentText">
+              {exporting ? 'Preparing export…' : 'Export runs (.gpx)'}
+            </Text>
           </Pressable>
         </Section>
 

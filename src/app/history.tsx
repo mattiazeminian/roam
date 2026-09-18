@@ -1,6 +1,6 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
@@ -21,7 +21,7 @@ import {
   type SavedRun,
 } from '@/services/run-session';
 import { useFormatters, type Formatters } from '@/services/settings-context';
-import { listRuns } from '@/services/run-storage';
+import { listRuns, deleteRun } from '@/services/run-storage';
 import { layout, radii, spacing, useTheme } from '@/theme';
 
 /**
@@ -72,6 +72,27 @@ export default function HistoryScreen() {
   const visibleRuns = filterRunsByPeriod(allRuns, period, now);
   const hasRuns = runs !== null && runs.length > 0;
   const filteredEmpty = hasRuns && visibleRuns.length === 0;
+
+  // Deleting a single run is a long-press here, so a normal tap keeps opening
+  // it. Confirmed, because this is the runner's record and there is no undo.
+  const handleDelete = useCallback((run: SavedRun) => {
+    Alert.alert('Delete this run?', 'It will be removed from this device. This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => {
+          void deleteRun(run.id)
+            .then(() =>
+              setRuns((current) => current?.filter((entry) => entry.id !== run.id) ?? null),
+            )
+            .catch(() => {
+              Alert.alert('Could not delete', 'The run could not be removed.');
+            });
+        },
+      },
+    ]);
+  }, []);
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -146,7 +167,7 @@ export default function HistoryScreen() {
           </View>
         }
         ItemSeparatorComponent={() => <Divider />}
-        renderItem={({ item }) => <RunRow run={item} fmt={fmt} />}
+        renderItem={({ item }) => <RunRow run={item} fmt={fmt} onRequestDelete={handleDelete} />}
         ListEmptyComponent={
           filteredEmpty ? (
             <View style={styles.empty}>
@@ -256,15 +277,25 @@ function RecordList({ records, fmt }: { records: RunRecords; fmt: Formatters }) 
   );
 }
 
-function RunRow({ run, fmt }: { run: SavedRun; fmt: Formatters }) {
+function RunRow({
+  run,
+  fmt,
+  onRequestDelete,
+}: {
+  run: SavedRun;
+  fmt: Formatters;
+  onRequestDelete: (run: SavedRun) => void;
+}) {
   const distance = fmt.distance(run.distanceKm * 1000);
   const duration = formatDuration(run.durationSeconds);
 
   return (
     <Pressable
       onPress={() => router.push({ pathname: '/run-detail', params: { id: run.id } })}
+      onLongPress={() => onRequestDelete(run)}
       accessibilityRole="button"
       accessibilityLabel={`${formatRunDate(run.startedAt)}, ${distance} ${fmt.unitSpoken}, ${duration}, ${fmt.paceSpoken(run.averagePaceMinPerKm)}`}
+      accessibilityHint="Long press to delete this run"
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
       <View style={styles.rowMain}>
         <Text variant="caption" color="textSecondary">
