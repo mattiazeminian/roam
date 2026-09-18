@@ -12,7 +12,7 @@ import Animated, {
 
 import { Text } from '@/components/text';
 import { impactLight, successFeedback } from '@/lib/haptics';
-import { layout, motion, radii, spacing, useTheme } from '@/theme';
+import { layout, motion, radii, spacing, useTheme, type ColorToken } from '@/theme';
 
 /** Long enough to be deliberate, short enough not to feel like a punishment. */
 const HOLD_DURATION_MS = 1200;
@@ -23,6 +23,10 @@ export type HoldButtonProps = {
   holdingLabel?: string;
   onComplete: () => void;
   accessibilityLabel?: string;
+  /** Visual emphasis. `quiet` is the bare hold; `accent`/`secondary` are filled. */
+  variant?: 'quiet' | 'accent' | 'secondary';
+  /** How long the hold takes. Defaults to the deliberate finish hold. */
+  durationMs?: number;
 };
 
 /**
@@ -30,7 +34,9 @@ export type HoldButtonProps = {
  *
  * Finishing a run discards nothing but cannot be undone mid-run, so it is
  * deliberately not a single tap. The filling track is the progress indicator;
- * releasing early cancels it.
+ * releasing early cancels it. Pause and resume reuse the same control with a
+ * much shorter hold, so a stray tap cannot change the run's state but a
+ * deliberate one stays fast.
  *
  * Assistive technology gets a direct action instead of having to emulate a
  * sustained press.
@@ -40,6 +46,8 @@ export function HoldButton({
   holdingLabel,
   onComplete,
   accessibilityLabel,
+  variant = 'quiet',
+  durationMs,
 }: HoldButtonProps) {
   const theme = useTheme();
   const reduceMotion = useReducedMotion();
@@ -49,6 +57,18 @@ export function HoldButton({
   // is *for*, and rendering the holding copy unconditionally made the finish
   // action read "Keep holding" before it was ever touched.
   const [isHolding, setIsHolding] = useState(false);
+
+  const background =
+    variant === 'accent' ? theme.accent : variant === 'secondary' ? theme.fill : 'transparent';
+  const labelColor: ColorToken =
+    variant === 'accent'
+      ? 'accentForeground'
+      : variant === 'secondary'
+        ? 'text'
+        : isHolding
+          ? 'text'
+          : 'textSecondary';
+  const fillColor = variant === 'accent' ? theme.accentPressed : theme.accent;
 
   const finish = () => {
     successFeedback();
@@ -61,7 +81,7 @@ export function HoldButton({
     holding.value = 1;
     progress.value = withTiming(
       1,
-      { duration: HOLD_DURATION_MS, easing: Easing.linear },
+      { duration: durationMs ?? HOLD_DURATION_MS, easing: Easing.linear },
       (finished) => {
         if (finished) {
           progress.value = 0;
@@ -103,10 +123,10 @@ export function HoldButton({
       // Quiet by design: Pause is the action a runner reaches for mid-run, so
       // it keeps the filled treatment and finishing sits below it as a
       // deliberate, lower-contrast commitment.
-      style={styles.base}>
+      style={[styles.base, { backgroundColor: background }]}>
       <View style={styles.labelWrap} pointerEvents="none">
         <Animated.View style={labelStyle}>
-          <Text variant="label" color={isHolding ? 'text' : 'textSecondary'} style={styles.label}>
+          <Text variant="label" color={labelColor} style={styles.label}>
             {isHolding ? (holdingLabel ?? label) : label}
           </Text>
         </Animated.View>
@@ -115,7 +135,7 @@ export function HoldButton({
           label: a full-height accent fill would put white-on-accent text in dark
           mode, which fails contrast badly. */}
       <Animated.View
-        style={[styles.fill, { backgroundColor: theme.accent }, fillStyle]}
+        style={[styles.fill, { backgroundColor: fillColor }, fillStyle]}
         pointerEvents="none"
       />
     </Pressable>

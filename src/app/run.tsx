@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button } from '@/components/button';
 import { GlassSurface } from '@/components/glass-surface';
 import { HoldButton } from '@/components/hold-button';
 import { MapCanvas } from '@/components/map/map-canvas';
@@ -13,7 +12,6 @@ import { MapControl } from '@/components/map-control';
 import { Metric, MetricRow } from '@/components/metric';
 import { ControlPanel } from '@/components/control-panel';
 import { Text } from '@/components/text';
-import { impactMedium } from '@/lib/haptics';
 import { cumulativeDistances, sliceAlongPath } from '@/services/geo';
 import { useRun } from '@/services/run-context';
 import { compassDirection, formatDuration } from '@/services/run-session';
@@ -200,22 +198,22 @@ export default function ActiveRunScreen() {
 
           <View style={styles.controls}>
             {isPaused ? (
-              <Button
-                label="Resume"
+              <HoldButton
+                label="Hold to resume"
+                holdingLabel="Keep holding…"
+                accessibilityLabel="Resume run"
                 variant="accent"
-                onPress={() => {
-                  impactMedium();
-                  resume();
-                }}
+                durationMs={600}
+                onComplete={resume}
               />
             ) : (
-              <Button
-                label="Pause"
+              <HoldButton
+                label="Hold to pause"
+                holdingLabel="Keep holding…"
+                accessibilityLabel="Pause run"
                 variant="secondary"
-                onPress={() => {
-                  impactMedium();
-                  pause();
-                }}
+                durationMs={600}
+                onComplete={pause}
               />
             )}
             <HoldButton
