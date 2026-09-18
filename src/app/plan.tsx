@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useReducedMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
@@ -33,6 +34,29 @@ const LEVELS: { id: TrainingLevel; label: string }[] = [
 
 const RACE_WEEKS = [8, 12, 16];
 
+/**
+ * Training volume, in Runna's terms: how much running the week holds. It maps
+ * straight onto runs per week — the one input the week rules actually use.
+ */
+const VOLUMES: { id: string; label: string; detail: string; runsPerWeek: number }[] = [
+  { id: 'gradual', label: 'Gradual', detail: '3 runs a week', runsPerWeek: 3 },
+  { id: 'steady', label: 'Steady', detail: '4 runs a week', runsPerWeek: 4 },
+  { id: 'progressive', label: 'Progressive', detail: '5 runs a week', runsPerWeek: 5 },
+];
+
+/**
+ * The steps shown while the plan is built. They are not decoration: each one is
+ * a thing the scheduler actually does, in the order it does it. Nothing here
+ * claims an intelligence that is not in the code.
+ */
+const BUILD_STEPS = [
+  'Reading your recent runs',
+  'Laying out your week',
+  'Placing the long run',
+  'Spacing the hard sessions',
+  'Working out your distances',
+];
+
 /** Sunday-first, matching the plan's weekday numbering. */
 const DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -64,6 +88,19 @@ export default function PlanScreen() {
   );
   const [level, setLevel] = useState<TrainingLevel>(state.plan?.level ?? 'occasional');
   const [saving, setSaving] = useState(false);
+  const [building, setBuilding] = useState(false);
+  const [buildStep, setBuildStep] = useState(0);
+  const reduceMotion = useReducedMotion();
+
+  // Advance the build narration. Reduce Motion skips straight to the end rather
+  // than stepping, so the moment still exists without the sequence.
+  useEffect(() => {
+    if (!building || reduceMotion || buildStep >= BUILD_STEPS.length - 1) {
+      return;
+    }
+    const timer = setTimeout(() => setBuildStep((current) => current + 1), 420);
+    return () => clearTimeout(timer);
+  }, [building, buildStep, reduceMotion]);
 
   const toggleDay = useCallback((day: number) => {
     selectionFeedback();
@@ -79,6 +116,8 @@ export default function PlanScreen() {
       return;
     }
     setSaving(true);
+    setBuilding(true);
+    setBuildStep(0);
     try {
       // Computed here rather than during render: reading the clock is not a
       // render-time concern, and the date only matters once it is saved.
@@ -94,12 +133,15 @@ export default function PlanScreen() {
         level,
       });
       successFeedback();
+      // Let the last line be read rather than flashing past on a fast device.
+      await new Promise((resolve) => setTimeout(resolve, reduceMotion ? 250 : 750));
       impactMedium();
       router.back();
     } finally {
       setSaving(false);
+      setBuilding(false);
     }
-  }, [saving, goalKind, raceWeeks, targetKm, runsPerWeek, days, level, createPlanFor]);
+  }, [saving, goalKind, raceWeeks, targetKm, runsPerWeek, days, level, createPlanFor, reduceMotion]);
 
   const handleRemove = useCallback(async () => {
     impactMedium();
@@ -167,20 +209,19 @@ export default function PlanScreen() {
           </Field>
         ) : null}
 
-        <Field label="Runs per week">
-          <View style={styles.chipRow}>
-            {[2, 3, 4, 5, 6].map((count) => (
-              <Chip
-                key={count}
-                label={String(count)}
-                selected={runsPerWeek === count}
-                onPress={() => {
-                  selectionFeedback();
-                  setRunsPerWeek(count);
-                }}
-              />
-            ))}
-          </View>
+        <Field label="Training volume">
+          {VOLUMES.map((volume) => (
+            <Choice
+              key={volume.id}
+              label={volume.label}
+              detail={volume.detail}
+              selected={runsPerWeek === volume.runsPerWeek}
+              onPress={() => {
+                selectionFeedback();
+                setRunsPerWeek(volume.runsPerWeek);
+              }}
+            />
+          ))}
         </Field>
 
         <Field label="Which days?">
@@ -235,6 +276,26 @@ export default function PlanScreen() {
           long run. It never prescribes heart-rate zones, calorie targets or times it cannot know.
         </Text>
       </ScrollView>
+
+      {/* The build moment. The work is instant and deterministic; this exists so
+          the runner sees what is being decided on their behalf, rather than a
+          screen that blinks and changes. */}
+      {building ? (
+        <View style={[styles.building, { backgroundColor: theme.background }]}>
+          <ActivityIndicator color={theme.textSecondary} />
+          <Text variant="title">Building your plan</Text>
+          <View style={styles.buildingSteps}>
+            {BUILD_STEPS.slice(0, buildStep + 1).map((label, index) => (
+              <Text
+                key={label}
+                variant="caption"
+                color={index === buildStep ? 'text' : 'textSecondary'}>
+                {label}
+              </Text>
+            ))}
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -359,5 +420,20 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.6,
+  },
+  building: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.md,
+    paddingHorizontal: layout.screenMargin,
+  },
+  buildingSteps: {
+    alignItems: 'center',
+    gap: spacing.xxs,
   },
 });

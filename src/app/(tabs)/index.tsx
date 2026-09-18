@@ -22,6 +22,7 @@ import type { Coordinate } from '@/services/routing';
 import { useRun } from '@/services/run-context';
 import { listRuns } from '@/services/run-storage';
 import { useFormatters, useSettings } from '@/services/settings-context';
+import { toDateKey, weekdayOf, workoutsFrom, WORKOUT_LABELS } from '@/services/training';
 import { useTraining } from '@/services/training-context';
 import { layout, spacing, useTheme } from '@/theme';
 
@@ -56,6 +57,8 @@ export default function HomeScreen() {
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [overview, setOverview] = useState<RunOverview | null>(null);
   const [savedRoutes, setSavedRoutes] = useState(0);
+  // Captured with the rest of the focus data rather than read during render.
+  const [todayKey, setTodayKey] = useState('');
   // Derived rather than an effect: settings load asynchronously, so seeding
   // state from them would mean a setState inside an effect. Until the runner
   // picks a distance this session, the remembered one is shown.
@@ -80,6 +83,7 @@ export default function HomeScreen() {
           setDisplayName(profile.name ?? account?.name ?? null);
           setOverview(summarizeRuns(runs, now, 7));
           setSavedRoutes(routes.length);
+          setTodayKey(toDateKey(new Date()));
         })
         .catch(() => {});
       return () => {
@@ -167,6 +171,15 @@ export default function HomeScreen() {
     start(null, 0);
     router.push('/run');
   }, [start]);
+
+  const nextWorkout = training.plan && todayKey ? (workoutsFrom(training, todayKey)[0] ?? null) : null;
+  const planLabel = !training.plan
+    ? 'Set up a training plan'
+    : nextWorkout
+      ? `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][weekdayOf(nextWorkout.date)]} · ${
+          WORKOUT_LABELS[nextWorkout.type]
+        } · ${fmt.distance(nextWorkout.targetKm * 1000)} ${fmt.unitLabel}`
+      : 'Training plan · no sessions yet';
 
   return (
     // The panel is in normal flow, so the standard iOS keyboard behaviour works
@@ -280,21 +293,22 @@ export default function HomeScreen() {
           disabled={locationStatus === 'denied'}
         />
 
-        {/* The training surface (#114) starts with a plan. Until one exists,
-            this is the way in — quiet, because running now needs nothing. */}
-        {trainingLoaded && !training.plan ? (
+        {/* The training surface (#114) starts with a plan, and shows the next
+            session once one exists. Quiet either way: running now needs
+            neither. */}
+        {trainingLoaded ? (
           <Pressable
             onPress={() => router.push('/plan')}
             accessibilityRole="button"
-            accessibilityLabel="Set up a training plan"
+            accessibilityLabel={planLabel}
             style={({ pressed }) => [styles.originRow, pressed && styles.pressed]}>
             <SymbolView
               name="calendar"
               size={layout.iconSizeSmall}
               tintColor={theme.textSecondary}
             />
-            <Text variant="label" color="textTertiary" style={styles.originLabel}>
-              Set up a training plan
+            <Text variant="label" color="textTertiary" numberOfLines={1} style={styles.originLabel}>
+              {planLabel}
             </Text>
             <SymbolView
               name="chevron.right"

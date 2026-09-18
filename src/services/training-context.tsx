@@ -15,6 +15,7 @@ import {
   generateWeek,
   loadTraining,
   removeWorkout as removeWorkoutFrom,
+  replacePlannedWorkouts,
   saveTraining,
   setWorkoutStatus,
   toDateKey,
@@ -81,8 +82,13 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
       // A plan that produces nothing is not a plan, so creating one schedules
       // its first week immediately (#70). Regeneration is additive, so a day
       // already completed in this week is never overwritten.
-      const firstWeek = generateWeek(plan, weekStartFor(toDateKey(new Date())));
-      const scheduled = addWorkouts({ plan, workouts: state.workouts }, firstWeek.workouts);
+      const today = toDateKey(new Date());
+      const firstWeek = generateWeek(plan, weekStartFor(today));
+      const scheduled = replacePlannedWorkouts(
+        { ...state, plan },
+        firstWeek.workouts,
+        today,
+      );
       setState(scheduled);
       await saveTraining(scheduled);
     },
@@ -96,7 +102,7 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
         return { overfull: false, added: 0 };
       }
       const generated = generateWeek(state.plan, weekStart);
-      const next = addWorkouts(state, generated.workouts);
+      const next = replacePlannedWorkouts(state, generated.workouts, weekStart);
       setState(next);
       await saveTraining(next);
       return { overfull: generated.overfull, added: next.workouts.length - state.workouts.length };

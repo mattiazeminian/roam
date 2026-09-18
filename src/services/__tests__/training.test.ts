@@ -21,6 +21,7 @@ import {
   loadTraining,
   normalizePreferredDays,
   removeWorkout,
+  replacePlannedWorkouts,
   saveTraining,
   setWorkoutStatus,
   summarizeProgress,
@@ -444,6 +445,33 @@ describe('generating a week (#70)', () => {
 
     expect(merged.workouts).toHaveLength(first.length);
     expect(merged.workouts.find((w) => w.id === completed.id)).toMatchObject({
+      status: 'completed',
+      runId: 'run-1',
+    });
+  });
+});
+
+describe('editing a plan (#70)', () => {
+  test('replaces only the days ahead that are still planned', () => {
+    const before = createWorkout({ id: 'before', date: '2026-09-19', type: 'easy', targetKm: 5 });
+    const done = {
+      ...createWorkout({ id: 'done', date: '2026-09-21', type: 'easy', targetKm: 5 }),
+      status: 'completed' as const,
+      runId: 'run-1',
+    };
+    const ahead = createWorkout({ id: 'ahead', date: '2026-09-23', type: 'easy', targetKm: 5 });
+    const current: TrainingState = { plan: null, workouts: [before, done, ahead] };
+
+    const regenerated = [
+      createWorkout({ id: 'ahead', date: '2026-09-23', type: 'long', targetKm: 10 }),
+    ];
+    const next = replacePlannedWorkouts(current, regenerated, '2026-09-21');
+
+    // The past is history; a completed day is a fact. Only the planned future moves.
+    expect(next.workouts.map((w) => w.id).sort()).toEqual(['ahead', 'before', 'done']);
+    expect(next.workouts.find((w) => w.id === 'ahead')?.type).toBe('long');
+    expect(next.workouts.find((w) => w.id === 'ahead')?.targetKm).toBe(10);
+    expect(next.workouts.find((w) => w.id === 'done')).toMatchObject({
       status: 'completed',
       runId: 'run-1',
     });

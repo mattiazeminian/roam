@@ -43,6 +43,16 @@ export const WORKOUT_DESCRIPTIONS: Record<WorkoutType, string> = {
   short: 'A brief run, shorter than your usual.',
 };
 
+/** Short labels for the interface: "Easy run", "Long run", … */
+export const WORKOUT_LABELS: Record<WorkoutType, string> = {
+  easy: 'Easy run',
+  recovery: 'Recovery run',
+  long: 'Long run',
+  tempo: 'Tempo run',
+  intervals: 'Intervals',
+  short: 'Short run',
+};
+
 export type TrainingLevel = 'new' | 'occasional' | 'regular' | 'experienced';
 
 export const TRAINING_LEVELS: readonly TrainingLevel[] = [
@@ -501,6 +511,25 @@ export function addWorkouts(
 
 export function removeWorkout(state: TrainingState, id: string): TrainingState {
   return { ...state, workouts: state.workouts.filter((workout) => workout.id !== id) };
+}
+
+/**
+ * Apply a regenerated schedule without rewriting history.
+ *
+ * Editing a plan must change the days ahead, not the days behind: workouts
+ * before `fromDate` are kept, and so is any workout a runner has already acted
+ * on — completed, skipped or modified — whatever its date. Only sessions still
+ * `planned` on or after `fromDate` are replaced.
+ */
+export function replacePlannedWorkouts(
+  state: TrainingState,
+  workouts: readonly PlannedWorkout[],
+  fromDate: string,
+): TrainingState {
+  const kept = state.workouts.filter(
+    (workout) => workout.date < fromDate || workout.status !== 'planned',
+  );
+  return addWorkouts({ ...state, workouts: kept }, workouts);
 }
 
 /**
