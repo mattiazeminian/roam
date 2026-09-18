@@ -3,13 +3,12 @@ import { Platform, StyleSheet, View } from 'react-native';
 
 import type { Camera as MapboxCamera } from '@rnmapbox/maps';
 
+import { Text } from '@/components/text';
 import type { Coordinate, RouteCandidate } from '@/services/routing';
 import { useTheme } from '@/theme';
 
 import { useMapPalette } from './map-palette';
-import { MapSurface } from './map-surface';
 import { boundsOf, type MapInsets } from './projection';
-import { RouteOverlay } from './route-overlay';
 import { SearchPulse } from './search-pulse';
 
 type MapboxModule = typeof import('@rnmapbox/maps');
@@ -29,8 +28,8 @@ const FALLBACK_STYLE = 'mapbox://styles/mapbox/light-v11';
  * Mapbox is required lazily, and only when a token is configured. The native
  * module throws at import time when it is not linked (Expo Go, or a build that
  * predates the config plugin), so an eager `import` would crash the whole app.
- * With this guard, an unlinked or unconfigured environment falls back to the
- * placeholder map instead.
+ * With this guard, an unlinked or unconfigured environment reports that the map
+ * is unavailable instead.
  */
 let cachedMapbox: MapboxModule | null | undefined;
 
@@ -101,39 +100,28 @@ const DEFAULT_INSETS: MapInsets = { top: 48, right: 48, bottom: 48, left: 48 };
 
 /**
  * The app's single map surface. Screens talk to `MapCanvas`; only this file
- * knows about Mapbox. When Mapbox is unavailable — no token, web, or a build
- * without the native module — it renders the placeholder map with the same
- * props, so no screen needs a special case.
+ * knows about Mapbox.
+ *
+ * When Mapbox is unavailable — no token, web, or a build without the native
+ * module — it says so. An earlier version drew a plausible-looking placeholder
+ * map instead, which made a misconfigured build look like a working one (#49).
  */
 export function MapCanvas(props: MapCanvasProps) {
   const mapbox = getMapbox();
   if (!mapbox) {
-    return <PlaceholderMap {...props} />;
+    return <MapUnavailable />;
   }
   return <MapboxCanvas mapbox={mapbox} {...props} />;
 }
 
-function PlaceholderMap({
-  origin,
-  routes,
-  selectedRouteId,
-  searching,
-  recenterSignal,
-  padding,
-}: MapCanvasProps) {
+function MapUnavailable() {
+  const theme = useTheme();
   return (
-    <MapSurface>
-      {origin ? (
-        <RouteOverlay
-          origin={origin}
-          routes={routes}
-          selectedRouteId={selectedRouteId}
-          searching={searching}
-          recenterSignal={recenterSignal}
-          padding={padding}
-        />
-      ) : null}
-    </MapSurface>
+    <View style={[styles.unavailable, { backgroundColor: theme.background }]}>
+      <Text variant="caption" color="textSecondary" style={styles.unavailableText}>
+        Map unavailable. ROAM needs a Mapbox token and a development build.
+      </Text>
+    </View>
   );
 }
 
@@ -550,6 +538,20 @@ function WaypointDot() {
 }
 
 const styles = StyleSheet.create({
+  unavailable: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  unavailableText: {
+    textAlign: 'center',
+    maxWidth: 260,
+  },
   pulse: {
     width: 140,
     height: 140,
