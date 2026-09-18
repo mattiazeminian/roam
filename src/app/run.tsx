@@ -129,11 +129,17 @@ export default function ActiveRunScreen() {
           ) : null}
 
           {degradedSignal ? (
-            // Never imply the track is accurate when the fixes are not.
+            // Never imply the track is accurate when the fixes are not — but
+            // also never imply the run has stopped. Those are two different
+            // anxieties and only one of them is true, so the pill says which.
             <GlassSurface radius={radii.pill} style={styles.pill}>
               <View style={[styles.dot, { backgroundColor: theme.textSecondary }]} />
-              <Text variant="micro" color="textSecondary" accessibilityLiveRegion="polite">
-                Weak GPS
+              <Text
+                variant="micro"
+                color="textSecondary"
+                accessibilityLiveRegion="polite"
+                accessibilityLabel="Weak GPS signal. Still recording your run.">
+                Weak GPS · still recording
               </Text>
             </GlassSurface>
           ) : null}
