@@ -137,6 +137,7 @@ export default function PlanScreen() {
         targetKm,
         raceDate,
         runsPerWeek,
+        weeks: raceWeeks,
         preferredDays: days,
         level,
       });
@@ -203,23 +204,23 @@ export default function PlanScreen() {
           </Field>
         ) : null}
 
-        {goalKind === 'race' ? (
-          <Field label="When">
-            <View style={styles.chipRow}>
-              {RACE_WEEKS.map((weeks) => (
-                <Chip
-                  key={weeks}
-                  label={`${weeks} weeks`}
-                  selected={raceWeeks === weeks}
-                  onPress={() => {
-                    selectionFeedback();
-                    setRaceWeeks(weeks);
-                  }}
-                />
-              ))}
-            </View>
-          </Field>
-        ) : null}
+        {/* The block length. For a race it also fixes the race date; for every
+            goal it is how far ahead ROAM schedules. */}
+        <Field label={goalKind === 'race' ? 'When is the race?' : 'How long a plan?'}>
+          <View style={styles.chipRow}>
+            {RACE_WEEKS.map((weeks) => (
+              <Chip
+                key={weeks}
+                label={`${weeks} weeks`}
+                selected={raceWeeks === weeks}
+                onPress={() => {
+                  selectionFeedback();
+                  setRaceWeeks(weeks);
+                }}
+              />
+            ))}
+          </View>
+        </Field>
 
         <Field label="Training volume">
           {VOLUMES.map((volume) => (

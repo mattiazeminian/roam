@@ -14,6 +14,7 @@ import {
   WORKOUT_TYPES,
   addWorkouts,
   buildPlan,
+  generateBlock,
   generateWeek,
   weekdayOf,
   createPlan,
@@ -475,5 +476,45 @@ describe('editing a plan (#70)', () => {
       status: 'completed',
       runId: 'run-1',
     });
+  });
+});
+
+describe('generateBlock (#74)', () => {
+  const plan = createPlan({
+    id: 'block',
+    goal: { kind: 'fitness', targetKm: null, raceDate: null },
+    runsPerWeek: 3,
+    preferredDays: [2, 4, 6],
+    level: 'regular',
+    weeks: 8,
+  });
+  const start = '2026-01-05';
+
+  test('schedules the whole block, not just one week', () => {
+    const block = generateBlock(plan, start);
+    expect(block.workouts).toHaveLength(24); // 8 weeks x 3 sessions
+  });
+
+  test('volume rises across the block', () => {
+    const longs = generateBlock(plan, start).workouts.filter((w) => w.type === 'long');
+    expect(longs).toHaveLength(8);
+    expect(longs[7].targetKm).toBeGreaterThan(longs[0].targetKm);
+  });
+
+  test('every fourth week is a lighter one', () => {
+    const longs = generateBlock(plan, start).workouts.filter((w) => w.type === 'long');
+    expect(longs[3].targetKm).toBeLessThan(longs[2].targetKm);
+  });
+
+  test('ids stay plan-scoped and unique, so regeneration never duplicates', () => {
+    const ids = generateBlock(plan, start).workouts.map((w) => w.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.every((id) => id.startsWith('plan-block-'))).toBe(true);
+  });
+
+  test('a plan without an explicit length still gets a block', () => {
+    const legacy = { ...plan, weeks: undefined };
+    // 8 weeks default x 3 sessions.
+    expect(generateBlock(legacy, start).workouts).toHaveLength(24);
   });
 });

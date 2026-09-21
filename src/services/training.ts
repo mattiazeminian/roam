@@ -89,6 +89,11 @@ export type TrainingPlan = {
   /** Preferred weekdays, 0 = Sunday … 6 = Saturday. */
   preferredDays: number[];
   level: TrainingLevel;
+  /**
+   * How many weeks the block schedules. Optional so plans created before this
+   * field existed still load; {@link DEFAULT_PLAN_WEEKS} applies when absent.
+   */
+  weeks?: number;
 };
 
 export type WorkoutStatus = 'planned' | 'completed' | 'skipped' | 'modified';
@@ -178,6 +183,7 @@ export function createPlan(input: {
   runsPerWeek: number;
   preferredDays: number[];
   level: TrainingLevel;
+  weeks?: number;
   id?: string;
 }): TrainingPlan {
   return {
@@ -187,7 +193,16 @@ export function createPlan(input: {
     runsPerWeek: input.runsPerWeek,
     preferredDays: normalizePreferredDays(input.preferredDays),
     level: input.level,
+    weeks: clampWeeks(input.weeks),
   };
+}
+
+/** A block is at least a week and at most a season; anything else is discarded. */
+export function clampWeeks(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_PLAN_WEEKS;
+  }
+  return Math.min(MAX_PLAN_WEEKS, Math.max(1, Math.round(value)));
 }
 
 /** Valid weekdays only, unique, ascending. Anything else is discarded. */
@@ -203,6 +218,18 @@ export function normalizePreferredDays(days: readonly number[]): number[] {
 
 export const DEFAULT_RUNS_PER_WEEK = 3;
 
+/** A block defaults to a reasonable training cycle when none is chosen. */
+export const DEFAULT_PLAN_WEEKS = 8;
+export const MAX_PLAN_WEEKS = 24;
+/**
+ * Volume grows this much per week, and every fourth week is lighter. Deliberately
+ * modest and visible: a runner can see the shape of the block rather than wonder
+ * where a number came from.
+ */
+const WEEKLY_PROGRESSION = 0.06;
+const DOWN_WEEK_EVERY = 4;
+const DOWN_WEEK_FACTOR = 0.8;
+
 /**
  * Tuesday, Thursday, Saturday. The shape the week rules expect when a runner
  * does not choose: three sessions spread out, with the long run on the weekend.
@@ -217,6 +244,8 @@ export type PlanInput = {
   /** Used only for a `race` goal. */
   raceDate: string | null;
   runsPerWeek: number;
+  /** How many weeks to schedule. Defaults to {@link DEFAULT_PLAN_WEEKS}. */
+  weeks?: number;
   preferredDays: readonly number[];
   level: TrainingLevel;
 };
@@ -249,6 +278,7 @@ export function buildPlan(input: PlanInput): TrainingPlan {
     runsPerWeek,
     preferredDays: preferredDays.length > 0 ? preferredDays : [...DEFAULT_PREFERRED_DAYS],
     level: isTrainingLevel(input.level) ? input.level : 'occasional',
+    weeks: clampWeeks(input.weeks),
   });
 }
 
@@ -453,6 +483,42 @@ export function generateWeek(
       });
     })
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+  return { workouts, overfull };
+}
+
+/**
+ * Turn a plan into dated workouts for the *whole block*, not just one week
+ * (#74).
+ *
+ * Each week is shaped by {@link generateWeek} exactly as before; what this adds
+ * is the arc across weeks — volume rises modestly and every fourth week is
+ * lighter, so the block reads as training rather than a week repeated. The
+ * baseline is the runner's own recent distance where there is one, so week one
+ * starts where they actually are.
+ *
+ * Regeneration stays idempotent: workout ids are still `plan-<id>-<date>`, so a
+ * completed or skipped day is never overwritten by re-running this.
+ */
+export function generateBlock(
+  plan: TrainingPlan,
+  firstWeekStart: string,
+  context: WeekContext = { baselineKm: null },
+): GeneratedWeek {
+  const weeks = clampWeeks(plan.weeks);
+  const base = context.baselineKm ?? plan.goal.targetKm ?? 5;
+
+  let overfull = false;
+  const workouts: PlannedWorkout[] = [];
+
+  for (let index = 0; index < weeks; index += 1) {
+    const isDownWeek = (index + 1) % DOWN_WEEK_EVERY === 0;
+    const factor = (1 + WEEKLY_PROGRESSION * index) * (isDownWeek ? DOWN_WEEK_FACTOR : 1);
+    const weekStart = addDays(firstWeekStart, index * 7);
+    const generated = generateWeek(plan, weekStart, { baselineKm: base * factor });
+    overfull = overfull || generated.overfull;
+    workouts.push(...generated.workouts);
+  }
 
   return { workouts, overfull };
 }

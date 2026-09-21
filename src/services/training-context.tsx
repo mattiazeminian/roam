@@ -12,6 +12,7 @@ import {
   addWorkouts,
   buildPlan,
   EMPTY_TRAINING,
+  generateBlock,
   generateWeek,
   loadTraining,
   removeWorkout as removeWorkoutFrom,
@@ -79,14 +80,14 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
   const createPlanFor = useCallback(
     async (input: PlanInput) => {
       const plan = buildPlan(input);
-      // A plan that produces nothing is not a plan, so creating one schedules
-      // its first week immediately (#70). Regeneration is additive, so a day
-      // already completed in this week is never overwritten.
+      // A plan schedules its whole block, not a week at a time (#74), so the
+      // runner can see the training ahead of them. Regeneration is additive:
+      // a day already completed is never overwritten.
       const today = toDateKey(new Date());
-      const firstWeek = generateWeek(plan, weekStartFor(today));
+      const block = generateBlock(plan, weekStartFor(today));
       const scheduled = replacePlannedWorkouts(
         { ...state, plan },
-        firstWeek.workouts,
+        block.workouts,
         today,
       );
       setState(scheduled);
