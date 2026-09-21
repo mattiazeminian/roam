@@ -1,15 +1,8 @@
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
-import Animated, {
-  Easing,
-  runOnJS,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
 
 // Imported for its side effect: it registers the background location task with
 // TaskManager, which must happen at the bundle's global scope so the task
@@ -22,17 +15,13 @@ import { RunProvider } from '@/services/run-context';
 import { SettingsProvider } from '@/services/settings-context';
 import { seedSampleDataIfEmpty } from '@/services/sample-data';
 import { TrainingProvider } from '@/services/training-context';
-import { brand, motion, useTheme } from '@/theme';
+import { motion, useTheme } from '@/theme';
 
-// The native splash holds the screen until the first frame is painted; the
-// launch animation is then ours (#141), so the two never stack.
+// The native launch screen is the only splash: the mark on the brand ground,
+// fading into the app. There is deliberately no second, in-app splash — two
+// marks in a row read as the logo jumping rather than one deliberate entry.
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 SplashScreen.setOptions({ fade: true, duration: motion.mediumDuration });
-
-const SPLASH_LOCKUP = require('../../assets/images/splash-icon.png');
-
-/** Long enough to feel deliberate, short enough not to be a wait. */
-const SPLASH_HOLD_MS = 950;
 
 /**
  * The app shell.
@@ -44,17 +33,13 @@ const SPLASH_HOLD_MS = 950;
  */
 export default function RootLayout() {
   const theme = useTheme();
-  const [splashDone, setSplashDone] = useState(false);
 
-  // Fills a fresh install with plausible history so the interface can be
-  // judged. Development only, and only when there is nothing there already.
   useEffect(() => {
+    // Fills a fresh install with plausible history so the interface can be
+    // judged. Development only, and only when there is nothing there already.
     void seedSampleDataIfEmpty();
-    // Hand the screen over to our own splash, which owns the animation.
     void SplashScreen.hideAsync().catch(() => {});
   }, []);
-
-  const handleSplashDone = useCallback(() => setSplashDone(true), []);
 
   return (
     <SettingsProvider>
@@ -63,13 +48,8 @@ export default function RootLayout() {
         <LocationProvider>
           <RouteProvider>
             <RunProvider>
-            <View
-              style={[
-                styles.root,
-                { backgroundColor: splashDone ? theme.background : brand.ground },
-              ]}>
-              {/* Light on the dark launch screen, dark once the app is up. */}
-              <StatusBar style={splashDone ? 'dark' : 'light'} />
+            <View style={[styles.root, { backgroundColor: theme.background }]}>
+              <StatusBar style="dark" />
               <Stack
                 screenOptions={{
                   headerShown: false,
@@ -122,8 +102,6 @@ export default function RootLayout() {
                 {/* Choosing a start place is a modal decision, not a destination. */}
                 <Stack.Screen name="location-search" options={{ presentation: 'modal' }} />
               </Stack>
-
-              {!splashDone ? <AnimatedSplash onDone={handleSplashDone} /> : null}
             </View>
           </RunProvider>
         </RouteProvider>
@@ -134,84 +112,8 @@ export default function RootLayout() {
   );
 }
 
-/**
- * The launch animation: the mark zooms in, holds, then the screen eases away.
- *
- * A short, quiet beat rather than a show — it exists so the launch reads as
- * deliberate, not because a splash is owed. Reduce Motion still gets the mark,
- * just without the movement.
- */
-function AnimatedSplash({ onDone }: { onDone: () => void }) {
-  const scale = useSharedValue(0.82);
-  const markOpacity = useSharedValue(0);
-  const screenOpacity = useSharedValue(1);
-
-  useEffect(() => {
-    markOpacity.value = withTiming(1, {
-      duration: motion.mediumDuration,
-      easing: Easing.out(Easing.cubic),
-    });
-    scale.value = withTiming(1, {
-      duration: motion.mediumDuration + 160,
-      easing: Easing.out(Easing.cubic),
-    });
-
-    const timer = setTimeout(() => {
-      scale.value = withTiming(1.06, {
-        duration: motion.mediumDuration,
-        easing: Easing.in(Easing.cubic),
-      });
-      screenOpacity.value = withTiming(
-        0,
-        { duration: motion.mediumDuration, easing: Easing.in(Easing.cubic) },
-        (finished) => {
-          if (finished) {
-            runOnJS(onDone)();
-          }
-        },
-      );
-    }, SPLASH_HOLD_MS);
-
-    return () => clearTimeout(timer);
-  }, [markOpacity, scale, screenOpacity, onDone]);
-
-  const screenStyle = useAnimatedStyle(() => ({ opacity: screenOpacity.value }));
-  const lockupStyle = useAnimatedStyle(() => ({
-    opacity: markOpacity.value,
-    transform: [{ scale: scale.value }],
-  }));
-
-  return (
-    <Animated.View
-      style={[styles.splash, screenStyle]}
-      pointerEvents="none"
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants">
-      <Animated.Image
-        source={SPLASH_LOCKUP}
-        style={[styles.splashLockup, lockupStyle]}
-        accessibilityIgnoresInvertColors
-      />
-    </Animated.View>
-  );
-}
-
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-  },
-  splash: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: brand.ground,
-  },
-  splashLockup: {
-    width: 200,
-    height: 259,
   },
 });
