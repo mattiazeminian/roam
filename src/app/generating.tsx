@@ -20,53 +20,17 @@ import { layout, spacing, useTheme } from '@/theme';
 /** Long enough to read as deliberate work, short enough not to be a wait. */
 const MIN_DURATION_MS = 3500;
 
-/** The route that draws itself while the search runs. */
-const TRACE_WIDTH = 300;
-const TRACE_HEIGHT = 120;
-const TRACE_THICKNESS = 4;
-const TRACE_SEGMENTS = 24;
-const TRACE_DOT = 9;
-/** How far behind the leading dot each segment fades in, as a fraction of the loop. */
-const TRACE_REVEAL = 0.14;
-
-/**
- * A closed loop the dot runs around — a route that ends where it began, not a
- * line with an end. The wobble keeps it from reading as a perfect circle: a
- * little irregular, like a real loop picked out of the street grid.
- */
-const TRACE_XS: number[] = [];
-const TRACE_YS: number[] = [];
-for (let i = 0; i <= TRACE_SEGMENTS; i += 1) {
-  const t = i / TRACE_SEGMENTS;
-  const angle = t * Math.PI * 2;
-  const rx = (TRACE_WIDTH / 2 - 14) * (1 + 0.12 * Math.sin(t * Math.PI * 6));
-  const ry = (TRACE_HEIGHT / 2 - 14) * (1 + 0.1 * Math.sin(t * Math.PI * 4 + 1.2));
-  TRACE_XS.push(TRACE_WIDTH / 2 + rx * Math.cos(angle));
-  TRACE_YS.push(TRACE_HEIGHT / 2 + ry * Math.sin(angle));
-}
-
-const TRACE_SEGMENTS_DATA = Array.from({ length: TRACE_SEGMENTS }, (_, i) => {
-  const dx = TRACE_XS[i + 1] - TRACE_XS[i];
-  const dy = TRACE_YS[i + 1] - TRACE_YS[i];
-  const length = Math.hypot(dx, dy);
-  const midX = (TRACE_XS[i] + TRACE_XS[i + 1]) / 2;
-  const midY = (TRACE_YS[i] + TRACE_YS[i + 1]) / 2;
-  return {
-    length,
-    angle: (Math.atan2(dy, dx) * 180) / Math.PI,
-    left: midX - length / 2,
-    top: midY - TRACE_THICKNESS / 2,
-  };
-});
+/** The mark, on the light canvas. */
+const MARK = require('../../assets/images/mark-green.png');
 
 /**
  * Generating — the moment a route is built.
  *
  * The search is already running when this opens; this screen exists so that
  * three seconds of work is a considered moment rather than a frozen button. The
- * route draws itself, closing into a loop, while the search runs; there is
- * deliberately no staged checklist or percentage, because the search is a
- * single call with no milestones to report honestly.
+ * brand mark — a route that ends where it began — breathes while the search
+ * runs. There is deliberately no staged checklist or percentage, because the
+ * search is a single call with no milestones to report honestly.
  */
 export default function GeneratingScreen() {
   const theme = useTheme();
@@ -102,16 +66,17 @@ export default function GeneratingScreen() {
         styles.root,
         { backgroundColor: theme.background, paddingTop: insets.top + spacing.xs },
       ]}>
-      {/* A runner who changes their mind, or whose search is taking too
-          long, was previously stuck here with no way out until it either
-          succeeded or failed — "Back"/"Try again" only appeared on failure.
-          A search can chain several ORS requests (retries, distance
-          refinement) and take a while, so being unable to leave made a slow
-          search feel broken rather than just slow. */}
-      <MapControl symbol="chevron.left" accessibilityLabel="Cancel and go back" onPress={() => router.back()} />
+      {/* A runner who changes their mind, or whose search is taking too long,
+          must not be stuck here until it succeeds or fails. */}
+      <MapControl
+        symbol="chevron.left"
+        accessibilityLabel="Cancel and go back"
+        onPress={() => router.back()}
+      />
 
       <View style={styles.stage}>
-        <Text variant="large" style={styles.headline}>
+        {!failed ? <Mark reduceMotion={reduceMotion} /> : null}
+        <Text variant="display" style={styles.headline}>
           {failed ? 'That did not work' : 'Building your route'}
         </Text>
         <Text variant="body" color="textSecondary" accessibilityLiveRegion="polite">
@@ -119,17 +84,12 @@ export default function GeneratingScreen() {
             ? (errorMessage ?? 'Roam could not find a route near you.')
             : 'Finding a route with fewer turns and useful paths.'}
         </Text>
-
-        {!failed ? (
-          <View style={styles.visual} accessibilityLabel="Route being drawn">
-            <RouteTrace reduceMotion={reduceMotion} />
-          </View>
-        ) : null}
       </View>
 
       {failed ? (
         <View style={[styles.actions, { paddingBottom: insets.bottom + spacing.lg }]}>
           <Button label="Try again" variant="accent" onPress={() => void retry()} />
+          <Button label="Back" variant="secondary" onPress={() => router.back()} />
         </View>
       ) : (
         <View style={{ paddingBottom: insets.bottom + spacing.lg }} />
@@ -138,86 +98,31 @@ export default function GeneratingScreen() {
   );
 }
 
-/** A lime route line tracing itself, led by a dot. Loops until the search ends. */
-function RouteTrace({ reduceMotion }: { reduceMotion: boolean }) {
-  const theme = useTheme();
-  const progress = useSharedValue(reduceMotion ? 1 : 0);
+/**
+ * The brand mark, breathing. It is a route that closes on itself, so it already
+ * reads as "a loop being worked out" — the motion only says the search is
+ * alive. Reduce Motion holds it still.
+ */
+function Mark({ reduceMotion }: { reduceMotion: boolean }) {
+  const breath = useSharedValue(0);
 
   useEffect(() => {
     if (reduceMotion) {
-      progress.value = 1;
       return;
     }
-    progress.value = withRepeat(
-      withTiming(1, { duration: 2200, easing: Easing.inOut(Easing.quad) }),
+    breath.value = withRepeat(
+      withTiming(1, { duration: 1400, easing: Easing.inOut(Easing.quad) }),
       -1,
-      false,
+      true,
     );
-  }, [progress, reduceMotion]);
+  }, [breath, reduceMotion]);
 
-  const dotStyle = useAnimatedStyle(() => {
-    const scaled = progress.value * TRACE_SEGMENTS;
-    const index = Math.min(TRACE_SEGMENTS - 1, Math.floor(scaled));
-    const frac = scaled - index;
-    const x = TRACE_XS[index] + (TRACE_XS[index + 1] - TRACE_XS[index]) * frac;
-    const y = TRACE_YS[index] + (TRACE_YS[index + 1] - TRACE_YS[index]) * frac;
-    return {
-      transform: [{ translateX: x - TRACE_DOT / 2 }, { translateY: y - TRACE_DOT / 2 }],
-    };
-  });
+  const style = useAnimatedStyle(() => ({
+    opacity: 0.55 + breath.value * 0.45,
+    transform: [{ scale: 0.95 + breath.value * 0.05 }],
+  }));
 
-  return (
-    <View style={styles.trace}>
-      {TRACE_SEGMENTS_DATA.map((segment, index) => (
-        <TraceSegment
-          key={index}
-          index={index}
-          segment={segment}
-          progress={progress}
-          reduceMotion={reduceMotion}
-          color={theme.accent}
-        />
-      ))}
-      <Animated.View style={[styles.dot, { backgroundColor: theme.accent }, dotStyle]} />
-    </View>
-  );
-}
-
-function TraceSegment({
-  index,
-  segment,
-  progress,
-  reduceMotion,
-  color,
-}: {
-  index: number;
-  segment: (typeof TRACE_SEGMENTS_DATA)[number];
-  progress: { value: number };
-  reduceMotion: boolean;
-  color: string;
-}) {
-  const threshold = index / TRACE_SEGMENTS;
-  const style = useAnimatedStyle(() => {
-    const ahead = progress.value - threshold;
-    const opacity = reduceMotion ? 1 : ahead <= 0 ? 0 : Math.min(1, ahead / TRACE_REVEAL);
-    return { opacity };
-  });
-
-  return (
-    <Animated.View
-      style={[
-        styles.segment,
-        {
-          left: segment.left,
-          top: segment.top,
-          width: segment.length,
-          backgroundColor: color,
-          transform: [{ rotate: `${segment.angle}deg` }],
-        },
-        style,
-      ]}
-    />
-  );
+  return <Animated.Image source={MARK} style={[styles.mark, style]} accessibilityIgnoresInvertColors />;
 }
 
 const styles = StyleSheet.create({
@@ -230,32 +135,15 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
+    gap: spacing.sm,
+  },
+  mark: {
+    width: 128,
+    height: 128,
+    marginBottom: spacing.lg,
   },
   headline: {
     textAlign: 'center',
-  },
-  visual: {
-    alignItems: 'center',
-    gap: spacing.md,
-    marginTop: spacing.lg,
-  },
-  trace: {
-    width: TRACE_WIDTH,
-    height: TRACE_HEIGHT,
-  },
-  segment: {
-    position: 'absolute',
-    height: TRACE_THICKNESS,
-    borderRadius: TRACE_THICKNESS / 2,
-  },
-  dot: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: TRACE_DOT,
-    height: TRACE_DOT,
-    borderRadius: TRACE_DOT / 2,
   },
   actions: {
     gap: spacing.xs,
