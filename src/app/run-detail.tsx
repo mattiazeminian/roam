@@ -12,7 +12,7 @@ import { Text } from '@/components/text';
 import { errorFeedback, successFeedback } from '@/lib/haptics';
 import { runShareMessage } from '@/services/run-share';
 import { routeFromRun } from '@/services/run-to-route';
-import { formatDuration, formatRunDate, type SavedRun } from '@/services/run-session';
+import { formatDuration, formatRunDate, splitsFor, type SavedRun } from '@/services/run-session';
 import { isRouteSaved, saveRoute } from '@/services/route-storage';
 import { useFormatters } from '@/services/settings-context';
 import { getRun, saveRun } from '@/services/run-storage';
@@ -49,6 +49,9 @@ export default function RunDetailScreen() {
   }, [id]);
 
   const hasTrack = (run?.coordinates.length ?? 0) >= 2;
+  // Splits cut at the runner's own unit; withheld entirely when times are missing.
+  const splitMeters = fmt.unit === 'mi' ? 1609.344 : 1000;
+  const splits = run && hasTrack ? splitsFor(run.coordinates, run.timestamps ?? [], splitMeters) : [];
   const cardRef = useRef<View>(null);
   const [trackIsSaved, setTrackIsSaved] = useState(false);
   const [shoes, setShoes] = useState<Shoe[]>([]);
@@ -265,6 +268,31 @@ export default function RunDetailScreen() {
                 No GPS track was recorded for this run.
               </Text>
             )}
+
+            {splits.length > 0 ? (
+              <View style={styles.splits}>
+                <Text variant="micro" color="textSecondary">
+                  SPLITS
+                </Text>
+                {splits.map((split) => (
+                  <View key={split.index} style={styles.splitRow}>
+                    <Text variant="body" color="textSecondary" tabular style={styles.splitLabel}>
+                      {split.distanceMeters === splitMeters
+                        ? `${split.index} ${fmt.unitLabel}`
+                        : `${fmt.distance(split.distanceMeters)} ${fmt.unitLabel}`}
+                    </Text>
+                    <View style={styles.splitValues}>
+                      <Text variant="body" tabular>
+                        {fmt.paceWithUnit(split.paceMinPerKm)}
+                      </Text>
+                      <Text variant="caption" color="textSecondary" tabular>
+                        {formatDuration(split.durationSeconds)}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </>
         )}
       </ScrollView>
@@ -295,6 +323,25 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     minHeight: layout.minTouchTarget,
     gap: spacing.md,
+  },
+  splits: {
+    alignSelf: 'stretch',
+    gap: spacing.xxs,
+    marginTop: spacing.md,
+  },
+  splitRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: layout.minTouchTarget,
+  },
+  splitLabel: {
+    flex: 1,
+  },
+  splitValues: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: spacing.sm,
   },
   pressed: {
     opacity: 0.6,

@@ -14,6 +14,7 @@ import {
   currentPaceMinPerKm,
   fastestSplit,
   preparePlannedRoute,
+  splitsFor,
   trackerStateFromCheckpoint,
   type PlannedRoute,
   type RecentFix,
@@ -758,5 +759,49 @@ describe('currentPaceMinPerKm (#37)', () => {
     const pace = currentPaceMinPerKm(recent, now);
     const meters = haversineMeters(a, b);
     expect(pace).toBeCloseTo(15 / 60 / (meters / 1000), 5); // only the last leg counted
+  });
+});
+
+describe('splitsFor (#41)', () => {
+  // A straight 3.2 km track at an even 5:00/km (300 s per km).
+  const positions = [0, 1000, 2000, 3000, 3200];
+  const track = positions.map((meters) => offset(0, meters));
+  const times = positions.map((meters) => BASE_TIME + (meters / 1000) * 300 * 1000);
+
+  test('cuts whole-unit splits in order, then a partial', () => {
+    const splits = splitsFor(track, times, 1000);
+    expect(splits.map((split) => split.index)).toEqual([1, 2, 3, 4]);
+    expect(splits[0].distanceMeters).toBe(1000);
+    expect(splits[0].durationSeconds).toBeCloseTo(300, 0);
+    expect(splits[0].paceMinPerKm).toBeCloseTo(5, 1);
+    // The final partial is the remainder, not a full unit.
+    expect(splits[3].distanceMeters).toBeGreaterThan(150);
+    expect(splits[3].distanceMeters).toBeLessThan(250);
+    expect(splits[3].paceMinPerKm).toBeCloseTo(5, 1);
+  });
+
+  test('omits a final remainder too short to be a split', () => {
+    const short = [0, 1000, 1050].map((meters) => offset(0, meters));
+    const shortTimes = [0, 1000, 1050].map((meters) => BASE_TIME + (meters / 1000) * 300 * 1000);
+    expect(splitsFor(short, shortTimes, 1000)).toHaveLength(1);
+  });
+
+  test('withholds the splits a missing fix time borders, fabricating none', () => {
+    const all = splitsFor(track, times, 1000);
+    const gap: (number | null)[] = [...times];
+    gap[2] = null;
+    const gapped = splitsFor(track, gap, 1000);
+    expect(all.length).toBeGreaterThan(gapped.length);
+    expect(gapped.length).toBeGreaterThan(0);
+    // Every split that survives still has a real pace — none is invented.
+    expect(gapped.every((split) => split.paceMinPerKm !== null)).toBe(true);
+  });
+
+  test('returns nothing when no fix carries a time', () => {
+    expect(splitsFor(track, track.map(() => null), 1000)).toEqual([]);
+  });
+
+  test('returns nothing for a single point', () => {
+    expect(splitsFor([offset(0, 0)], [BASE_TIME], 1000)).toEqual([]);
   });
 });

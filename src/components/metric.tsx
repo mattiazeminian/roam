@@ -44,6 +44,12 @@ export function Metric({
           // accent; the supporting metrics stay white so the accent keeps meaning.
           color={isHero ? 'accentText' : 'text'}
           tabular
+          // Shrink rather than clip: a value as long as `1:07:00` beside another
+          // metric can exceed its column on a narrow screen, and a truncated
+          // number is worse than a slightly smaller one.
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.6}
           accessibilityLabel={accessibilityLabel ?? `${label} ${value}`}>
           {value}
         </Text>
@@ -73,6 +79,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'baseline',
     gap: spacing.xs,
+    flexShrink: 1,
   },
   unit: {
     paddingBottom: spacing.xxs,

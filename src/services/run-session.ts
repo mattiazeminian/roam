@@ -618,6 +618,121 @@ export function fastestSplit(
   return best;
 }
 
+/** One split of a run: a whole unit of distance, or a final partial. */
+export type RunSplit = {
+  /** 1-based, so the UI can say "split 1". */
+  index: number;
+  /** The split's distance in meters: the unit for whole splits, the remainder for the last. */
+  distanceMeters: number;
+  durationSeconds: number;
+  paceMinPerKm: number | null;
+};
+
+/**
+ * A final remainder shorter than this is not a split — it is the run stopping.
+ */
+const MIN_PARTIAL_SPLIT_METERS = 100;
+
+/**
+ * Per-split pace for a recorded run (#41).
+ *
+ * Splits are cut at whole units of `splitMeters` (1 km, or 1 mile when that is
+ * the runner's unit). Nothing is invented: a boundary time is interpolated from
+ * the two fixes it falls between, and when either has no time that split is
+ * skipped rather than guessed. A final remainder of at least
+ * `MIN_PARTIAL_SPLIT_METERS` is its own split, so the splits add up to the run.
+ *
+ * A track saved before per-point times existed yields no splits at all — the
+ * honest answer, not a set built from the average.
+ */
+export function splitsFor(
+  track: Coordinate[],
+  timestamps: (number | null)[],
+  splitMeters: number,
+): RunSplit[] {
+  if (splitMeters <= 0 || track.length < 2) {
+    return [];
+  }
+  const cumulative = cumulativeDistances(track);
+  const total = cumulative[cumulative.length - 1];
+  if (total <= 0) {
+    return [];
+  }
+
+  const timeAtDistance = (distance: number): number | null => {
+    for (let i = 1; i < track.length; i += 1) {
+      if (cumulative[i] >= distance) {
+        const segmentStart = cumulative[i - 1];
+        const segmentMeters = cumulative[i] - segmentStart;
+        const from = timestamps[i - 1];
+        const to = timestamps[i];
+        if (
+          segmentMeters <= 0 ||
+          from === null ||
+          from === undefined ||
+          to === null ||
+          to === undefined
+        ) {
+          return null;
+        }
+        const fraction = (distance - segmentStart) / segmentMeters;
+        return from + (to - from) * fraction;
+      }
+    }
+    return null;
+  };
+
+  const timeAtStart = (distance: number): number | null => {
+    if (distance === 0) {
+      const first = timestamps[0];
+      return first === null || first === undefined ? null : first;
+    }
+    return timeAtDistance(distance);
+  };
+
+  const splits: RunSplit[] = [];
+  let startDistance = 0;
+  let index = 1;
+
+  while (startDistance + splitMeters <= total) {
+    const endDistance = startDistance + splitMeters;
+    const startTime = timeAtStart(startDistance);
+    const endTime = timeAtDistance(endDistance);
+    if (startTime !== null && endTime !== null) {
+      const durationSeconds = (endTime - startTime) / 1000;
+      if (durationSeconds > 0) {
+        splits.push({
+          index,
+          distanceMeters: splitMeters,
+          durationSeconds,
+          paceMinPerKm: paceMinPerKm(splitMeters, durationSeconds),
+        });
+      }
+    }
+    startDistance = endDistance;
+    index += 1;
+  }
+
+  const remainder = total - startDistance;
+  const last = timestamps[track.length - 1];
+  if (remainder >= MIN_PARTIAL_SPLIT_METERS && last !== null && last !== undefined) {
+    const startTime = timeAtStart(startDistance);
+    if (startTime !== null) {
+      const durationSeconds = (last - startTime) / 1000;
+      if (durationSeconds > 0) {
+        splits.push({
+          index,
+          distanceMeters: remainder,
+          durationSeconds,
+          paceMinPerKm: paceMinPerKm(remainder, durationSeconds),
+        });
+      }
+    }
+  }
+
+  return splits;
+}
+
 export type RunRecords = {
   /** The longest run by recorded distance. */
   longest: SavedRun | null;
