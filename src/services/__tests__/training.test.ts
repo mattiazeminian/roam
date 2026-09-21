@@ -30,6 +30,7 @@ import {
   setWorkoutStatus,
   summarizeProgress,
   toDateKey,
+  weeklyAdherence,
   workoutsFrom,
   workoutsOnDate,
   type PlannedWorkout,
@@ -636,5 +637,55 @@ describe('goal progress (#75)', () => {
     expect(progress.longestRunKm).toBeNull();
     expect(progress.longestShare).toBeNull();
     expect(progress.totalKm).toBe(0);
+  });
+});
+
+describe('weekly adherence (#73)', () => {
+  const plan = createPlan({
+    goal: { kind: 'fitness', targetKm: null, raceDate: null },
+    runsPerWeek: 2,
+    preferredDays: [2, 4],
+    level: 'occasional',
+  });
+
+  function weekState(): TrainingState {
+    // NOW is a Tuesday (2023-11-14); the current week starts Sunday 2023-11-12.
+    const entries: { date: string; status: PlannedWorkout['status'] }[] = [
+      { date: '2023-11-07', status: 'completed' },
+      { date: '2023-11-09', status: 'completed' },
+      { date: '2023-11-14', status: 'completed' },
+      { date: '2023-11-16', status: 'planned' },
+    ];
+    return {
+      plan,
+      workouts: entries.map((entry, index) => ({
+        ...createWorkout({ id: `w${index}`, date: entry.date, type: 'easy', targetKm: 5 }),
+        status: entry.status,
+      })),
+    };
+  }
+
+  test('returns one entry per week, oldest first, ending with the current week', () => {
+    const weeks = weeklyAdherence(weekState(), '2023-11-14', 3);
+    expect(weeks).toHaveLength(3);
+    expect(weeks[weeks.length - 1].weekStart).toBe('2023-11-12');
+    expect(weeks[0].weekStart).toBe('2023-10-29');
+  });
+
+  test('counts planned, completed and upcoming per week', () => {
+    const weeks = weeklyAdherence(weekState(), '2023-11-14', 2);
+    const current = weeks[1];
+    expect(current.planned).toBe(2);
+    expect(current.completed).toBe(1);
+    expect(current.upcoming).toBe(1);
+    const previous = weeks[0];
+    expect(previous.planned).toBe(2);
+    expect(previous.completed).toBe(2);
+    expect(previous.upcoming).toBe(0);
+  });
+
+  test('a week with nothing is zeros, not missing', () => {
+    const weeks = weeklyAdherence(weekState(), '2023-11-14', 3);
+    expect(weeks[0]).toMatchObject({ planned: 0, completed: 0, skipped: 0, upcoming: 0 });
   });
 });

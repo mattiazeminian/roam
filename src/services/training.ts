@@ -554,6 +554,56 @@ export function baselineKmFromRuns(
     : distances[middle];
 }
 
+export type AdherenceWeek = {
+  weekStart: string;
+  planned: number;
+  completed: number;
+  skipped: number;
+  /** Sessions still to come, i.e. planned on or after today. */
+  upcoming: number;
+  plannedKm: number;
+  completedKm: number;
+};
+
+/**
+ * Planned versus completed for each of the last `weeks` weeks, oldest first
+ * (#73). Plain counts over stored workouts — no streak, no score, no shaming.
+ * Weeks with nothing are zeroes, so an empty week reads as empty rather than
+ * disappearing.
+ */
+export function weeklyAdherence(
+  state: TrainingState,
+  today: string,
+  weeks = 4,
+): AdherenceWeek[] {
+  const currentWeekStart = weekStartFor(today);
+  const result: AdherenceWeek[] = [];
+
+  for (let index = weeks - 1; index >= 0; index -= 1) {
+    const weekStart = addDays(currentWeekStart, -7 * index);
+    const weekEnd = addDays(weekStart, 6);
+    const summary = summarizeProgress(state, weekStart, weekEnd);
+    const upcoming = state.workouts.filter(
+      (workout) =>
+        workout.status === 'planned' &&
+        workout.date >= weekStart &&
+        workout.date <= weekEnd &&
+        workout.date >= today,
+    ).length;
+    result.push({
+      weekStart,
+      planned: summary.planned,
+      completed: summary.completed,
+      skipped: summary.skipped,
+      upcoming,
+      plannedKm: summary.plannedKm,
+      completedKm: summary.completedKm,
+    });
+  }
+
+  return result;
+}
+
 /** Whole days from one `yyyy-mm-dd` to another (to − from). */
 function daysBetween(fromKey: string, toKey: string): number {
   const from = parseDateKey(fromKey);

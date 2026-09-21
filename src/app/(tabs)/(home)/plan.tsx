@@ -20,6 +20,7 @@ import {
   summarizeProgress,
   toDateKey,
   weekStartFor,
+  weeklyAdherence,
   WORKOUT_LABELS,
   workoutsOnDate,
   type TrainingGoalKind,
@@ -386,11 +387,37 @@ function PlanOverview({ onEdit }: { onEdit: () => void }) {
         <View style={[styles.overviewRule, { backgroundColor: theme.track }]} />
         <Text variant="title">The week ahead</Text>
         {state.workouts.filter((workout) => workout.date >= today).slice(0, 4).map((workout) => <View key={workout.id} style={[styles.overviewWorkout, { borderBottomColor: theme.track }]}><WorkoutIcon type={workout.type} size={20} tintColor={theme.textSecondary} /><View style={styles.overviewWorkoutCopy}><Text variant="body">{WORKOUT_LABELS[workout.type]}</Text><Text variant="caption" color="textSecondary">{workout.date} · {workout.targetKm} km</Text></View><Text variant="caption" color="textSecondary">{workout.status}</Text></View>)}
+        <View style={[styles.overviewRule, { backgroundColor: theme.track }]} />
+        <Text variant="title">Recent weeks</Text>
+        {weeklyAdherence(state, today, 4).map((week) => (
+          <View
+            key={week.weekStart}
+            style={[styles.overviewWorkout, { borderBottomColor: theme.track }]}>
+            <View style={styles.overviewWorkoutCopy}>
+              <Text variant="body">{`Week of ${weekStartLabel(week.weekStart)}`}</Text>
+              <Text variant="caption" color="textSecondary" tabular>
+                {week.planned === 0
+                  ? 'Nothing planned'
+                  : `${week.completed} of ${week.planned} completed${
+                      week.skipped > 0 ? ` · ${week.skipped} skipped` : ''
+                    }`}
+              </Text>
+            </View>
+          </View>
+        ))}
         <Button label="Edit plan" variant="accent" onPress={onEdit} />
         <Button label="Edit schedule" variant="secondary" onPress={() => router.push('/schedule')} />
       </ScrollView>
     </View>
   );
+}
+
+/** "12 Nov" for a week-start key. */
+function weekStartLabel(weekStart: string): string {
+  return new Date(`${weekStart}T12:00:00`).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+  });
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
