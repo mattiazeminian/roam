@@ -19,7 +19,7 @@ import { listRoutes, saveRoute } from '@/services/route-storage';
 import { useRun } from '@/services/run-context';
 import { formatDuration } from '@/services/run-session';
 import { useFormatters } from '@/services/settings-context';
-import { layout, spacing, useTheme } from '@/theme';
+import { layout, radii, spacing, useTheme } from '@/theme';
 
 /** Height the sheet occupies, so the camera can frame routes above it. */
 const SHEET_CLEARANCE = 260;
@@ -280,11 +280,6 @@ export default function RouteSelectionScreen() {
                 <Text variant="micro" color="textSecondary">
                   {candidates.length === 1 ? '1 route' : `${candidates.length} routes`}
                 </Text>
-                {selectedRoute ? (
-                  <Text variant="micro" color="textSecondary">
-                    {selectedRoute.characteristics.join('  ·  ')}
-                  </Text>
-                ) : null}
               </View>
 
               <RouteOptions
@@ -293,6 +288,22 @@ export default function RouteSelectionScreen() {
                 onSelect={handleSelect}
                 popularity={popularity}
               />
+
+              {/* Each fact about the selected route on its own pill, rather than
+                  one caption of joined fragments nothing can be scanned from. */}
+              {selectedRoute ? (
+                <View style={styles.facts}>
+                  {selectedRoute.characteristics.map((fact) => (
+                    <View
+                      key={fact}
+                      style={[styles.fact, { backgroundColor: theme.fill }]}>
+                      <Text variant="caption" color="textSecondary">
+                        {fact}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
 
               <View style={styles.actions}>
                 <Button
@@ -346,6 +357,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  facts: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  fact: {
+    paddingVertical: spacing.xxs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radii.pill,
+    borderCurve: 'continuous',
   },
   notice: {
     gap: spacing.xs,
