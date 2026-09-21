@@ -140,6 +140,69 @@ export function weeklyRunStreak(runs: SavedRun[], todayKey: string): number {
   return streak;
 }
 
+/**
+ * How close in distance another run must be to count as comparable. A window
+ * that widens with the run's own distance, with a floor, so a 5 km run is not
+ * compared against a 20 km one and a 1 km run is not compared against nothing.
+ */
+const COMPARABLE_DISTANCE_FRACTION = 0.25;
+const COMPARABLE_MIN_WINDOW_METERS = 1000;
+
+/** Only the most recent few comparable runs are averaged. */
+const COMPARABLE_MAX_RUNS = 5;
+
+export type RecentComparison = {
+  /** How many earlier runs the comparison is against. */
+  comparedCount: number;
+  /** This run's pace minus the comparable average, min/km. Negative is faster. */
+  paceDeltaMinPerKm: number | null;
+  /** This run's distance minus the comparable average, km. */
+  distanceDeltaKm: number;
+};
+
+/**
+ * A light comparison of one run against the runner's own recent, similar runs
+ * (#42).
+ *
+ * Returns null when there is nothing comparable — absence is shown as nothing,
+ * never as a comparison against a fabricated or global baseline. `runs` is
+ * expected newest-first; only the most recent comparable few are used.
+ */
+export function compareRunToRecent(run: SavedRun, runs: SavedRun[]): RecentComparison | null {
+  const target = meters(run);
+  const tolerance = Math.max(COMPARABLE_MIN_WINDOW_METERS, target * COMPARABLE_DISTANCE_FRACTION);
+
+  const comparables = runs
+    .filter((other) => other.id !== run.id)
+    .filter((other) => Math.abs(meters(other) - target) <= tolerance)
+    .slice(0, COMPARABLE_MAX_RUNS);
+
+  if (comparables.length === 0) {
+    return null;
+  }
+
+  const distanceAvgKm =
+    comparables.reduce((sum, other) => sum + other.distanceKm, 0) / comparables.length;
+
+  const paced = comparables.filter(
+    (other): other is SavedRun & { averagePaceMinPerKm: number } =>
+      other.averagePaceMinPerKm !== null,
+  );
+  const paceAvgMinPerKm =
+    paced.length > 0
+      ? paced.reduce((sum, other) => sum + other.averagePaceMinPerKm, 0) / paced.length
+      : null;
+
+  return {
+    comparedCount: comparables.length,
+    paceDeltaMinPerKm:
+      paceAvgMinPerKm !== null && run.averagePaceMinPerKm !== null
+        ? run.averagePaceMinPerKm - paceAvgMinPerKm
+        : null,
+    distanceDeltaKm: run.distanceKm - distanceAvgKm,
+  };
+}
+
 export type DayBucket = {
   date: string;
   meters: number;

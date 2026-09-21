@@ -8,6 +8,7 @@
 import { describe, expect, test } from '@jest/globals';
 
 import {
+  compareRunToRecent,
   RECENT_WINDOW_DAYS,
   shoeMileageMeters,
   weekDayBuckets,
@@ -168,5 +169,49 @@ describe('shoeMileageMeters (#112)', () => {
     expect(shoeMileageMeters('shoe-2', runs)).toBeCloseTo(8000, 0);
     expect(shoeMileageMeters('shoe-none', runs)).toBe(0);
     expect(shoeMileageMeters('shoe-1', [])).toBe(0);
+  });
+});
+
+describe('compareRunToRecent (#42)', () => {
+  function withPace(base: SavedRun, pace: number): SavedRun {
+    return { ...base, averagePaceMinPerKm: pace };
+  }
+
+  test('returns null when there is nothing comparable', () => {
+    const target = run(0, 5, 'target');
+    const others = [run(1, 21, 'long'), run(2, 0.5, 'short')];
+    expect(compareRunToRecent(target, others)).toBeNull();
+  });
+
+  test('compares only against runs within the distance window', () => {
+    const target = run(0, 5, 'target');
+    const others = [
+      withPace(run(1, 5.2, 'near'), 6.5),
+      withPace(run(2, 21, 'far'), 5),
+    ];
+    const comparison = compareRunToRecent(target, others);
+    expect(comparison?.comparedCount).toBe(1);
+    // Target pace 6 vs comparable 6.5 → 0.5 min/km faster (negative).
+    expect(comparison?.paceDeltaMinPerKm).toBeCloseTo(-0.5, 3);
+  });
+
+  test('never includes the run itself', () => {
+    const target = run(0, 5, 'target');
+    const comparison = compareRunToRecent(target, [target]);
+    expect(comparison).toBeNull();
+  });
+
+  test('withholds a pace delta when the run has no usable pace', () => {
+    const target = { ...run(0, 5, 'target'), averagePaceMinPerKm: null };
+    const others = [withPace(run(1, 5.2, 'near'), 6.5)];
+    const comparison = compareRunToRecent(target, others);
+    expect(comparison?.paceDeltaMinPerKm).toBeNull();
+    expect(comparison?.distanceDeltaKm).toBeCloseTo(5 - 5.2, 3);
+  });
+
+  test('uses at most the five most recent comparable runs', () => {
+    const target = run(0, 5, 'target');
+    const others = Array.from({ length: 8 }, (_, i) => withPace(run(i + 1, 5, `r${i}`), 6));
+    expect(compareRunToRecent(target, others)?.comparedCount).toBe(5);
   });
 });

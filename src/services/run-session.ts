@@ -59,6 +59,14 @@ const MAX_ACCURACY_METERS = 25;
 /** Movement below this is treated as jitter rather than progress. */
 const MIN_MOVEMENT_METERS = 4;
 
+/**
+ * Auto-pause (#38): no accepted movement for this long is a genuine stop, not
+ * a slow stride. Long enough that a walker whose fixes hover around the
+ * movement threshold never trips it, since any qualifying fix resets the
+ * dwell.
+ */
+const AUTO_PAUSE_DWELL_MS = 8_000;
+
 /** ~45 km/h. Anything faster is a GPS jump, not a runner. */
 const MAX_SPEED_METERS_PER_SECOND = 12.5;
 
@@ -138,6 +146,14 @@ export type TrackerState = {
   segmentIndex: number;
   /** The last sample accepted into the track. */
   lastSample: LocationSample | null;
+  /**
+   * Timestamp of the last accepted fix that registered as movement, or null
+   * before the first one. Drives auto-pause (#38): time since this reaches the
+   * dwell, the runner is treated as stopped.
+   */
+  lastMovementAt: number | null;
+  /** True while the runner has been stationary long enough to auto-pause. */
+  stationary: boolean;
   /** True when the most recent fix was rejected for poor accuracy. */
   degradedSignal: boolean;
   /** Consecutive qualifying fixes near the start once progress is far enough along. */
@@ -163,6 +179,8 @@ export function createTrackerState(): TrackerState {
     progressMeters: 0,
     segmentIndex: 0,
     lastSample: null,
+    lastMovementAt: null,
+    stationary: false,
     degradedSignal: false,
     nearStartStreak: 0,
     completionSuggested: false,
@@ -349,6 +367,8 @@ export function applySample(
       timestamps: [...state.timestamps, sample.timestamp],
       recent: pushRecent(state.recent, sample),
       lastSample: sample,
+      lastMovementAt: sample.timestamp,
+      stationary: false,
       degradedSignal: false,
       ...projectProgress(state, sample.coordinate, planned),
       ...evaluateCompletion(state, sample, planned),
@@ -376,8 +396,15 @@ export function applySample(
     // them — both are about position, not motion.
     const completion = evaluateCompletion(state, sample, planned);
     const offRoute = evaluateOffRoute(state, sample, planned);
+    // Auto-pause (#38). Once stationary, only a later fix that registers as
+    // movement clears it (the branch below); here the dwell can only be
+    // reached, never reset.
+    const lastMovementAt = state.lastMovementAt ?? previous.timestamp;
+    const stationary =
+      state.stationary || sample.timestamp - lastMovementAt >= AUTO_PAUSE_DWELL_MS;
     if (
       !state.degradedSignal &&
+      stationary === state.stationary &&
       completion.nearStartStreak === state.nearStartStreak &&
       completion.completionSuggested === state.completionSuggested &&
       offRoute.offRouteStreak === state.offRouteStreak &&
@@ -385,7 +412,7 @@ export function applySample(
     ) {
       return state;
     }
-    return { ...state, degradedSignal: false, ...completion, ...offRoute };
+    return { ...state, degradedSignal: false, stationary, ...completion, ...offRoute };
   }
 
   // sample.timestamp > previous.timestamp is now guaranteed, so elapsedSeconds
@@ -403,6 +430,8 @@ export function applySample(
     recent: pushRecent(state.recent, sample),
     distanceMeters: state.distanceMeters + moved,
     lastSample: sample,
+    lastMovementAt: sample.timestamp,
+    stationary: false,
     degradedSignal: false,
     ...projectProgress(state, sample.coordinate, planned),
     ...evaluateCompletion(state, sample, planned),

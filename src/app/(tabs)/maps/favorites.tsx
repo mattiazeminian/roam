@@ -34,18 +34,25 @@ export default function FavoritesScreen() {
   const { mode } = useLocalSearchParams<{ mode?: string }>();
   const runMode = mode === 'run';
   const [routes, setRoutes] = useState<SavedRoute[] | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   // Reload on focus so a route saved moments ago is already here.
+  const load = useCallback(() => {
+    setLoadFailed(false);
+    return listRoutes()
+      .then((stored) => setRoutes(stored))
+      .catch(() => {
+        // Say so and offer a retry, rather than showing "no saved routes" when
+        // the storage read actually failed (#51).
+        setLoadFailed(true);
+        setRoutes(null);
+      });
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      let active = true;
-      void listRoutes()
-        .then((stored) => active && setRoutes(stored))
-        .catch(() => active && setRoutes([]));
-      return () => {
-        active = false;
-      };
-    }, []),
+      void load();
+    }, [load]),
   );
 
   const handleOpen = useCallback(
@@ -120,7 +127,13 @@ export default function FavoritesScreen() {
           />
         )}
         ListEmptyComponent={
-          isEmpty ? (
+          loadFailed ? (
+            <EmptyState
+              title="Couldn't load your routes"
+              body="Something went wrong reading this device's storage."
+              action={{ label: 'Try again', onPress: () => void load() }}
+            />
+          ) : isEmpty ? (
             <EmptyState
               title="No saved routes"
               body="Save a route from the map and it will be kept here, ready to run again."

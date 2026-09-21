@@ -227,7 +227,7 @@ export default function ProfileScreen() {
           }
         />
 
-        {recent.length === 0 ? (
+        {runs === null ? null : recent.length === 0 ? (
           <EmptyState
             align="start"
             title="No runs yet"

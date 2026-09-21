@@ -43,6 +43,7 @@ export default function ActiveRunScreen() {
     track,
     progressMeters,
     degradedSignal,
+    autoPaused,
     position,
     completionSuggested,
     offRoute,
@@ -154,6 +155,22 @@ export default function ActiveRunScreen() {
             </GlassSurface>
           ) : null}
 
+          {/* Auto-pause is visible while it is holding the clock, so a frozen
+              timer never looks like a bug (#38). Manual pause takes over the
+              label above. */}
+          {autoPaused && !isPaused ? (
+            <GlassSurface radius={radii.pill} style={styles.pill}>
+              <View style={[styles.dot, { backgroundColor: theme.textSecondary }]} />
+              <Text
+                variant="micro"
+                color="textSecondary"
+                accessibilityLiveRegion="polite"
+                accessibilityLabel="Auto-paused. Still recording your position.">
+                Auto-paused
+              </Text>
+            </GlassSurface>
+          ) : null}
+
           {degradedSignal ? (
             // Never imply the track is accurate when the fixes are not — but
             // also never imply the run has stopped. Those are two different
@@ -209,6 +226,16 @@ export default function ActiveRunScreen() {
             accessibilityLabel={`Distance ${fmt.distance(distanceMeters)} ${fmt.unitSpoken}`}
           />
 
+          {/* Current pace gets its own line: it is the number a runner checks
+              mid-run, so it sits above the totals rather than sharing a row
+              with them (#36). Withheld, not guessed, until there is enough
+              recent movement to trust it. */}
+          <Metric
+            label="Current pace"
+            value={fmt.paceWithUnit(currentPaceMinPerKm)}
+            accessibilityLabel={fmt.paceSpoken(currentPaceMinPerKm)}
+          />
+
           <MetricRow>
             <Metric
               fill
@@ -221,16 +248,6 @@ export default function ActiveRunScreen() {
               label="Avg pace"
               value={fmt.paceWithUnit(paceMinPerKm)}
               accessibilityLabel={fmt.paceSpoken(paceMinPerKm)}
-            />
-            {/* Current pace over a trailing window (#37) — withheld, not
-                guessed, when there isn't enough recent movement to trust it;
-                `fmt.paceWithUnit(null)` already renders the same placeholder
-                average pace uses before the run has moved. */}
-            <Metric
-              fill
-              label="Current"
-              value={fmt.paceWithUnit(currentPaceMinPerKm)}
-              accessibilityLabel={`Current pace ${fmt.paceSpoken(currentPaceMinPerKm)}`}
             />
           </MetricRow>
 

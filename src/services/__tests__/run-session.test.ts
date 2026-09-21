@@ -805,3 +805,77 @@ describe('splitsFor (#41)', () => {
     expect(splitsFor([offset(0, 0)], [BASE_TIME], 1000)).toEqual([]);
   });
 });
+
+describe('auto-pause hysteresis (#38)', () => {
+  test('a runner moving steadily is never stationary', () => {
+    const state = feed(
+      [0, 1, 2, 3, 4].map((n) => sample({ coordinate: offset(0, n * 10), timestamp: BASE_TIME + n * 1000 })),
+    );
+    expect(state.stationary).toBe(false);
+  });
+
+  test('the first fix does not pause immediately', () => {
+    const state = applySample(createTrackerState(), sample({ coordinate: offset(0, 0) }), null, BASE_TIME + 1);
+    expect(state.stationary).toBe(false);
+    expect(state.lastMovementAt).toBe(BASE_TIME);
+  });
+
+  test('stopping for the dwell auto-pauses', () => {
+    const state = feed([
+      sample({ coordinate: offset(0, 0), timestamp: BASE_TIME }),
+      sample({ coordinate: offset(0, 0), timestamp: BASE_TIME + 5_000 }),
+      // 8s since the last movement: the dwell is reached.
+      sample({ coordinate: offset(0, 0), timestamp: BASE_TIME + 8_000 }),
+    ]);
+    expect(state.stationary).toBe(true);
+  });
+
+  test('a few seconds of standing still is not yet a stop', () => {
+    const state = feed([
+      sample({ coordinate: offset(0, 0), timestamp: BASE_TIME }),
+      sample({ coordinate: offset(0, 0), timestamp: BASE_TIME + 4_000 }),
+    ]);
+    expect(state.stationary).toBe(false);
+  });
+
+  test('moving again clears the pause', () => {
+    const paused = feed([
+      sample({ coordinate: offset(0, 0), timestamp: BASE_TIME }),
+      sample({ coordinate: offset(0, 0), timestamp: BASE_TIME + 8_000 }),
+    ]);
+    expect(paused.stationary).toBe(true);
+
+    const resumed = applySample(
+      paused,
+      sample({ coordinate: offset(0, 20), timestamp: BASE_TIME + 9_000 }),
+      null,
+      BASE_TIME + 9_001,
+    );
+    expect(resumed.stationary).toBe(false);
+    expect(resumed.lastMovementAt).toBe(BASE_TIME + 9_000);
+  });
+
+  test('a slow stride that keeps moving never flaps into pause', () => {
+    // Fixes hover around the movement threshold; every qualifying fix resets
+    // the dwell, so the runner is never treated as stopped.
+    const state = feed([
+      sample({ coordinate: offset(0, 0), timestamp: BASE_TIME }),
+      sample({ coordinate: offset(0, 6), timestamp: BASE_TIME + 3_000 }),
+      sample({ coordinate: offset(0, 9), timestamp: BASE_TIME + 9_000 }),
+      sample({ coordinate: offset(0, 15), timestamp: BASE_TIME + 16_000 }),
+    ]);
+    expect(state.stationary).toBe(false);
+  });
+
+  test('jitter alone never accumulates the dwell', () => {
+    // Each non-moving fix is interspersed with a real step, so the pause is
+    // never reached even though most fixes are within the jitter threshold.
+    const state = feed([
+      sample({ coordinate: offset(0, 0), timestamp: BASE_TIME }),
+      sample({ coordinate: offset(0, 0), timestamp: BASE_TIME + 5_000 }),
+      sample({ coordinate: offset(0, 10), timestamp: BASE_TIME + 6_000 }),
+      sample({ coordinate: offset(0, 10), timestamp: BASE_TIME + 12_000 }),
+    ]);
+    expect(state.stationary).toBe(false);
+  });
+});

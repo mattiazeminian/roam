@@ -46,6 +46,8 @@ export type RunSnapshot = {
   progressMeters: number;
   /** True while fixes are too imprecise to trust. */
   degradedSignal: boolean;
+  /** True while the runner has stopped long enough that the clock is held (#38). */
+  autoPaused: boolean;
   /** Latest accepted position, for the map marker. */
   position: Coordinate | null;
   /** True once the runner has covered most of the route and returned to the start. */
@@ -104,6 +106,7 @@ const EMPTY_SNAPSHOT: RunSnapshot = {
   track: [],
   progressMeters: 0,
   degradedSignal: false,
+  autoPaused: false,
   position: null,
   completionSuggested: false,
   offRoute: false,
@@ -127,6 +130,10 @@ export function RunProvider({ children }: { children: ReactNode }) {
   const startedAt = useRef(0);
   const pausedTotalMs = useRef(0);
   const pausedAt = useRef<number | null>(null);
+  /** Total time held by auto-pause (#38), excluded from active seconds. */
+  const autoPausedTotalMs = useRef(0);
+  /** When the current auto-pause began, or null when the runner is moving. */
+  const autoPausedAt = useRef<number | null>(null);
   /**
    * Bumped every time a subscription is torn down. A sample/error callback
    * captures the epoch current at its own creation and checks it before
@@ -189,13 +196,27 @@ export function RunProvider({ children }: { children: ReactNode }) {
     if (startedAt.current === 0) {
       return 0;
     }
-    const pausedSoFar =
-      pausedTotalMs.current + (pausedAt.current === null ? 0 : Date.now() - pausedAt.current);
-    return Math.max(0, (Date.now() - startedAt.current - pausedSoFar) / 1000);
+    const heldSoFar =
+      pausedTotalMs.current +
+      autoPausedTotalMs.current +
+      (pausedAt.current === null ? 0 : Date.now() - pausedAt.current) +
+      (autoPausedAt.current === null ? 0 : Date.now() - autoPausedAt.current);
+    return Math.max(0, (Date.now() - startedAt.current - heldSoFar) / 1000);
   }, []);
 
   const publish = useCallback(() => {
     const state = tracker.current;
+    // Auto-pause (#38): hold the clock while the tracker reports the runner
+    // stationary. The hysteresis lives in the tracker, so a slow stride never
+    // trips it; here it only decides when to start and stop holding time.
+    if (state.stationary) {
+      if (autoPausedAt.current === null) {
+        autoPausedAt.current = Date.now();
+      }
+    } else if (autoPausedAt.current !== null) {
+      autoPausedTotalMs.current += Date.now() - autoPausedAt.current;
+      autoPausedAt.current = null;
+    }
     const seconds = activeSecondsNow();
     setSnapshot({
       distanceMeters: state.distanceMeters,
@@ -205,6 +226,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       track: state.coordinates,
       progressMeters: state.progressMeters,
       degradedSignal: state.degradedSignal || trackingError.current,
+      autoPaused: autoPausedAt.current !== null,
       position: state.lastSample?.coordinate ?? null,
       completionSuggested: state.completionSuggested,
       offRoute: state.offRoute,
@@ -286,6 +308,8 @@ export function RunProvider({ children }: { children: ReactNode }) {
       startedAt.current = Date.now();
       pausedTotalMs.current = 0;
       pausedAt.current = null;
+      autoPausedTotalMs.current = 0;
+      autoPausedAt.current = null;
 
       checkpointTick.current = 0;
       setRoute(nextRoute);
@@ -303,6 +327,12 @@ export function RunProvider({ children }: { children: ReactNode }) {
   const pause = useCallback(() => {
     if (!canTransition(status, 'pause')) {
       return;
+    }
+    // A manual pause wins over auto-pause: fold whatever auto-pause had held
+    // into the total and clear it, so the two never double-count.
+    if (autoPausedAt.current !== null) {
+      autoPausedTotalMs.current += Date.now() - autoPausedAt.current;
+      autoPausedAt.current = null;
     }
     pausedAt.current = Date.now();
     // Suspending the subscription is what actually stops battery drain;
@@ -337,6 +367,10 @@ export function RunProvider({ children }: { children: ReactNode }) {
       return;
     }
     stopWatching();
+    if (autoPausedAt.current !== null) {
+      autoPausedTotalMs.current += Date.now() - autoPausedAt.current;
+      autoPausedAt.current = null;
+    }
     const state = tracker.current;
     const seconds = activeSecondsNow();
     const endedAt = Date.now();
@@ -369,6 +403,8 @@ export function RunProvider({ children }: { children: ReactNode }) {
     startedAt.current = 0;
     pausedTotalMs.current = 0;
     pausedAt.current = null;
+    autoPausedTotalMs.current = 0;
+    autoPausedAt.current = null;
     setSnapshot(EMPTY_SNAPSHOT);
     setRoute(null);
     setTargetKm(0);
@@ -408,6 +444,8 @@ export function RunProvider({ children }: { children: ReactNode }) {
     startedAt.current = Date.now() - run.durationSeconds * 1000;
     pausedTotalMs.current = 0;
     pausedAt.current = null;
+    autoPausedTotalMs.current = 0;
+    autoPausedAt.current = null;
     checkpointTick.current = 0;
 
     setRoute(run.route);
@@ -422,6 +460,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       track: tracker.current.coordinates,
       progressMeters: 0,
       degradedSignal: false,
+      autoPaused: false,
       position: tracker.current.coordinates.at(-1) ?? null,
       completionSuggested: false,
       offRoute: false,

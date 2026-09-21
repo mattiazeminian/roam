@@ -41,28 +41,32 @@ export default function HistoryScreen() {
   const fmt = useFormatters();
   const [runs, setRuns] = useState<SavedRun[] | null>(null);
   const [period, setPeriod] = useState<RunPeriod>('all');
+  const [loadFailed, setLoadFailed] = useState(false);
   // Captured when the list loads rather than during render: reading the clock
   // in render is impure, and the period boundary only needs to be stable for
   // as long as the list on screen is.
   const [loadedAt, setLoadedAt] = useState(0);
 
   // Reload on focus so a run saved moments ago is already here.
+  const load = useCallback(() => {
+    setLoadFailed(false);
+    return listRuns()
+      .then((stored) => {
+        setRuns(stored);
+        setLoadedAt(Date.now());
+      })
+      .catch(() => {
+        // A storage read can fail; say so and offer a retry rather than
+        // silently showing an empty history as if there were no runs (#51).
+        setLoadFailed(true);
+        setRuns(null);
+      });
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      let active = true;
-      const settle = (stored: SavedRun[]) => {
-        if (active) {
-          setRuns(stored);
-          setLoadedAt(Date.now());
-        }
-      };
-      void listRuns()
-        .then(settle)
-        .catch(() => settle([]));
-      return () => {
-        active = false;
-      };
-    }, []),
+      void load();
+    }, [load]),
   );
 
   const now = loadedAt;
@@ -169,7 +173,13 @@ export default function HistoryScreen() {
         ItemSeparatorComponent={() => <Divider />}
         renderItem={({ item }) => <RunRow run={item} fmt={fmt} onRequestDelete={handleDelete} />}
         ListEmptyComponent={
-          filteredEmpty ? (
+          loadFailed ? (
+            <EmptyState
+              title="Couldn't load your runs"
+              body="Something went wrong reading this device's storage."
+              action={{ label: 'Try again', onPress: () => void load() }}
+            />
+          ) : filteredEmpty ? (
             <EmptyState
               title="Nothing in this period"
               body="No runs in the chosen period. Choose a longer one to see more."

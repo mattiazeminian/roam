@@ -10,9 +10,11 @@ import { MapControl } from '@/components/map-control';
 import { Metric, MetricRow } from '@/components/metric';
 import { ShareCard } from '@/components/share-card';
 import { Text } from '@/components/text';
+import { compareRunToRecent, type RecentComparison } from '@/services/run-analytics';
 import { useRun } from '@/services/run-context';
 import { runShareMessage } from '@/services/run-share';
 import { formatDuration, formatRunDate } from '@/services/run-session';
+import { listRuns } from '@/services/run-storage';
 import { useFormatters } from '@/services/settings-context';
 import { useTraining } from '@/services/training-context';
 import { layout, radii, spacing, useTheme } from '@/theme';
@@ -30,7 +32,28 @@ export default function RunSummaryScreen() {
   const { markWorkout } = useTraining();
   const fmt = useFormatters();
   const [saving, setSaving] = useState(false);
+  const [comparison, setComparison] = useState<RecentComparison | null>(null);
   const cardRef = useRef<View>(null);
+
+  // A light comparison against the runner's own recent, similar runs (#42).
+  // The just-finished run is not saved yet, so this is against prior runs
+  // only; if there are none comparable, nothing is shown.
+  useEffect(() => {
+    if (!completedRun) {
+      return;
+    }
+    let active = true;
+    void listRuns()
+      .then((runs) => {
+        if (active) {
+          setComparison(compareRunToRecent(completedRun, runs));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [completedRun]);
 
   // Nothing to summarize (a reload, or the run was already resolved).
   useEffect(() => {
@@ -152,6 +175,12 @@ export default function RunSummaryScreen() {
               accessibilityLabel={fmt.paceSpoken(completedRun.averagePaceMinPerKm)}
             />
           </MetricRow>
+
+          {comparisonSentence(comparison) ? (
+            <Text variant="caption" color="textSecondary">
+              {comparisonSentence(comparison)}
+            </Text>
+          ) : null}
         </View>
 
         {hasTrack ? (
@@ -188,6 +217,35 @@ export default function RunSummaryScreen() {
       </View>
     </View>
   );
+}
+
+/**
+ * A factual one-liner, or null when there is nothing worth saying. No
+ * performance or health claim: it states a difference against the runner's own
+ * runs and stops there (#42).
+ */
+function comparisonSentence(comparison: RecentComparison | null): string | null {
+  if (!comparison) {
+    return null;
+  }
+  const baseline = `your last ${comparison.comparedCount} similar ${
+    comparison.comparedCount === 1 ? 'run' : 'runs'
+  }`;
+
+  if (comparison.paceDeltaMinPerKm !== null) {
+    const seconds = Math.round(Math.abs(comparison.paceDeltaMinPerKm) * 60);
+    if (seconds >= 5) {
+      return `${seconds}s/km ${comparison.paceDeltaMinPerKm < 0 ? 'faster' : 'slower'} than ${baseline}`;
+    }
+  }
+
+  if (Math.abs(comparison.distanceDeltaKm) >= 0.1) {
+    return `${Math.abs(comparison.distanceDeltaKm).toFixed(1)} km ${
+      comparison.distanceDeltaKm > 0 ? 'longer' : 'shorter'
+    } than ${baseline}`;
+  }
+
+  return null;
 }
 
 const styles = StyleSheet.create({
