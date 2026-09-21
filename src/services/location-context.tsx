@@ -10,6 +10,7 @@ import {
 } from 'react';
 
 import * as location from './location';
+import { describeCoordinate } from './geocoding';
 import type { Coordinate } from './routing';
 import { useSettings } from './settings-context';
 
@@ -49,7 +50,11 @@ export type LocationContextValue = {
 
 const LocationContext = createContext<LocationContextValue | null>(null);
 
-/** Fixed product/demo origin. Run recording still uses live GPS in RunProvider. */
+/**
+ * Kept only as a last-resort coordinate for code paths that require one. The
+ * origin itself is the device position, never this: a run that started "from
+ * Lonigo, Italy" while the runner stands in London is a lie.
+ */
 export const DEFAULT_ORIGIN: OriginOverride = {
   label: 'Via San Giovanni 53, Lonigo, Vicenza, Italy',
   coordinate: { latitude: 45.389, longitude: 11.3816 },
@@ -67,7 +72,10 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   const [coordinate, setCoordinate] = useState<Coordinate | null>(null);
   const [override, setOverride] = useState<OriginOverride | null>(null);
   const [finish, setFinish] = useState<OriginOverride | null>(null);
+  /** Reverse-geocoded name of the device position, once we have one. */
+  const [deviceLabel, setDeviceLabel] = useState<string | null>(null);
   const subscription = useRef<location.LocationSubscription | null>(null);
+  const geocodeAttempted = useRef(false);
 
   const start = useCallback(async () => {
     setStatus('requesting');
@@ -117,12 +125,35 @@ export function LocationProvider({ children }: { children: ReactNode }) {
     };
   }, [start, onboardingComplete]);
 
+  // Name the runner's own position once, so the start reads as a place rather
+  // than a coordinate. Tried once; a failed lookup simply leaves the plain
+  // "Your current location" wording, and a chosen origin is never overwritten.
+  useEffect(() => {
+    if (override || !coordinate || geocodeAttempted.current) {
+      return;
+    }
+    geocodeAttempted.current = true;
+    let active = true;
+    void describeCoordinate(coordinate)
+      .then((name) => {
+        if (active && name) {
+          setDeviceLabel(name);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [coordinate, override]);
+
   const value = useMemo<LocationContextValue>(
     () => ({
       status,
       coordinate,
-      origin: override?.coordinate ?? DEFAULT_ORIGIN.coordinate,
-      originLabel: override?.label ?? DEFAULT_ORIGIN.label,
+      // The origin is the runner's own position unless they picked a place.
+      // It is never a hardcoded demo address.
+      origin: override?.coordinate ?? coordinate,
+      originLabel: override?.label ?? deviceLabel ?? 'Your current location',
       hasCustomOrigin: override !== null,
       setOrigin: setOverride,
       resetOrigin: () => setOverride(null),
@@ -133,7 +164,7 @@ export function LocationProvider({ children }: { children: ReactNode }) {
         void start();
       },
     }),
-    [status, coordinate, override, finish, start],
+    [status, coordinate, override, deviceLabel, finish, start],
   );
 
   return <LocationContext.Provider value={value}>{children}</LocationContext.Provider>;

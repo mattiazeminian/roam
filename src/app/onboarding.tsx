@@ -74,9 +74,8 @@ export default function OnboardingScreen() {
             Run somewhere new
           </Text>
           <Text variant="body" style={styles.lede}>
-            ROAM turns a goal into a week of running you can actually keep up with.
-            It does not need your history to start — it needs a goal and the days
-            you can run.
+            ROAM turns a goal into a week of running you can keep up with. No
+            history needed — just a goal and the days you can run.
           </Text>
         </View>
 

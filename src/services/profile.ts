@@ -87,7 +87,27 @@ export async function saveProfile(profile: Profile): Promise<void> {
   if (!file.exists) {
     file.create();
   }
-  file.write(JSON.stringify(parseProfile(profile)));
+  const stored = parseProfile(profile);
+  file.write(JSON.stringify(stored));
+  for (const listener of listeners) {
+    listener(stored);
+  }
+}
+
+type ProfileListener = (profile: Profile) => void;
+
+const listeners = new Set<ProfileListener>();
+
+/**
+ * Notified whenever the profile is saved, so a surface that mirrors it — the
+ * Profile tab's avatar, which would otherwise only refresh on relaunch —
+ * stays current while the app is running.
+ */
+export function subscribeToProfile(listener: ProfileListener): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 /**
