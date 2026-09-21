@@ -396,10 +396,9 @@ function MapboxCanvas({
  * One route on the map.
  *
  * Selection is carried by weight and opacity as well as color, so the chosen
- * route is still obvious without relying on hue. A casing in the map's own land
- * color sits under the line to separate it from the road network — the standard
- * cartographic treatment, and far cleaner on a dark map than the light-theme
- * halo this replaced.
+ * route is still obvious without relying on hue. A dark-green casing sits under
+ * the line to give the lime an edge against the light land — the route stays
+ * accented without the light halo this replaced. See docs/map-style.md.
  */
 function MapRouteLine({
   mapbox,
