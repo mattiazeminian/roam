@@ -280,7 +280,7 @@ const styles = StyleSheet.create({
   dayIcon: {
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: radii.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },

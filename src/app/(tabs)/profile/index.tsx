@@ -4,9 +4,14 @@ import { useCallback, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Appear } from '@/components/appear';
+import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
+import { Card } from '@/components/card';
+import { EmptyState } from '@/components/empty-state';
 import { FormSheet } from '@/components/form-sheet';
 import { MapControl } from '@/components/map-control';
+import { SectionHeader } from '@/components/section-header';
 import { Text } from '@/components/text';
 import { impactLight, selectionFeedback } from '@/lib/haptics';
 import { useAccount } from '@/services/account-context';
@@ -148,7 +153,7 @@ export default function ProfileScreen() {
           <MapControl
             symbol="gearshape"
             accessibilityLabel="Settings"
-            onPress={() => router.push('/settings')}
+            onPress={() => router.push('/profile/settings')}
           />
         </View>
 
@@ -187,7 +192,7 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        <View style={[styles.statsCard, { backgroundColor: theme.fill, borderColor: theme.borderSubtle }]}>
+        <Card style={styles.statsCard}>
           <StatBar
             items={[
               { label: 'Runs', value: overview.count === 0 ? '—' : String(overview.count) },
@@ -199,34 +204,40 @@ export default function ProfileScreen() {
               { label: 'Time', value: totalSeconds > 0 ? formatDuration(totalSeconds) : '—' },
             ]}
           />
-        </View>
+        </Card>
 
-        {runs !== null ? <WeekChart buckets={weekBuckets} todayKey={todayKey} fmt={fmt} /> : null}
+        {runs !== null ? (
+          <Appear>
+            <WeekChart buckets={weekBuckets} todayKey={todayKey} fmt={fmt} />
+          </Appear>
+        ) : null}
 
-        <View style={styles.sectionHeader}>
-          <Text variant="title">Recent runs</Text>
-          {overview.count > 0 ? (
-            <Pressable
-              onPress={() => router.push('/activity')}
-              accessibilityRole="button"
-              accessibilityLabel="See all runs"
-              hitSlop={spacing.sm}>
-              <Text variant="body" color="accentText">
-                See all
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
+        <SectionHeader
+          title="Recent runs"
+          emphasis="title"
+          style={styles.sectionHeader}
+          action={
+            overview.count > 0
+              ? {
+                  label: 'See all',
+                  accessibilityLabel: 'See all runs',
+                  onPress: () => router.push('/profile/history'),
+                }
+              : undefined
+          }
+        />
 
         {recent.length === 0 ? (
-          <Text variant="body" color="textSecondary">
-            No runs yet. Start one from Home and it will appear here.
-          </Text>
+          <EmptyState
+            align="start"
+            title="No runs yet"
+            body="Start one from Home and it will appear here."
+          />
         ) : (
           recent.map((run) => (
             <Pressable
               key={run.id}
-              onPress={() => router.push({ pathname: '/run-detail', params: { id: run.id } })}
+              onPress={() => router.push({ pathname: '/profile/run-detail', params: { id: run.id } })}
               accessibilityRole="button"
               accessibilityLabel={`${formatRunDate(run.startedAt)}, ${fmt.distance(run.distanceKm * 1000)} ${fmt.unitSpoken}`}
               style={({ pressed }) => [styles.runRow, pressed && styles.pressed]}>
@@ -245,23 +256,23 @@ export default function ProfileScreen() {
           ))
         )}
 
-        <View style={styles.sectionHeader}>
-          <Text variant="title">My shoes</Text>
-          <Pressable
-            onPress={() => setEditor('shoe')}
-            accessibilityRole="button"
-            accessibilityLabel="Add a shoe"
-            hitSlop={spacing.sm}>
-            <Text variant="body" color="accentText">
-              Add
-            </Text>
-          </Pressable>
-        </View>
+        <SectionHeader
+          title="My shoes"
+          emphasis="title"
+          style={styles.sectionHeader}
+          action={{
+            label: 'Add',
+            accessibilityLabel: 'Add a shoe',
+            onPress: () => setEditor('shoe'),
+          }}
+        />
 
         {shoes.length === 0 ? (
-          <Text variant="body" color="textSecondary">
-            Add the shoes you run in to keep track of the distance in each pair.
-          </Text>
+          <EmptyState
+            align="start"
+            title="No shoes yet"
+            body="Add the shoes you run in to keep track of the distance in each pair."
+          />
         ) : (
           shoes.map((shoe) => (
             <ShoeCard
@@ -274,30 +285,32 @@ export default function ProfileScreen() {
           ))
         )}
 
-        <View style={styles.sectionHeader}>
-          <Text variant="title">Saved routes</Text>
-          {savedRoutes.length > 0 ? (
-            <Pressable
-              onPress={() => router.push('/favorites')}
-              accessibilityRole="button"
-              accessibilityLabel="See all saved routes"
-              hitSlop={spacing.sm}>
-              <Text variant="body" color="accentText">
-                See all
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
+        <SectionHeader
+          title="Saved routes"
+          emphasis="title"
+          style={styles.sectionHeader}
+          action={
+            savedRoutes.length > 0
+              ? {
+                  label: 'See all',
+                  accessibilityLabel: 'See all saved routes',
+                  onPress: () => router.push('/maps/favorites'),
+                }
+              : undefined
+          }
+        />
 
         {savedRoutes.length === 0 ? (
-          <Text variant="body" color="textSecondary">
-            Routes you save from Maps will appear here.
-          </Text>
+          <EmptyState
+            align="start"
+            title="No saved routes"
+            body="Routes you save from Maps will appear here."
+          />
         ) : (
           savedRoutes.map((saved) => (
             <Pressable
               key={saved.id}
-              onPress={() => router.push('/favorites')}
+              onPress={() => router.push('/maps/favorites')}
               accessibilityRole="button"
               accessibilityLabel={`${fmt.distance(saved.route.distanceKm * 1000)} ${fmt.unitSpoken} route`}
               style={({ pressed }) => [styles.runRow, pressed && styles.pressed]}>
@@ -313,9 +326,7 @@ export default function ProfileScreen() {
           ))
         )}
 
-        <View style={styles.sectionHeader}>
-          <Text variant="title">Account</Text>
-        </View>
+        <SectionHeader title="Account" emphasis="title" style={styles.sectionHeader} />
         <Text variant="body" color="textSecondary">
           {account
             ? `Signed in with Apple${account.email ? ` as ${account.email}` : ''}.`
@@ -326,7 +337,7 @@ export default function ProfileScreen() {
           variant="secondary"
           onPress={() => {
             impactLight();
-            router.push('/account');
+            router.push('/profile/account');
           }}
           style={styles.accountButton}
         />
@@ -452,7 +463,7 @@ function WeekChart({
   const total = buckets.reduce((sum, bucket) => sum + bucket.meters, 0);
 
   return (
-    <View style={[styles.weekCard, { backgroundColor: theme.fill, borderColor: theme.borderSubtle }]}>
+    <Card style={styles.weekCard}>
       <View style={styles.weekHeader}>
         <Text variant="micro" color="textSecondary">
           THIS WEEK
@@ -498,7 +509,7 @@ function WeekChart({
           );
         })}
       </View>
-    </View>
+    </Card>
   );
 }
 
@@ -519,40 +530,31 @@ function ShoeCard({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`${shoeName(shoe)}${shoe.retired ? ', retired' : ''}, ${fmt.distance(meters)} ${fmt.unitSpoken}. Edit shoe.`}
-      style={({ pressed }) => [
-        styles.shoeCard,
-        { backgroundColor: theme.fill, borderColor: theme.borderSubtle },
-        pressed && styles.pressed,
-      ]}>
-      <View style={[styles.shoeTile, { backgroundColor: theme.background }]}>
-        <SymbolView name="shoeprints.fill" size={layout.iconSize} tintColor={theme.textSecondary} />
-      </View>
-      <View style={styles.shoeText}>
-        <View style={styles.shoeNameRow}>
-          <Text variant="body" numberOfLines={1}>
-            {shoeName(shoe)}
-          </Text>
-          {shoe.retired ? (
-            <Text
-              variant="micro"
-              color="textSecondary"
-              style={[styles.shoeBadge, { backgroundColor: theme.background }]}>
-              RETIRED
-            </Text>
-          ) : null}
+      style={({ pressed }) => [pressed && styles.pressed]}>
+      <Card padded={false} style={styles.shoeCard}>
+        <View style={[styles.shoeTile, { backgroundColor: theme.fill }]}>
+          <SymbolView name="shoeprints.fill" size={layout.iconSize} tintColor={theme.textSecondary} />
         </View>
-        <Text variant="caption" color="textSecondary" numberOfLines={1}>
-          {`${shoe.brand} ${shoe.model}`}
-        </Text>
-      </View>
-      <View style={styles.shoeMileage}>
-        <Text variant="title" color="accentText" tabular>
-          {fmt.distance(meters)}
-        </Text>
-        <Text variant="micro" color="textSecondary">
-          {fmt.unitLabel.toUpperCase()}
-        </Text>
-      </View>
+        <View style={styles.shoeText}>
+          <View style={styles.shoeNameRow}>
+            <Text variant="body" numberOfLines={1}>
+              {shoeName(shoe)}
+            </Text>
+            {shoe.retired ? <Badge>RETIRED</Badge> : null}
+          </View>
+          <Text variant="caption" color="textSecondary" numberOfLines={1}>
+            {`${shoe.brand} ${shoe.model}`}
+          </Text>
+        </View>
+        <View style={styles.shoeMileage}>
+          <Text variant="title" color="accentText" tabular>
+            {fmt.distance(meters)}
+          </Text>
+          <Text variant="micro" color="textSecondary">
+            {fmt.unitLabel.toUpperCase()}
+          </Text>
+        </View>
+      </Card>
     </Pressable>
   );
 }
@@ -580,7 +582,7 @@ const styles = StyleSheet.create({
   avatar: {
     width: 72,
     height: 72,
-    borderRadius: 36,
+    borderRadius: radii.pill,
   },
   avatarFallback: {
     alignItems: 'center',
@@ -602,14 +604,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
     padding: spacing.sm,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radii.medium,
-    borderCurve: 'continuous',
   },
   shoeTile: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: radii.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -622,22 +621,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
   },
-  shoeBadge: {
-    paddingHorizontal: spacing.xs,
-    paddingVertical: 1,
-    borderRadius: 4,
-    letterSpacing: 0.5,
-    overflow: 'hidden',
-  },
   shoeMileage: {
     alignItems: 'flex-end',
     gap: 1,
   },
   statsCard: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radii.medium,
-    borderCurve: 'continuous',
-    padding: spacing.md,
     marginTop: spacing.md,
   },
   statBar: {
@@ -654,10 +642,6 @@ const styles = StyleSheet.create({
     gap: spacing.xxs,
   },
   weekCard: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radii.medium,
-    borderCurve: 'continuous',
-    padding: spacing.md,
     gap: spacing.sm,
     marginTop: spacing.sm,
   },
@@ -681,15 +665,12 @@ const styles = StyleSheet.create({
   },
   bar: {
     width: 16,
-    borderRadius: 4,
+    borderRadius: radii.xs,
   },
   todayLetter: {
     fontWeight: '600',
   },
   sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     marginTop: spacing.lg,
     marginBottom: spacing.xs,
   },

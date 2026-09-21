@@ -102,7 +102,7 @@ export default function MapsScreen() {
           <Button
             label="My routes"
             variant="secondary"
-            onPress={() => router.push('/favorites')}
+            onPress={() => router.push('/maps/favorites')}
           />
         ) : null}
       </View>

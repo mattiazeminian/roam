@@ -60,7 +60,7 @@ const BUILD_STEPS = [
   'Reading your recent runs',
   'Laying out your week',
   'Placing the long run',
-  'Spacing the hard sessions',
+  'Spacing the hard workouts',
   'Working out your distances',
 ];
 
@@ -285,8 +285,9 @@ export default function PlanScreen() {
         ) : null}
 
         <Text variant="caption" color="textSecondary" style={styles.note}>
-          Roam builds the week from what you choose here — the days you pick, that many sessions, one
-          long run. It never prescribes heart-rate zones, calorie targets or times it cannot know.
+          Roam builds the week from what you choose here — the days you pick, that many workouts,
+          one long run. It never prescribes heart-rate zones, calorie targets or times it cannot
+          know.
         </Text>
       </ScrollView>
 
@@ -334,7 +335,7 @@ function PlanOverview({ onEdit }: { onEdit: () => void }) {
         <Text variant="micro" color="textSecondary">YOUR DIRECTION</Text>
         <Text variant="hero">{planGoalLabel(plan)}</Text>
         <Text variant="body" color="textSecondary">{`${plan.runsPerWeek} runs each week · ${plan.level} starting point`}</Text>
-        <View style={styles.overviewRule} />
+        <View style={[styles.overviewRule, { backgroundColor: theme.track }]} />
         <View style={styles.overviewHeading}><Text variant="title">This week</Text><Text variant="caption" color="textSecondary" tabular>{`${progress.completed} of ${progress.planned} complete`}</Text></View>
         <View style={styles.overviewTimeline}>
           {days.map((date) => {
@@ -343,9 +344,9 @@ function PlanOverview({ onEdit }: { onEdit: () => void }) {
             return <View key={date} style={styles.overviewDay}><Text variant="caption" color={isToday ? 'accentText' : 'textSecondary'}>{new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'narrow' })}</Text><View style={[styles.overviewMark, { backgroundColor: workout?.status === 'completed' ? theme.accent : workout ? theme.fill : theme.background, borderColor: isToday ? theme.accent : theme.divider }]}>{workout ? <WorkoutIcon type={workout.type} size={16} tintColor={workout.status === 'completed' ? theme.accentForeground : theme.textSecondary} /> : null}</View>{workout ? <Text variant="micro" color="textSecondary">{workout.targetKm}</Text> : null}</View>;
           })}
         </View>
-        <View style={styles.overviewRule} />
+        <View style={[styles.overviewRule, { backgroundColor: theme.track }]} />
         <Text variant="title">The week ahead</Text>
-        {state.workouts.filter((workout) => workout.date >= today).slice(0, 4).map((workout) => <View key={workout.id} style={styles.overviewWorkout}><WorkoutIcon type={workout.type} size={20} tintColor={theme.textSecondary} /><View style={styles.overviewWorkoutCopy}><Text variant="body">{WORKOUT_LABELS[workout.type]}</Text><Text variant="caption" color="textSecondary">{workout.date} · {workout.targetKm} km</Text></View><Text variant="caption" color="textSecondary">{workout.status}</Text></View>)}
+        {state.workouts.filter((workout) => workout.date >= today).slice(0, 4).map((workout) => <View key={workout.id} style={[styles.overviewWorkout, { borderBottomColor: theme.track }]}><WorkoutIcon type={workout.type} size={20} tintColor={theme.textSecondary} /><View style={styles.overviewWorkoutCopy}><Text variant="body">{WORKOUT_LABELS[workout.type]}</Text><Text variant="caption" color="textSecondary">{workout.date} · {workout.targetKm} km</Text></View><Text variant="caption" color="textSecondary">{workout.status}</Text></View>)}
         <Button label="Edit plan" variant="accent" onPress={onEdit} />
         <Button label="Edit schedule" variant="secondary" onPress={() => router.push('/schedule')} />
       </ScrollView>
@@ -473,7 +474,6 @@ const styles = StyleSheet.create({
   },
   overviewRule: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: '#D9DDD6',
     marginVertical: spacing.sm,
   },
   overviewHeading: {
@@ -494,7 +494,7 @@ const styles = StyleSheet.create({
   overviewMark: {
     width: 34,
     height: 34,
-    borderRadius: 17,
+    borderRadius: radii.pill,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -505,7 +505,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#D9DDD6',
   },
   overviewWorkoutCopy: {
     flex: 1,

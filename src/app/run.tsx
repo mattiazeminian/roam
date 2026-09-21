@@ -13,10 +13,13 @@ import { Metric, MetricRow } from '@/components/metric';
 import { ControlPanel } from '@/components/control-panel';
 import { SlideToConfirm } from '@/components/slide-to-confirm';
 import { Text } from '@/components/text';
+import { WorkoutIcon } from '@/components/workout-icon';
 import { cumulativeDistances, sliceAlongPath } from '@/services/geo';
 import { useRun } from '@/services/run-context';
 import { compassDirection, formatDuration } from '@/services/run-session';
 import { useFormatters } from '@/services/settings-context';
+import { WORKOUT_LABELS } from '@/services/training';
+import { useTraining } from '@/services/training-context';
 import { layout, radii, spacing, useTheme } from '@/theme';
 
 /**
@@ -32,6 +35,7 @@ export default function ActiveRunScreen() {
   const {
     status,
     route,
+    plannedWorkoutId,
     distanceMeters,
     activeSeconds,
     paceMinPerKm,
@@ -51,8 +55,15 @@ export default function ActiveRunScreen() {
   } = useRun();
 
   const fmt = useFormatters();
+  const { state: training } = useTraining();
   const [recenterSignal, setRecenterSignal] = useState(0);
   const [followBroken, setFollowBroken] = useState(false);
+
+  // The planned workout this run was started from, if any — so the runner can
+  // see what they set out to do, not just what they are doing (#116).
+  const plannedWorkout = plannedWorkoutId
+    ? training.workouts.find((workout) => workout.id === plannedWorkoutId) ?? null
+    : null;
 
   // This screen is only ever mounted while a run is active or paused (see the
   // redirect below), so keeping the screen awake for its whole lifetime is
@@ -119,6 +130,21 @@ export default function ActiveRunScreen() {
         ]}
         pointerEvents="box-none">
         <View style={styles.status}>
+          {plannedWorkout ? (
+            <GlassSurface radius={radii.pill} style={styles.pill}>
+              <WorkoutIcon
+                type={plannedWorkout.type}
+                size={layout.iconSizeSmall}
+                tintColor={theme.text}
+              />
+              <Text variant="micro" color="text">
+                {`${WORKOUT_LABELS[plannedWorkout.type]} · ${fmt.distance(
+                  plannedWorkout.targetKm * 1000,
+                )} ${fmt.unitLabel}`}
+              </Text>
+            </GlassSurface>
+          ) : null}
+
           {isPaused ? (
             <GlassSurface radius={radii.pill} style={styles.pill}>
               <View style={[styles.dot, { backgroundColor: theme.textSecondary }]} />

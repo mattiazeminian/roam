@@ -176,6 +176,24 @@ describe('in-progress checkpoint (#11)', () => {
   });
 });
 
+describe('planned workout link (#116)', () => {
+  test('a run started from a planned workout keeps the link', async () => {
+    await saveRun(run({ plannedWorkoutId: 'workout-7' }));
+    const loaded = await getRun('run-1');
+    expect(loaded?.plannedWorkoutId).toBe('workout-7');
+  });
+
+  test('a free run has no planned workout, and older runs still load', async () => {
+    await saveRun(run());
+    expect((await getRun('run-1'))?.plannedWorkoutId).toBeUndefined();
+
+    const legacy = run({ id: 'legacy' });
+    delete legacy.plannedWorkoutId;
+    await saveRun(legacy);
+    expect((await getRun('legacy'))?.distanceKm).toBe(1.2);
+  });
+});
+
 describe('timed track (#32)', () => {
   test('fix times round-trip with the track', async () => {
     const timestamps = [1_700_000_000_000, 1_700_000_010_000];

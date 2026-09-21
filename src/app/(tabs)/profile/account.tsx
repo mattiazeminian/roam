@@ -1,14 +1,13 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-import { SymbolView } from 'expo-symbols';
 
 import { Button } from '@/components/button';
 import { MapControl } from '@/components/map-control';
 import { Metric, MetricRow } from '@/components/metric';
+import { Row } from '@/components/row';
 import { Text } from '@/components/text';
 import { useAccount } from '@/services/account-context';
 import { loadProfile, saveProfile, DEFAULT_PROFILE, type Profile } from '@/services/profile';
@@ -111,20 +110,12 @@ export default function AccountScreen() {
           </MetricRow>
         ) : null}
 
-        <Pressable
-          onPress={() => router.push('/favorites')}
-          accessibilityRole="button"
+        <Row
+          label="Favorite routes"
+          showChevron
+          onPress={() => router.push('/maps/favorites')}
           accessibilityLabel="Favorite routes"
-          style={({ pressed }) => [
-            styles.favoritesRow,
-            { borderColor: theme.borderSubtle },
-            pressed && styles.pressed,
-          ]}>
-          <Text variant="body" color="text">
-            Favorite routes
-          </Text>
-          <SymbolView name="chevron.right" size={layout.iconSizeSmall} tintColor={theme.textSecondary} />
-        </Pressable>
+        />
       </View>
 
       {account ? (
@@ -203,16 +194,6 @@ const styles = StyleSheet.create({
     minHeight: layout.minTouchTarget,
     borderBottomWidth: StyleSheet.hairlineWidth,
     fontSize: 17,
-  },
-  favoritesRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: layout.minTouchTarget,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  pressed: {
-    opacity: 0.6,
   },
   action: {
     alignSelf: 'flex-start',

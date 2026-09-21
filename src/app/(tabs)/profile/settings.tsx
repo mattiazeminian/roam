@@ -5,8 +5,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Card } from '@/components/card';
 import { Divider } from '@/components/divider';
 import { MapControl } from '@/components/map-control';
+import { Row } from '@/components/row';
+import { SectionHeader } from '@/components/section-header';
 import { Text } from '@/components/text';
 import { Wordmark } from '@/components/wordmark';
 import { errorFeedback, impactLight, selectionFeedback } from '@/lib/haptics';
@@ -156,7 +159,22 @@ export default function SettingsScreen() {
           </Text>
         </View>
 
-        <Section title="Units">
+        <Section title="Account">
+          <Row
+            label={account ? (account.name ?? 'Signed in with Apple') : 'Sign in with Apple'}
+            showChevron
+            onPress={() => router.push('/profile/account')}
+            accessibilityLabel={
+              account
+                ? `Account, signed in as ${account.name ?? account.email ?? 'Apple user'}. Manage account.`
+                : 'Sign in with Apple'
+            }
+          />
+        </Section>
+
+        <Section
+          title="Running"
+          footer="Typical pace is used to estimate how long a route will take. Routing only reports walking times, which are far too slow for a run.">
           <View style={styles.segment}>
             {(['km', 'mi'] as const).map((unit) => {
               const selected = settings.unit === unit;
@@ -178,89 +196,63 @@ export default function SettingsScreen() {
               );
             })}
           </View>
-        </Section>
-
-        <Section
-          title="Typical pace"
-          footer="Used to estimate how long a route will take. Routing only reports walking times, which are far too slow for a run.">
-          <View style={styles.row}>
-            <Text
-              variant="display"
-              color="accentText"
-              tabular
-              accessibilityLabel={`Typical pace ${paceMinutes} minutes ${paceSeconds} seconds per ${settings.unit === 'mi' ? 'mile' : 'kilometer'}`}>
+          <Divider />
+          <Row
+            accessibilityLabel={`Typical pace ${paceMinutes} minutes ${paceSeconds} seconds per ${settings.unit === 'mi' ? 'mile' : 'kilometer'}`}
+            trailing={
+              <View style={styles.steppers}>
+                <Stepper
+                  symbol="minus"
+                  accessibilityLabel="Faster pace"
+                  onPress={() => adjustPace(-PACE_STEP)}
+                  disabled={settings.typicalPaceMinPerKm <= MIN_PACE_MIN_PER_KM}
+                />
+                <Stepper
+                  symbol="plus"
+                  accessibilityLabel="Slower pace"
+                  onPress={() => adjustPace(PACE_STEP)}
+                  disabled={settings.typicalPaceMinPerKm >= MAX_PACE_MIN_PER_KM}
+                />
+              </View>
+            }>
+            <Text variant="display" color="accentText" tabular>
               {`${paceMinutes}'${paceSeconds.toString().padStart(2, '0')}"`}
             </Text>
             <Text variant="body" color="textSecondary" style={styles.rowUnit}>
               {`/${formatters.unitLabel}`}
             </Text>
-
-            <View style={styles.spacer} />
-
-            <Stepper
-              symbol="minus"
-              accessibilityLabel="Faster pace"
-              onPress={() => adjustPace(-PACE_STEP)}
-              disabled={settings.typicalPaceMinPerKm <= MIN_PACE_MIN_PER_KM}
-            />
-            <Stepper
-              symbol="plus"
-              accessibilityLabel="Slower pace"
-              onPress={() => adjustPace(PACE_STEP)}
-              disabled={settings.typicalPaceMinPerKm >= MAX_PACE_MIN_PER_KM}
-            />
-          </View>
+          </Row>
         </Section>
 
-        <Section title="Saved runs">
-          <View style={styles.row}>
-            <Text variant="body">
-              {runCount === null
+        <Section title="Data">
+          <Row
+            label={
+              runCount === null
                 ? 'Counting…'
                 : runCount === 0
                   ? 'No runs saved'
-                  : `${runCount} ${runCount === 1 ? 'run' : 'runs'} on this device`}
-            </Text>
-          </View>
+                  : `${runCount} ${runCount === 1 ? 'run' : 'runs'} on this device`
+            }
+          />
+          <Divider />
+          <Row
+            label={exporting ? 'Preparing export…' : 'Export runs (.gpx)'}
+            labelColor="accentText"
+            onPress={() => void handleExport()}
+            accessibilityLabel="Export saved runs as a GPX file"
+          />
           {runCount ? (
             <>
               <Divider />
-              <Pressable
+              <Row
+                label="Delete all runs"
+                destructive
                 onPress={handleDeleteAll}
-                accessibilityRole="button"
                 accessibilityLabel="Delete all saved runs"
-                style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
-                <Text variant="body" color="accentText">
-                  Delete all runs
-                </Text>
-              </Pressable>
+              />
             </>
           ) : null}
-        </Section>
-
-        <Section title="Account">
-          <Pressable
-            onPress={() => router.push('/account')}
-            accessibilityRole="button"
-            accessibilityLabel={
-              account
-                ? `Account, signed in as ${account.name ?? account.email ?? 'Apple user'}. Manage account.`
-                : 'Sign in with Apple'
-            }
-            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
-            <Text variant="body">
-              {account ? (account.name ?? 'Signed in with Apple') : 'Sign in with Apple'}
-            </Text>
-            <View style={styles.spacer} />
-            <SymbolView
-              name="chevron.right"
-              size={layout.iconSizeSmall}
-              tintColor={theme.textSecondary}
-            />
-          </Pressable>
-        </Section>
-
-        <Section title="Your data">
+          <Divider />
           <View style={styles.aboutBlock}>
             <Text variant="caption" color="textSecondary">
               Your runs, saved routes and preferences are stored on this device. Generating a route
@@ -268,37 +260,27 @@ export default function SettingsScreen() {
               leaves the phone, and no account is required.
             </Text>
           </View>
-          <Divider />
-          <Pressable
-            onPress={() => void handleExport()}
-            accessibilityRole="button"
-            accessibilityLabel="Export saved runs as a GPX file"
-            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
-            <Text variant="body" color="accentText">
-              {exporting ? 'Preparing export…' : 'Export runs (.gpx)'}
-            </Text>
-          </Pressable>
         </Section>
 
         <Section title="About">
           <View style={styles.brandRow}>
             <Image
-              source={require('../../assets/images/mark-green.png')}
+              source={require('../../../../assets/images/mark-green.png')}
               style={styles.brandMark}
               accessibilityIgnoresInvertColors
             />
             <Wordmark />
           </View>
           <Divider />
-          <View style={styles.row}>
-            <Text variant="body" color="textSecondary">
-              Version
-            </Text>
-            <View style={styles.spacer} />
-            <Text variant="body" color="textSecondary" tabular>
-              {Constants.expoConfig?.version ?? '—'}
-            </Text>
-          </View>
+          <Row
+            label="Version"
+            labelColor="textSecondary"
+            trailing={
+              <Text variant="body" color="textSecondary" tabular>
+                {Constants.expoConfig?.version ?? '—'}
+              </Text>
+            }
+          />
           <Divider />
           <View style={styles.aboutBlock}>
             <Text variant="caption" color="textSecondary">
@@ -321,13 +303,12 @@ function Section({
   footer?: string;
   children: React.ReactNode;
 }) {
-  const theme = useTheme();
   return (
     <View style={styles.section}>
-      <Text variant="micro" color="textSecondary">
-        {title}
-      </Text>
-      <View style={[styles.card, { backgroundColor: theme.surface }]}>{children}</View>
+      <SectionHeader title={title} />
+      <Card padded={false} style={styles.cardBody}>
+        {children}
+      </Card>
       {footer ? (
         <Text variant="caption" color="textSecondary" style={styles.footer}>
           {footer}
@@ -392,27 +373,15 @@ const styles = StyleSheet.create({
   section: {
     gap: spacing.xs,
   },
-  card: {
-    borderRadius: radii.medium,
-    borderCurve: 'continuous',
+  cardBody: {
     paddingHorizontal: spacing.md,
-    overflow: 'hidden',
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: layout.minTouchTarget + spacing.xs,
-    paddingVertical: spacing.xs,
-    gap: spacing.xxs,
-  },
-  rowPressed: {
-    opacity: 0.6,
   },
   rowUnit: {
     paddingBottom: spacing.xxs,
   },
-  spacer: {
-    flex: 1,
+  steppers: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   segment: {
     flexDirection: 'row',

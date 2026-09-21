@@ -72,7 +72,7 @@ export function HoldButton({
           ? 'text'
           : 'textSecondary';
   const fillColor = variant === 'accent' ? theme.accentPressed : theme.accent;
-  const trackColor = variant === 'accent' ? 'rgba(22, 51, 0, 0.16)' : theme.borderSubtle;
+  const trackColor = variant === 'accent' ? theme.accentTrack : theme.borderSubtle;
 
   const finish = () => {
     successFeedback();

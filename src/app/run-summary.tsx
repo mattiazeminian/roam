@@ -14,6 +14,7 @@ import { useRun } from '@/services/run-context';
 import { runShareMessage } from '@/services/run-share';
 import { formatDuration, formatRunDate } from '@/services/run-session';
 import { useFormatters } from '@/services/settings-context';
+import { useTraining } from '@/services/training-context';
 import { layout, radii, spacing, useTheme } from '@/theme';
 
 /**
@@ -26,6 +27,7 @@ export default function RunSummaryScreen() {
   const insets = useSafeAreaInsets();
   const theme = useTheme();
   const { completedRun, saveCompleted, discardCompleted } = useRun();
+  const { markWorkout } = useTraining();
   const fmt = useFormatters();
   const [saving, setSaving] = useState(false);
   const cardRef = useRef<View>(null);
@@ -42,14 +44,23 @@ export default function RunSummaryScreen() {
       return;
     }
     setSaving(true);
+    // Captured before `saveCompleted` resets the session. A run started from a
+    // planned workout links back to it once it is saved (#116).
+    const plannedWorkoutId = completedRun?.plannedWorkoutId;
+    const runId = completedRun?.id;
     try {
       await saveCompleted();
-      router.replace('/activity');
+      if (plannedWorkoutId && runId) {
+        // The run is already saved; failing to update the plan must not undo
+        // that, so this is best-effort.
+        await markWorkout(plannedWorkoutId, 'completed', runId).catch(() => {});
+      }
+      router.replace('/profile/history');
     } catch {
       setSaving(false);
       Alert.alert('Could not save run', 'The run could not be written to this device.');
     }
-  }, [saveCompleted, saving]);
+  }, [completedRun, markWorkout, saveCompleted, saving]);
 
   const handleDiscard = useCallback(() => {
     Alert.alert('Discard this run?', 'The recorded run will not be saved.', [

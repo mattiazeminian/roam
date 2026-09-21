@@ -121,6 +121,10 @@ function parseRun(value: unknown): SavedRun | null {
     timestamps: parseTimestamps(run.timestamps),
     status,
     shoeId: typeof run.shoeId === 'string' && run.shoeId.length > 0 ? run.shoeId : undefined,
+    plannedWorkoutId:
+      typeof run.plannedWorkoutId === 'string' && run.plannedWorkoutId.length > 0
+        ? run.plannedWorkoutId
+        : undefined,
   };
 }
 

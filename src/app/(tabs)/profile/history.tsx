@@ -3,8 +3,8 @@ import { useCallback, useState } from 'react';
 import { Alert, FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button } from '@/components/button';
 import { Divider } from '@/components/divider';
+import { EmptyState } from '@/components/empty-state';
 import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
 import {
@@ -116,7 +116,7 @@ export default function HistoryScreen() {
               <MapControl
                 symbol="gearshape"
                 accessibilityLabel="Settings"
-                onPress={() => router.push('/settings')}
+                onPress={() => router.push('/profile/settings')}
               />
             </View>
             <Text variant="large" style={styles.title}>
@@ -170,25 +170,16 @@ export default function HistoryScreen() {
         renderItem={({ item }) => <RunRow run={item} fmt={fmt} onRequestDelete={handleDelete} />}
         ListEmptyComponent={
           filteredEmpty ? (
-            <View style={styles.empty}>
-              <Text variant="title">Nothing in this period</Text>
-              <Text variant="body" color="textSecondary" style={styles.emptyBody}>
-                No runs in the chosen period. Choose a longer one to see more.
-              </Text>
-            </View>
+            <EmptyState
+              title="Nothing in this period"
+              body="No runs in the chosen period. Choose a longer one to see more."
+            />
           ) : runs !== null && runs.length === 0 ? (
-            <View style={styles.empty}>
-              <Text variant="title">No runs yet</Text>
-              <Text variant="body" color="textSecondary" style={styles.emptyBody}>
-                Runs you save will appear here, with the route you actually took.
-              </Text>
-              <Button
-                label="Find a route"
-                variant="accent"
-                onPress={() => router.back()}
-                style={styles.cta}
-              />
-            </View>
+            <EmptyState
+              title="No runs yet"
+              body="Runs you save will appear here, with the route you actually took."
+              action={{ label: 'Find a route', onPress: () => router.back() }}
+            />
           ) : null
         }
       />
@@ -291,7 +282,7 @@ function RunRow({
 
   return (
     <Pressable
-      onPress={() => router.push({ pathname: '/run-detail', params: { id: run.id } })}
+      onPress={() => router.push({ pathname: '/profile/run-detail', params: { id: run.id } })}
       onLongPress={() => onRequestDelete(run)}
       accessibilityRole="button"
       accessibilityLabel={`${formatRunDate(run.startedAt)}, ${distance} ${fmt.unitSpoken}, ${duration}, ${fmt.paceSpoken(run.averagePaceMinPerKm)}`}
@@ -392,17 +383,5 @@ const styles = StyleSheet.create({
   rowSecondary: {
     alignItems: 'flex-end',
     gap: spacing.xxs,
-  },
-  empty: {
-    flex: 1,
-    justifyContent: 'center',
-    gap: spacing.sm,
-  },
-  emptyBody: {
-    maxWidth: 280,
-  },
-  cta: {
-    marginTop: spacing.md,
-    alignSelf: 'flex-start',
   },
 });

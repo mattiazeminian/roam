@@ -4,8 +4,8 @@ import { useCallback, useState } from 'react';
 import { Alert, FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button } from '@/components/button';
 import { Divider } from '@/components/divider';
+import { EmptyState } from '@/components/empty-state';
 import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
 import { impactLight, impactMedium, selectionFeedback } from '@/lib/haptics';
@@ -121,18 +121,11 @@ export default function FavoritesScreen() {
         )}
         ListEmptyComponent={
           isEmpty ? (
-            <View style={styles.empty}>
-              <Text variant="title">No saved routes</Text>
-              <Text variant="body" color="textSecondary" style={styles.emptyBody}>
-                Save a route from the map and it will be kept here, ready to run again.
-              </Text>
-              <Button
-                label="Find a route"
-                variant="accent"
-                onPress={() => router.back()}
-                style={styles.cta}
-              />
-            </View>
+            <EmptyState
+              title="No saved routes"
+              body="Save a route from the map and it will be kept here, ready to run again."
+              action={{ label: 'Find a route', onPress: () => router.back() }}
+            />
           ) : null
         }
       />
@@ -247,17 +240,5 @@ const styles = StyleSheet.create({
   remove: {
     minHeight: layout.minTouchTarget / 2,
     justifyContent: 'flex-end',
-  },
-  empty: {
-    flex: 1,
-    justifyContent: 'center',
-    gap: spacing.sm,
-  },
-  emptyBody: {
-    maxWidth: 280,
-  },
-  cta: {
-    marginTop: spacing.md,
-    alignSelf: 'flex-start',
   },
 });

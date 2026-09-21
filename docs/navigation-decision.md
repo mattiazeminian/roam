@@ -45,14 +45,41 @@ a light tab bar.
 
 ## Structure
 
-- `src/app/(tabs)/` — the four destinations, behind the tab bar.
-- `src/app/*` outside the group — flows that deliberately leave the shell:
-  `onboarding`, `routes` (route selection), `run`, `run-summary`,
-  `shared-route`, `location-search` (modal), and the browsing screens pushed
-  over the tabs (`history`, `favorites`, `run-detail`, `settings`, `account`).
+Each destination owns a nested stack (#119), so a secondary screen pushes
+*within* its tab and the tab bar stays visible. Tab state (the selected stack
+position) is preserved when switching tabs and back.
 
-## Open follow-up
+```
+src/app/
+  (tabs)/
+    _layout.tsx            NativeTabs: (home), maps, record, profile
+    (home)/                Home stack — index, plan (modal), schedule
+    maps/                  Routes stack — index, favorites
+    record/                Record stack — index
+    profile/               Profile stack — index, history, run-detail,
+                           settings, account
+  _layout.tsx              root stack
+  onboarding.tsx           full-screen first run
+  routes.tsx               full-screen route selection
+  run.tsx                  active run
+  run-summary.tsx          post-run
+  generate-route.tsx       full-screen route generation
+  generating.tsx           full-screen generation animation
+  shared-route.tsx         share-link entry
+  location-search.tsx      modal
+```
 
-Browsing screens pushed from the root stack cover the tab bar. Apple's own
-behaviour keeps the tab bar and pushes *within* the tab. Giving each tab its own
-nested stack is a follow-up, not part of the shell that shipped here.
+Home is a route group `(home)` so its URL stays `/`; `plan` and `schedule`
+live under it and keep `/plan` and `/schedule`. Activity is no longer a separate
+tab — it is the History screen under Profile. Record took the freed slot
+(#116).
+
+Flows that deliberately leave the shell: onboarding, route selection, route
+generation and its animation, the active run and its summary, share-link entry,
+and the location-search modal.
+
+## Follow-up
+
+- Deep links to the moved browsing screens now carry the tab prefix
+  (`/profile/settings`, `/maps/favorites`). Shared routes and interrupted-run
+  recovery are unaffected; they stay at the root.

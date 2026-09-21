@@ -39,6 +39,12 @@ export type SavedRun = {
   status: RunStatus;
   /** The shoe this run is attributed to, when the runner chose one. */
   shoeId?: string;
+  /**
+   * The planned workout this run was started from, when there was one (#116).
+   * Optional so older runs still load; saving a run with this set marks the
+   * planned workout completed and links it back.
+   */
+  plannedWorkoutId?: string;
 };
 
 /**

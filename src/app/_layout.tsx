@@ -27,9 +27,10 @@ SplashScreen.setOptions({ fade: true, duration: motion.mediumDuration });
  * The app shell.
  *
  * The four destinations live in the `(tabs)` group behind a native tab bar
- * (#113). Everything registered here is a flow that deliberately leaves that
- * shell: onboarding, route selection, the active run and its summary, and the
- * browsing screens pushed over the tabs.
+ * (#113), each with its own nested stack (#119). Everything registered here is
+ * a flow that deliberately leaves that shell: onboarding, route selection and
+ * generation, the active run and its summary, share-link entry, and the
+ * location-search modal.
  */
 export default function RootLayout() {
   const theme = useTheme();
@@ -86,14 +87,11 @@ export default function RootLayout() {
                     gestureEnabled: false,
                   }}
                 />
-                <Stack.Screen name="history" />
-                <Stack.Screen name="favorites" />
-                <Stack.Screen name="run-detail" />
-                <Stack.Screen name="settings" />
-                <Stack.Screen name="account" />
-                {/* A plan is created in a sheet, not a journey of its own. */}
-                <Stack.Screen name="plan" options={{ presentation: 'modal' }} />
-                <Stack.Screen name="schedule" />
+                {/* Route generation and selection are full-screen flows that
+                    deliberately leave the tab shell. Browsing screens —
+                    history, a run's detail, settings, the account screen and
+                    the saved-routes list — push within their tab instead
+                    (#119). */}
                 <Stack.Screen name="generate-route" />
                 <Stack.Screen name="generating" options={{ gestureEnabled: false, animation: 'fade', animationDuration: motion.mediumDuration }} />
                 {/* A route opened from a share link lands here, then hands off

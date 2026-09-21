@@ -62,9 +62,15 @@ export type RunContextValue = RunSnapshot & {
   status: RunSessionStatus;
   route: RouteCandidate | null;
   targetKm: number;
+  /** The planned workout this run was started from, when there was one. */
+  plannedWorkoutId: string | null;
   /** Set once a run is finished, until it is saved or discarded. */
   completedRun: SavedRun | null;
-  start: (route: RouteCandidate | null, targetKm: number) => void;
+  start: (
+    route: RouteCandidate | null,
+    targetKm: number,
+    plannedWorkoutId?: string | null,
+  ) => void;
   pause: () => void;
   resume: () => void;
   finish: () => void;
@@ -109,6 +115,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<RunSessionStatus>('idle');
   const [route, setRoute] = useState<RouteCandidate | null>(null);
   const [targetKm, setTargetKm] = useState(0);
+  const [plannedWorkoutId, setPlannedWorkoutId] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<RunSnapshot>(EMPTY_SNAPSHOT);
   const [completedRun, setCompletedRun] = useState<SavedRun | null>(null);
   const [recoverable, setRecoverable] = useState<SavedRun | null>(null);
@@ -225,8 +232,9 @@ export function RunProvider({ children }: { children: ReactNode }) {
       coordinates: state.coordinates,
       timestamps: state.timestamps,
       status: pausedAt.current === null ? 'active' : 'paused',
+      plannedWorkoutId: plannedWorkoutId ?? undefined,
     });
-  }, [activeSecondsNow, route, targetKm]);
+  }, [activeSecondsNow, plannedWorkoutId, route, targetKm]);
 
   // One timer drives the clock, flushes any accumulated GPS movement, and
   // periodically checkpoints — not on every tick; see CHECKPOINT_EVERY_N_PUBLISHES.
@@ -262,7 +270,11 @@ export function RunProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const start = useCallback(
-    (nextRoute: RouteCandidate | null, nextTargetKm: number) => {
+    (
+      nextRoute: RouteCandidate | null,
+      nextTargetKm: number,
+      nextPlannedWorkoutId: string | null = null,
+    ) => {
       if (!canTransition(status, 'start')) {
         // Unreachable today — `start` is legal from every state — but kept
         // so this callback consults the same table as every other one
@@ -278,6 +290,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       checkpointTick.current = 0;
       setRoute(nextRoute);
       setTargetKm(nextTargetKm);
+      setPlannedWorkoutId(nextPlannedWorkoutId);
       setCompletedRun(null);
       setRecoverable(null);
       setSnapshot(EMPTY_SNAPSHOT);
@@ -346,8 +359,9 @@ export function RunProvider({ children }: { children: ReactNode }) {
       coordinates: state.coordinates,
       timestamps: state.timestamps,
       status: 'finished',
+      plannedWorkoutId: plannedWorkoutId ?? undefined,
     });
-  }, [activeSecondsNow, publish, route, status, stopWatching, targetKm]);
+  }, [activeSecondsNow, plannedWorkoutId, publish, route, status, stopWatching, targetKm]);
 
   const reset = useCallback(() => {
     tracker.current = createTrackerState();
@@ -358,6 +372,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
     setSnapshot(EMPTY_SNAPSHOT);
     setRoute(null);
     setTargetKm(0);
+    setPlannedWorkoutId(null);
     setCompletedRun(null);
     setStatus('idle');
   }, []);
@@ -397,6 +412,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
 
     setRoute(run.route);
     setTargetKm(run.targetDistanceKm);
+    setPlannedWorkoutId(run.plannedWorkoutId ?? null);
     setCompletedRun(null);
     setSnapshot({
       distanceMeters: tracker.current.distanceMeters,
@@ -438,6 +454,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       status,
       route,
       targetKm,
+      plannedWorkoutId,
       completedRun,
       start,
       pause,
@@ -455,6 +472,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       status,
       route,
       targetKm,
+      plannedWorkoutId,
       completedRun,
       start,
       pause,

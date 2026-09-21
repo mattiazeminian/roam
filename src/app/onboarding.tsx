@@ -31,7 +31,7 @@ import {
   type TrainingLevel,
 } from '@/services/training';
 import { useTraining } from '@/services/training-context';
-import { layout, radii, spacing, useTheme } from '@/theme';
+import { layout, radii, setup, spacing, useTheme } from '@/theme';
 
 type Step =
   | 'welcome'
@@ -231,7 +231,7 @@ export default function OnboardingScreen() {
               value={name}
               onChangeText={setName}
               placeholder="Your name"
-              placeholderTextColor="rgba(14, 15, 12, 0.35)"
+              placeholderTextColor={setup.placeholder}
               autoFocus
               returnKeyType="done"
               maxLength={40}
@@ -640,7 +640,7 @@ const styles = StyleSheet.create({
     height: 34,
   },
   lede: {
-    color: 'rgba(14, 15, 12, 0.62)',
+    color: setup.textSecondary,
   },
   identityRow: {
     flexDirection: 'row',
@@ -650,10 +650,10 @@ const styles = StyleSheet.create({
   avatar: {
     width: 64,
     height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(22, 51, 0, 0.08)',
+    borderRadius: radii.pill,
+    backgroundColor: setup.fillStrong,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(14, 15, 12, 0.12)',
+    borderColor: setup.border,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -672,10 +672,10 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     paddingHorizontal: spacing.md,
     fontSize: 20,
-    color: 'rgba(14, 15, 12, 1)',
-    backgroundColor: 'rgba(22, 51, 0, 0.06)',
+    color: setup.text,
+    backgroundColor: setup.fill,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(14, 15, 12, 0.12)',
+    borderColor: setup.border,
   },
   chips: {
     flexDirection: 'row',
@@ -690,13 +690,13 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(22, 51, 0, 0.08)',
+    backgroundColor: setup.fillStrong,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(14, 15, 12, 0.10)',
+    borderColor: setup.borderSubtle,
   },
   chipOn: {
-    backgroundColor: '#CDF24B',
-    borderColor: '#CDF24B',
+    backgroundColor: setup.accent,
+    borderColor: setup.accent,
   },
   weekRow: {
     flexDirection: 'row',
@@ -710,7 +710,7 @@ const styles = StyleSheet.create({
   weekMark: {
     width: 32,
     height: 6,
-    borderRadius: 3,
+    borderRadius: radii.pill,
   },
   skip: {
     minHeight: layout.minTouchTarget,

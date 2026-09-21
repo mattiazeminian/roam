@@ -4,7 +4,7 @@ import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Text } from '@/components/text';
-import { layout, spacing, useTheme } from '@/theme';
+import { layout, radii, setup, spacing, useTheme } from '@/theme';
 
 const GRADIENT = require('../../assets/images/onboarding-gradient.png');
 
@@ -65,8 +65,7 @@ export function OnboardingShell({ step, total, onBack, children, footer }: Onboa
                 style={[
                   styles.segment,
                   {
-                    backgroundColor:
-                      index <= step ? theme.accent : 'rgba(14, 15, 12, 0.14)',
+                    backgroundColor: index <= step ? theme.accent : setup.track,
                   },
                 ]}
               />
@@ -164,7 +163,7 @@ const styles = StyleSheet.create({
   segment: {
     flex: 1,
     height: 3,
-    borderRadius: 2,
+    borderRadius: radii.xs,
   },
   body: {
     flex: 1,
@@ -190,7 +189,7 @@ const styles = StyleSheet.create({
   radio: {
     width: 24,
     height: 24,
-    borderRadius: 12,
+    borderRadius: radii.pill,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
@@ -198,7 +197,7 @@ const styles = StyleSheet.create({
   radioDot: {
     width: 11,
     height: 11,
-    borderRadius: 6,
+    borderRadius: radii.pill,
   },
   pressed: {
     opacity: 0.6,

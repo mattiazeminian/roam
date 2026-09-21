@@ -15,25 +15,31 @@ for reading the code.
 
 ## App structure
 
-Routes live in `src/app/` (Expo Router), rendered in a single stack:
+Routes live in `src/app/` (Expo Router). A native tab bar holds four
+destinations, each a nested stack (#113, #119); everything else is a
+full-screen flow on the root stack:
 
-- `index` — Home: map, Start Run, and route-discovery controls.
+- `(tabs)/(home)` — Home stack: the map, Start Run, the training plan and the
+  week's schedule.
+- `(tabs)/maps` — Routes stack: saved routes, route discovery, the saved-routes
+  list.
+- `(tabs)/record` — Record: the fastest way into a run (#116).
+- `(tabs)/profile` — Profile stack: identity, stats, history, a run's detail,
+  settings and the account screen.
 - `onboarding` — first-run introduction and profile setup.
 - `routes` — route selection, manual editing, save/share.
 - `run` — the active run.
 - `run-summary` — post-run, save or discard.
-- `history`, `run-detail` — saved runs.
-- `favorites` — saved routes.
-- `settings`, `account` — preferences and identity.
+- `generate-route`, `generating` — route generation and its animation.
 - `shared-route` — a route opened from a share link.
-- `location-search` — choosing a start or finish place.
+- `location-search` — choosing a start or finish place (modal).
 
 ## Providers
 
 `src/app/_layout.tsx` nests, outermost first:
 
 ```
-SettingsProvider → AccountProvider → LocationProvider → RouteProvider → RunProvider
+SettingsProvider → TrainingProvider → AccountProvider → LocationProvider → RouteProvider → RunProvider
 ```
 
 - **Settings** — preferences (units, pace, default distance, onboarding flag).

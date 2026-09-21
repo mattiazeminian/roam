@@ -171,7 +171,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     width: 36,
     height: 5,
-    borderRadius: 3,
+    borderRadius: radii.pill,
     marginBottom: spacing.xs,
   },
   fields: {

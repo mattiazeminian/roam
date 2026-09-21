@@ -69,7 +69,11 @@ export default function GenerateRouteScreen() {
             onPress={() => router.push('/location-search')}
             accessibilityRole="button"
             accessibilityLabel={`Starting from ${originLabel}. Change starting point.`}
-            style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
+            style={({ pressed }) => [
+              styles.row,
+              { backgroundColor: theme.fillSubtle },
+              pressed && styles.pressed,
+            ]}>
             <SymbolView
               name={hasCustomOrigin ? 'mappin.circle.fill' : 'location.fill'}
               size={layout.iconSizeSmall}
@@ -96,7 +100,12 @@ export default function GenerateRouteScreen() {
                   ? `Finishing at ${finish.label}. Change finish point.`
                   : 'Loop, finishing back where you started. Choose a finish point.'
               }
-              style={({ pressed }) => [styles.row, styles.finishTarget, pressed && styles.pressed]}>
+              style={({ pressed }) => [
+                styles.row,
+                styles.finishTarget,
+                { backgroundColor: theme.fillSubtle },
+                pressed && styles.pressed,
+              ]}>
               <SymbolView
                 name={finish ? 'flag' : 'arrow.triangle.2.circlepath'}
                 size={layout.iconSizeSmall}
@@ -179,7 +188,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     borderRadius: radii.small,
     borderCurve: 'continuous',
-    backgroundColor: 'rgba(14,15,12,0.04)',
   },
   rowLabel: {
     flex: 1,

@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -13,6 +13,7 @@ import { WorkoutIcon } from '@/components/workout-icon';
 import { impactMedium, selectionFeedback } from '@/lib/haptics';
 import { useLocation } from '@/services/location-context';
 import { useRun } from '@/services/run-context';
+import { listRoutes } from '@/services/route-storage';
 import { distancePresets } from '@/services/settings';
 import { useFormatters, useSettings } from '@/services/settings-context';
 import { WORKOUT_LABELS, WORKOUT_TYPES, type WorkoutType } from '@/services/training';
@@ -42,6 +43,21 @@ export default function RecordScreen() {
   const [minutes, setMinutes] = useState(30);
   const [type, setType] = useState<WorkoutType | null>(null);
   const [recenterSignal, setRecenterSignal] = useState(0);
+  const [savedRouteCount, setSavedRouteCount] = useState(0);
+
+  // A saved route is another way into a run (#116). Reloaded on focus so one
+  // saved moments ago is offered straight away.
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      void listRoutes()
+        .then((stored) => active && setSavedRouteCount(stored.length))
+        .catch(() => {});
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
 
   // A time target is what the runner asked for; the distance is only how it
   // converts at their own pace, and is labelled as such rather than presented
@@ -216,6 +232,17 @@ export default function RecordScreen() {
           onPress={handleStart}
           disabled={locationStatus !== 'available' || !coordinate}
         />
+
+        {savedRouteCount > 0 ? (
+          <Button
+            label="Run a saved route"
+            variant="secondary"
+            onPress={() => {
+              selectionFeedback();
+              router.push('/maps/favorites?mode=run');
+            }}
+          />
+        ) : null}
       </View>
     </View>
   );
