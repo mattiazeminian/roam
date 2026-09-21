@@ -38,14 +38,14 @@ const BAR_MIN = 10;
 const BAR_EMPTY = 4;
 
 /** Which short-fact sheet is open, if any. */
-type Editor = 'name' | 'age' | 'weightKg' | 'shoe' | null;
+type Editor = 'name' | 'age' | 'shoe' | null;
 
 /**
  * Profile — who the runner is, and what they have done.
  *
  * The identity and the headline statistics live here rather than being spread
- * across Settings and History. Age and weight are shown as facts; nothing in
- * the app derives a metric from them, because nothing honest can be.
+ * across Settings and History. Body measurements are intentionally not part of
+ * this screen because they are not needed for running, training, or history.
  */
 export default function ProfileScreen() {
   const theme = useTheme();
@@ -182,16 +182,6 @@ export default function ProfileScreen() {
                 {profile?.age === null || profile?.age === undefined
                   ? 'Add your age'
                   : `${profile.age} years`}
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setEditor('weightKg')}
-              accessibilityRole="button"
-              accessibilityLabel="Edit weight">
-              <Text variant="caption" color="textSecondary" tabular>
-                {profile?.weightKg === null || profile?.weightKg === undefined
-                  ? 'Add your weight'
-                  : `${profile.weightKg} kg`}
               </Text>
             </Pressable>
           </View>
@@ -390,34 +380,6 @@ export default function ProfileScreen() {
         />
       ) : null}
 
-      {editor === 'weightKg' && profile ? (
-        <FormSheet
-          title="Your weight"
-          message="Kilograms."
-          fields={[
-            {
-              key: 'weightKg',
-              label: 'Weight',
-              placeholder: 'Kilograms',
-              keyboardType: 'decimal-pad',
-              defaultValue:
-                profile.weightKg === null || profile.weightKg === undefined
-                  ? ''
-                  : String(profile.weightKg),
-              autoFocus: true,
-            },
-          ]}
-          onSubmit={(values) => {
-            const parsed = Number(values.weightKg.replace(',', '.'));
-            void persist({
-              ...profile,
-              weightKg: values.weightKg.trim() === '' || !Number.isFinite(parsed) ? null : parsed,
-            });
-            setEditor(null);
-          }}
-          onClose={() => setEditor(null)}
-        />
-      ) : null}
 
       {editor === 'shoe' ? (
         <FormSheet

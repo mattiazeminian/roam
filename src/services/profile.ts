@@ -5,10 +5,8 @@
  * app does, this is who the runner is. It works with or without an Apple
  * account.
  *
- * Age and weight are recorded because the runner asked to see them, and are
- * displayed as facts. They are deliberately **not** used to compute anything —
- * no VO2 max, no calorie burn, no "fitness score" — because none of those can
- * be derived honestly from them, and doing so would invent data.
+ * Profile data is intentionally small: identity only. Training does not need
+ * body measurements, so ROAM does not ask for or retain height or weight.
  */
 
 import { Directory, File, Paths } from 'expo-file-system';
@@ -18,8 +16,6 @@ export type Profile = {
   name: string | null;
   /** Years. Displayed only. */
   age: number | null;
-  /** Kilograms, stored metric like every other measurement. Displayed only. */
-  weightKg: number | null;
   /** A file URI in the app's document directory, or null. */
   avatarUri: string | null;
 };
@@ -27,7 +23,6 @@ export type Profile = {
 export const DEFAULT_PROFILE: Profile = {
   name: null,
   age: null,
-  weightKg: null,
   avatarUri: null,
 };
 
@@ -36,8 +31,6 @@ const AVATAR_FILE = 'avatar.jpg';
 
 const MIN_AGE = 5;
 const MAX_AGE = 120;
-const MIN_WEIGHT_KG = 20;
-const MAX_WEIGHT_KG = 300;
 
 function profileFile(): File {
   return new File(Paths.document, PROFILE_FILE);
@@ -69,7 +62,6 @@ function parseProfile(value: unknown): Profile {
   return {
     name: textOrNull(raw.name),
     age: clampOrNull(raw.age, MIN_AGE, MAX_AGE),
-    weightKg: clampOrNull(raw.weightKg, MIN_WEIGHT_KG, MAX_WEIGHT_KG),
     avatarUri: textOrNull(raw.avatarUri),
   };
 }

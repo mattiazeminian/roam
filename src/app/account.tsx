@@ -60,8 +60,7 @@ export default function AccountScreen() {
   const handleNameBlur = useCallback(() => {
     const trimmed = name.trim();
     setName(trimmed);
-    // Merged, not replaced: the profile now carries age, weight and the avatar
-    // too, and renaming must not wipe them.
+    // Merged, not replaced: renaming must not wipe the avatar or age.
     const next = { ...profile, name: trimmed.length > 0 ? trimmed : null };
     setProfile(next);
     void saveProfile(next);

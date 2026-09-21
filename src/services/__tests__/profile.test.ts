@@ -84,31 +84,28 @@ describe('profile', () => {
     expect(await loadProfile()).toEqual(DEFAULT_PROFILE);
   });
 
-  test('age, weight and avatar round-trip (#108)', async () => {
+  test('age and avatar round-trip', async () => {
     await saveProfile({
       ...DEFAULT_PROFILE,
       name: 'Jamie',
       age: 34,
-      weightKg: 72,
       avatarUri: 'file://doc/avatar.jpg',
     });
     expect(await loadProfile()).toEqual({
       name: 'Jamie',
       age: 34,
-      weightKg: 72,
       avatarUri: 'file://doc/avatar.jpg',
     });
   });
 
-  test('implausible age or weight is stored as absent, not clamped to a wrong number', async () => {
-    await saveProfile({ ...DEFAULT_PROFILE, age: 999, weightKg: -5 });
+  test('an implausible age is stored as absent', async () => {
+    await saveProfile({ ...DEFAULT_PROFILE, age: 999 });
     expect(await loadProfile()).toEqual(DEFAULT_PROFILE);
   });
 
-  test('a fractional age or weight is rounded to a whole number', async () => {
-    await saveProfile({ ...DEFAULT_PROFILE, age: 34.6, weightKg: 72.4 });
+  test('a fractional age is rounded to a whole number', async () => {
+    await saveProfile({ ...DEFAULT_PROFILE, age: 34.6 });
     const loaded = await loadProfile();
     expect(loaded.age).toBe(35);
-    expect(loaded.weightKg).toBe(72);
   });
 });
