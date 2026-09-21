@@ -530,6 +530,73 @@ export function workoutsOnDate(state: TrainingState, date: string): PlannedWorko
   return state.workouts.filter((workout) => workout.date === date);
 }
 
+/**
+ * The runner's recent typical distance: the median of their last ten recorded
+ * runs (Rule 3). Null when there is no usable history, so the caller can fall
+ * back to the plan's target. Median, not mean, so one long run does not drag
+ * the whole plan up with it.
+ */
+export function baselineKmFromRuns(
+  runs: readonly { distanceKm: number }[],
+  sample = 10,
+): number | null {
+  const distances = runs
+    .slice(0, sample)
+    .map((run) => run.distanceKm)
+    .filter((km) => Number.isFinite(km) && km > 0)
+    .sort((a, b) => a - b);
+  if (distances.length === 0) {
+    return null;
+  }
+  const middle = Math.floor(distances.length / 2);
+  return distances.length % 2 === 0
+    ? (distances[middle - 1] + distances[middle]) / 2
+    : distances[middle];
+}
+
+/** What today's suggestion is, and why. See Rule 5. */
+export type WorkoutSuggestionKind = 'today' | 'upcoming' | 'catch-up' | 'none';
+
+export type WorkoutSuggestion = {
+  kind: WorkoutSuggestionKind;
+  workout: PlannedWorkout | null;
+};
+
+/**
+ * The single suggestion for today (Rule 5), deterministic and inspectable.
+ *
+ * Order: a workout scheduled for today (whatever its status, so a completed day
+ * still reads as today); else the next scheduled workout as upcoming; else a
+ * workout missed in the last two days as a catch-up; else nothing. A missed
+ * workout is never moved onto today — it is offered, not rescheduled.
+ */
+export function recommendNextWorkout(state: TrainingState, today: string): WorkoutSuggestion {
+  const todayWorkouts = workoutsOnDate(state, today);
+  if (todayWorkouts.length > 0) {
+    return { kind: 'today', workout: todayWorkouts[0] };
+  }
+
+  const upcoming = workoutsFrom(state, addDays(today, 1))[0];
+  if (upcoming) {
+    return { kind: 'upcoming', workout: upcoming };
+  }
+
+  const catchUpFrom = addDays(today, -2);
+  const missed = state.workouts
+    .filter(
+      (workout) =>
+        workout.status === 'planned' &&
+        workout.date >= catchUpFrom &&
+        workout.date < today,
+    )
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))[0];
+  if (missed) {
+    return { kind: 'catch-up', workout: missed };
+  }
+
+  return { kind: 'none', workout: null };
+}
+
 /** Workouts on or after `fromDate`, earliest first. */
 export function workoutsFrom(state: TrainingState, fromDate: string): PlannedWorkout[] {
   return state.workouts

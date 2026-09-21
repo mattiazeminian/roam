@@ -24,11 +24,11 @@ import { listRuns } from '@/services/run-storage';
 import { useFormatters, useSettings, type Formatters } from '@/services/settings-context';
 import {
   addDays,
+  recommendNextWorkout,
   summarizeProgress,
   toDateKey,
   weekStartFor,
   workoutsFrom,
-  workoutsOnDate,
   WORKOUT_DESCRIPTIONS,
   WORKOUT_LABELS,
   type PlannedWorkout,
@@ -91,7 +91,9 @@ export default function HomeScreen() {
     }
   }, [loaded, settings.hasCompletedOnboarding]);
 
-  const workout = workoutsOnDate(state, today)[0] ?? null;
+  // Rule 5: the suggestion for today is the workout scheduled for today.
+  const suggestion = recommendNextWorkout(state, today);
+  const workout = suggestion.kind === 'today' ? suggestion.workout : null;
   const week = weekStartFor(today);
   const progress = summarizeProgress(state, week, addDays(week, 6));
   const next = workoutsFrom(state, addDays(today, 1))[0] ?? null;

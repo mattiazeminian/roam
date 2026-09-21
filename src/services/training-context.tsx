@@ -8,8 +8,10 @@ import {
   type ReactNode,
 } from 'react';
 
+import { listRuns } from './run-storage';
 import {
   addWorkouts,
+  baselineKmFromRuns,
   buildPlan,
   EMPTY_TRAINING,
   generateBlock,
@@ -84,7 +86,12 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
       // runner can see the training ahead of them. Regeneration is additive:
       // a day already completed is never overwritten.
       const today = toDateKey(new Date());
-      const block = generateBlock(plan, weekStartFor(today));
+      // Distances start from the runner's own recent running (Rule 3), not a
+      // generic table. A read failure falls back to the plan's target.
+      const baselineKm = await listRuns()
+        .then((runs) => baselineKmFromRuns(runs))
+        .catch(() => null);
+      const block = generateBlock(plan, weekStartFor(today), { baselineKm });
       const scheduled = replacePlannedWorkouts(
         { ...state, plan },
         block.workouts,
@@ -102,7 +109,10 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
       if (!state.plan) {
         return { overfull: false, added: 0 };
       }
-      const generated = generateWeek(state.plan, weekStart);
+      const baselineKm = await listRuns()
+        .then((runs) => baselineKmFromRuns(runs))
+        .catch(() => null);
+      const generated = generateWeek(state.plan, weekStart, { baselineKm });
       const next = replacePlannedWorkouts(state, generated.workouts, weekStart);
       setState(next);
       await saveTraining(next);

@@ -13,9 +13,11 @@ import {
   WORKOUT_DESCRIPTIONS,
   WORKOUT_TYPES,
   addWorkouts,
+  baselineKmFromRuns,
   buildPlan,
   generateBlock,
   generateWeek,
+  recommendNextWorkout,
   weekdayOf,
   createPlan,
   createWorkout,
@@ -516,5 +518,88 @@ describe('generateBlock (#74)', () => {
     const legacy = { ...plan, weeks: undefined };
     // 8 weeks default x 3 sessions.
     expect(generateBlock(legacy, start).workouts).toHaveLength(24);
+  });
+});
+
+describe('baseline from runs (Rule 3)', () => {
+  const run = (km: number) => ({ distanceKm: km });
+
+  test('is the median of the last ten runs, not the mean', () => {
+    // One very long run must not drag the baseline up.
+    const runs = [run(5), run(5), run(5), run(5), run(30)];
+    expect(baselineKmFromRuns(runs)).toBe(5);
+  });
+
+  test('averages the two middle values for an even count', () => {
+    expect(baselineKmFromRuns([run(4), run(5), run(6), run(7)])).toBeCloseTo(5.5, 5);
+  });
+
+  test('only the most recent sample is used', () => {
+    const runs = [run(4), run(4), run(4), run(20), run(20)];
+    expect(baselineKmFromRuns(runs, 3)).toBe(4);
+  });
+
+  test('null when there is no usable history', () => {
+    expect(baselineKmFromRuns([])).toBeNull();
+    expect(baselineKmFromRuns([run(0), run(-1), run(Number.NaN)])).toBeNull();
+  });
+});
+
+describe('recommendNextWorkout (Rule 5)', () => {
+  const plan = createPlan({
+    goal: { kind: 'fitness', targetKm: null, raceDate: null },
+    runsPerWeek: 3,
+    preferredDays: [2, 4, 6],
+    level: 'occasional',
+  });
+
+  function stateWith(dates: { date: string; status?: PlannedWorkout['status'] }[]): TrainingState {
+    return {
+      plan,
+      workouts: dates.map((entry, index) =>
+        createWorkout({
+          id: `w${index}`,
+          date: entry.date,
+          type: 'easy',
+          targetKm: 5,
+        }),
+      ).map((workout, index) => ({
+        ...workout,
+        status: dates[index].status ?? 'planned',
+      })),
+    };
+  }
+
+  test('today wins, whatever its status', () => {
+    const state = stateWith([{ date: '2026-01-06', status: 'completed' }]);
+    const suggestion = recommendNextWorkout(state, '2026-01-06');
+    expect(suggestion.kind).toBe('today');
+    expect(suggestion.workout?.date).toBe('2026-01-06');
+  });
+
+  test('nothing today falls to the next scheduled workout as upcoming', () => {
+    const state = stateWith([{ date: '2026-01-08' }]);
+    const suggestion = recommendNextWorkout(state, '2026-01-06');
+    expect(suggestion.kind).toBe('upcoming');
+    expect(suggestion.workout?.date).toBe('2026-01-08');
+  });
+
+  test('a recently missed workout is offered as a catch-up when nothing is upcoming', () => {
+    const state = stateWith([{ date: '2026-01-05' }]);
+    const suggestion = recommendNextWorkout(state, '2026-01-06');
+    expect(suggestion.kind).toBe('catch-up');
+    expect(suggestion.workout?.date).toBe('2026-01-05');
+  });
+
+  test('a miss older than two days is not offered', () => {
+    const state = stateWith([{ date: '2026-01-01' }]);
+    expect(recommendNextWorkout(state, '2026-01-06').kind).toBe('none');
+  });
+
+  test('no plan, no workouts means no suggestion', () => {
+    expect(recommendNextWorkout(EMPTY_TRAINING, '2026-01-06')).toEqual({
+      kind: 'none',
+      workout: null,
+    });
   });
 });
