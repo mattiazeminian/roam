@@ -96,14 +96,44 @@ export type TrainingPlan = {
   weeks?: number;
 };
 
-export type WorkoutStatus = 'planned' | 'completed' | 'skipped' | 'modified';
+export type WorkoutStatus = 'planned' | 'completed' | 'partial' | 'skipped' | 'modified';
 
 export const WORKOUT_STATUSES: readonly WorkoutStatus[] = [
   'planned',
   'completed',
+  'partial',
   'skipped',
   'modified',
 ] as const;
+
+/**
+ * A recorded run counts as fulfilling a planned workout at or above this share
+ * of the target (#72). Below it the session is `partial`. Deliberately lenient:
+ * a run slightly short of the number is still the session.
+ */
+export const WORKOUT_COMPLETE_FRACTION = 0.8;
+
+export type WorkoutOutcome = 'completed' | 'partial';
+
+/**
+ * Whether a recorded run fulfilled a planned workout (#72).
+ *
+ * Derived from the recorded distance, never asserted: a run at or above the
+ * completion fraction is `completed`, anything less is `partial`. Running
+ * further than the target is still `completed`, and there is no penalty for a
+ * short one — just a factual label.
+ */
+export function deriveWorkoutOutcome(
+  workout: Pick<PlannedWorkout, 'targetKm'>,
+  run: { distanceKm: number },
+): WorkoutOutcome {
+  if (!(workout.targetKm > 0)) {
+    return 'completed';
+  }
+  return run.distanceKm >= workout.targetKm * WORKOUT_COMPLETE_FRACTION
+    ? 'completed'
+    : 'partial';
+}
 
 export type PlannedWorkout = {
   id: string;
@@ -787,7 +817,13 @@ export function setWorkoutStatus(
     ...state,
     workouts: state.workouts.map((workout) =>
       workout.id === id
-        ? { ...workout, status, runId: status === 'completed' ? runId : null }
+        ? {
+            ...workout,
+            status,
+            // A partial session was still run, so it keeps the link; a skipped
+            // or rescheduled one no longer has a run that fulfilled it.
+            runId: status === 'completed' || status === 'partial' ? runId : null,
+          }
         : workout,
     ),
   };

@@ -15,6 +15,7 @@ import {
   addWorkouts,
   baselineKmFromRuns,
   buildPlan,
+  deriveWorkoutOutcome,
   generateBlock,
   generateWeek,
   goalProgress,
@@ -687,5 +688,32 @@ describe('weekly adherence (#73)', () => {
   test('a week with nothing is zeros, not missing', () => {
     const weeks = weeklyAdherence(weekState(), '2023-11-14', 3);
     expect(weeks[0]).toMatchObject({ planned: 0, completed: 0, skipped: 0, upcoming: 0 });
+  });
+});
+
+describe('derived workout outcome (#72)', () => {
+  const workout = { targetKm: 10 };
+
+  test('a run at or above the completion fraction is completed', () => {
+    expect(deriveWorkoutOutcome(workout, { distanceKm: 10 })).toBe('completed');
+    expect(deriveWorkoutOutcome(workout, { distanceKm: 8 })).toBe('completed');
+    expect(deriveWorkoutOutcome(workout, { distanceKm: 14 })).toBe('completed');
+  });
+
+  test('a short run is partial, not failed', () => {
+    expect(deriveWorkoutOutcome(workout, { distanceKm: 7.9 })).toBe('partial');
+    expect(deriveWorkoutOutcome(workout, { distanceKm: 1 })).toBe('partial');
+  });
+
+  test('a partial session keeps its run link, a skipped one does not', () => {
+    const state: TrainingState = {
+      plan: null,
+      workouts: [createWorkout({ id: 'w', date: '2026-01-01', type: 'long', targetKm: 10 })],
+    };
+    expect(setWorkoutStatus(state, 'w', 'partial', 'run-1').workouts[0]).toMatchObject({
+      status: 'partial',
+      runId: 'run-1',
+    });
+    expect(setWorkoutStatus(state, 'w', 'skipped', 'run-1').workouts[0].runId).toBeNull();
   });
 });

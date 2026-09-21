@@ -16,6 +16,7 @@ import { runShareMessage } from '@/services/run-share';
 import { formatDuration, formatRunDate } from '@/services/run-session';
 import { listRuns } from '@/services/run-storage';
 import { useFormatters } from '@/services/settings-context';
+import { deriveWorkoutOutcome } from '@/services/training';
 import { useTraining } from '@/services/training-context';
 import { layout, radii, spacing, useTheme } from '@/theme';
 
@@ -29,7 +30,7 @@ export default function RunSummaryScreen() {
   const insets = useSafeAreaInsets();
   const theme = useTheme();
   const { completedRun, saveCompleted, discardCompleted } = useRun();
-  const { markWorkout } = useTraining();
+  const { state: training, markWorkout } = useTraining();
   const fmt = useFormatters();
   const [saving, setSaving] = useState(false);
   const [comparison, setComparison] = useState<RecentComparison | null>(null);
@@ -68,22 +69,27 @@ export default function RunSummaryScreen() {
     }
     setSaving(true);
     // Captured before `saveCompleted` resets the session. A run started from a
-    // planned workout links back to it once it is saved (#116).
-    const plannedWorkoutId = completedRun?.plannedWorkoutId;
-    const runId = completedRun?.id;
+    // planned workout links back to it once it is saved (#116), and its outcome
+    // is derived from what was actually run (#72) — never asserted.
+    const run = completedRun;
+    const plannedWorkout = run?.plannedWorkoutId
+      ? (training.workouts.find((workout) => workout.id === run.plannedWorkoutId) ?? null)
+      : null;
+    const outcome = plannedWorkout && run ? deriveWorkoutOutcome(plannedWorkout, run) : 'completed';
+    const runId = run?.id;
     try {
       await saveCompleted();
-      if (plannedWorkoutId && runId) {
+      if (plannedWorkout && runId) {
         // The run is already saved; failing to update the plan must not undo
         // that, so this is best-effort.
-        await markWorkout(plannedWorkoutId, 'completed', runId).catch(() => {});
+        await markWorkout(plannedWorkout.id, outcome, runId).catch(() => {});
       }
       router.replace('/profile/history');
     } catch {
       setSaving(false);
       Alert.alert('Could not save run', 'The run could not be written to this device.');
     }
-  }, [completedRun, markWorkout, saveCompleted, saving]);
+  }, [completedRun, markWorkout, saveCompleted, saving, training.workouts]);
 
   const handleDiscard = useCallback(() => {
     Alert.alert('Discard this run?', 'The recorded run will not be saved.', [
