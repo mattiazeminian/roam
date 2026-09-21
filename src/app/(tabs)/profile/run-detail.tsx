@@ -320,6 +320,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   headline: {
+    // The content container aligns children to flex-start; without stretching,
+    // this block shrinks to its widest child, so the metric columns and the
+    // shoe row's value never reach the right edge.
+    alignSelf: 'stretch',
     gap: spacing.lg,
   },
   shoeRow: {
