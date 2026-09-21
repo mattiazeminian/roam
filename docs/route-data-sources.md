@@ -62,6 +62,30 @@ not available is written down as unavailable, and the product does not claim it.
 - **Never.** Sidewalk quality, "safety", and any composite verdict. OSM does
   not carry the first, and the product must not imply the second.
 
+## Ranking signals
+
+Candidates are ranked by `scoreRoute` (`src/services/route-quality.ts`), a
+weighted sum of normalised components. A component whose data is absent is
+dropped and the weights renormalised, so a route is never punished for the
+provider returning less. Distance stays gated separately by tolerance — a route
+outside it never reaches the ranking.
+
+| Component | Source | Default stance |
+| --- | --- | --- |
+| Distance | ORS `summary.distance` | closeness to the runner's target |
+| Pedestrian | ORS `waytype` (footways vs roads) | prefer footways |
+| Major-road exposure (#56) | ORS `waytype` codes 1–2 | prefer quiet streets; 40%+ scores 0 |
+| Elevation (#60) | ORS `summary.ascent` | **flat-preferred**; 40 m/km or more scores 0 |
+| Backtracking | geometry | prefer no retracing |
+| Turns | geometry | prefer fewer sharp corners per km |
+| Shape | geometry | prefer a compact, non-self-crossing loop |
+
+The flat-preferred elevation stance is a deliberate, documented default, not a
+hidden one: a flatter route of the same length ranks higher. It is a
+preference, not a claim about fitness or difficulty, and no health or
+performance inference is made. If it becomes a user setting, the setting is
+where the stance is changed, not this document.
+
 ## Cost and licensing
 
 - **ORS** — quota per API key; already the app's routing dependency. Extra

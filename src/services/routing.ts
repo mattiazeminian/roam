@@ -63,6 +63,13 @@ export type RouteAttributes = {
   footwayPercent: number | null;
   /** Percent on roads and streets: state road, road, street. */
   roadPercent: number | null;
+  /**
+   * Percent on major roads specifically: ORS waytype `State road` and `Road`
+   * (#56). A proportion of the route, not a verdict, and null when the
+   * provider returned no waytype data. Optional so a route stored before this
+   * was read still loads.
+   */
+  majorRoadPercent?: number | null;
   /** Percent on a recognised unsealed surface: gravel, dirt, grass, sand, … */
   unpavedPercent: number | null;
   /**
@@ -413,6 +420,7 @@ function rankByQuality(candidates: RawCandidate[], targetM: number): RawCandidat
         targetM,
         tolerance,
         candidate.attributes,
+        candidate.ascentM,
       ).total,
     }))
     .sort(
@@ -854,6 +862,8 @@ export async function findRoutesBetween({
  */
 const WAYTYPE_FOOT = new Set([4, 5, 6, 7, 8]); // Path, Track, Cycleway, Footway, Steps
 const WAYTYPE_ROAD = new Set([1, 2, 3]); // State road, Road, Street
+/** The subset of roads a runner is most exposed to (#56). */
+const WAYTYPE_MAJOR_ROAD = new Set([1, 2]); // State road, Road
 const WAYTYPE_STEPS = new Set([8]); // Steps
 
 /**
@@ -901,6 +911,7 @@ export function pathAttributesFromExtras(extras: unknown): RouteAttributes {
   return {
     footwayPercent: percentForCodes(parsed, 'waytype', WAYTYPE_FOOT),
     roadPercent: percentForCodes(parsed, 'waytype', WAYTYPE_ROAD),
+    majorRoadPercent: percentForCodes(parsed, 'waytype', WAYTYPE_MAJOR_ROAD),
     unpavedPercent: percentForCodes(parsed, 'surface', SURFACE_UNPAVED),
     stepsPercent: percentForCodes(parsed, 'waytype', WAYTYPE_STEPS),
   };

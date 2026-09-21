@@ -314,6 +314,55 @@ describe('scoreRoute (#52)', () => {
     expect(partlyKnown.components.pedestrian).toBeCloseTo(0.5, 3);
   });
 
+  test('ranks a high major-road exposure route below a low-exposure one (#56)', () => {
+    const base = { footwayPercent: 60, roadPercent: 40 };
+    const quiet = scoreRoute(metrics(), TARGET, TARGET, TOLERANCE, {
+      ...base,
+      majorRoadPercent: 5,
+    });
+    const exposed = scoreRoute(metrics(), TARGET, TARGET, TOLERANCE, {
+      ...base,
+      majorRoadPercent: 35,
+    });
+    expect(quiet.components.majorRoad).toBeGreaterThan(exposed.components.majorRoad ?? 0);
+    expect(quiet.total).toBeGreaterThan(exposed.total);
+  });
+
+  test('scores the major-road component zero at or above the ceiling (#56)', () => {
+    const score = scoreRoute(metrics(), TARGET, TARGET, TOLERANCE, {
+      footwayPercent: 50,
+      roadPercent: 50,
+      majorRoadPercent: 40,
+    });
+    expect(score.components.majorRoad).toBe(0);
+  });
+
+  test('drops the major-road component when the provider gave no waytype data (#56)', () => {
+    const unknown = scoreRoute(metrics(), TARGET, TARGET, TOLERANCE, {
+      footwayPercent: 60,
+      roadPercent: 40,
+      majorRoadPercent: null,
+    });
+    expect(unknown.components.majorRoad).toBeNull();
+  });
+
+  test('prefers a flatter route of the same length (#60)', () => {
+    const flat = scoreRoute(metrics(), 5000, 5000, TOLERANCE, undefined, 20);
+    const hilly = scoreRoute(metrics(), 5000, 5000, TOLERANCE, undefined, 150);
+    expect(flat.components.elevation).toBeGreaterThan(hilly.components.elevation ?? 0);
+    expect(flat.total).toBeGreaterThan(hilly.total);
+  });
+
+  test('scores the elevation component zero at or above 40 m/km (#60)', () => {
+    const score = scoreRoute(metrics(), 5000, 5000, TOLERANCE, undefined, 200);
+    expect(score.components.elevation).toBe(0);
+  });
+
+  test('drops the elevation component when no ascent is known (#60)', () => {
+    const unknown = scoreRoute(metrics(), 5000, 5000, TOLERANCE, undefined, undefined);
+    expect(unknown.components.elevation).toBeNull();
+  });
+
   test('the harness metrics feed it directly', () => {
     const track = [
       offset(0, 0),

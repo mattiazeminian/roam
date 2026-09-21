@@ -463,6 +463,14 @@ export function formatMetrics(label: string, metrics: RouteQualityMetrics): stri
 export const QUALITY_WEIGHTS = {
   distance: 0.3,
   pedestrian: 0.25,
+  /** Exposure to major roads (#56) — a proportion, never a safety claim. */
+  majorRoad: 0.15,
+  /**
+   * Climb (#60). Flat-preferred by default: the provider's own ascent is used,
+   * and a flatter route of the same length ranks higher. This is a preference,
+   * not a judgement about fitness.
+   */
+  elevation: 0.1,
   backtracking: 0.2,
   turns: 0.15,
   shape: 0.1,
@@ -472,6 +480,15 @@ export const QUALITY_WEIGHTS = {
 const BACKTRACK_ZERO_SCORE_RATIO = 0.25;
 const TURNS_ZERO_SCORE_PER_KM = 12;
 const ELONGATION_ZERO_SCORE = 3;
+/** At or above this share of the route on major roads, the component is 0. */
+const MAJOR_ROAD_ZERO_SCORE_PERCENT = 40;
+/**
+ * At or above this climb per kilometre the elevation component is 0 (#60).
+ * 40 m/km is a hilly run by any reading; using climb per km rather than total
+ * climb keeps a long route from being punished for one hill and a short route
+ * from being rewarded for a gentle one.
+ */
+const CLIMB_ZERO_SCORE_M_PER_KM = 40;
 
 /** Each self-crossing removes this much of the shape component. */
 const SELF_INTERSECTION_PENALTY = 0.5;
@@ -480,6 +497,8 @@ const SELF_INTERSECTION_PENALTY = 0.5;
 export type QualityAttributes = {
   footwayPercent: number | null;
   roadPercent: number | null;
+  /** Percent of the route on major roads (#56). */
+  majorRoadPercent?: number | null;
 };
 
 export type RouteScore = {
@@ -489,6 +508,10 @@ export type RouteScore = {
     distance: number;
     /** Null when the provider returned no path data at all. */
     pedestrian: number | null;
+    /** Null when the provider returned no waytype data. */
+    majorRoad: number | null;
+    /** Null when the provider returned no ascent. */
+    elevation: number | null;
     backtracking: number;
     turns: number;
     shape: number;
@@ -524,6 +547,34 @@ function pedestrianScore(attributes: QualityAttributes | undefined): number | nu
 }
 
 /**
+ * How little of the route is on major roads (#56). A proportion, not a
+ * verdict: no exposure scores 1, and `MAJOR_ROAD_ZERO_SCORE_PERCENT` or more
+ * scores 0. Null when the provider returned no waytype data, so an unknown
+ * route is neither rewarded nor punished — it is simply not part of the
+ * comparison.
+ */
+function majorRoadScore(attributes: QualityAttributes | undefined): number | null {
+  const percent = attributes?.majorRoadPercent;
+  if (typeof percent !== 'number' || !Number.isFinite(percent)) {
+    return null;
+  }
+  return clamp01(1 - percent / MAJOR_ROAD_ZERO_SCORE_PERCENT);
+}
+
+/**
+ * Flat-preferred elevation score (#60): the provider's own ascent, as climb
+ * per kilometre. Null when there is no ascent to read, so an unknown route is
+ * not part of the comparison. Never a claim about fitness or difficulty.
+ */
+function elevationScore(ascentM: number | undefined, distanceM: number): number | null {
+  if (typeof ascentM !== 'number' || !Number.isFinite(ascentM) || distanceM <= 0) {
+    return null;
+  }
+  const climbPerKm = ascentM / (distanceM / 1000);
+  return clamp01(1 - climbPerKm / CLIMB_ZERO_SCORE_M_PER_KM);
+}
+
+/**
  * A comparable score for ranking candidates (#52, #55).
  *
  * Each component is normalised to 0–1 and combined with `QUALITY_WEIGHTS`,
@@ -542,10 +593,13 @@ export function scoreRoute(
   targetM: number,
   toleranceM: number,
   attributes?: QualityAttributes,
+  ascentM?: number,
 ): RouteScore {
   const distance =
     toleranceM > 0 ? clamp01(1 - Math.abs(distanceM - targetM) / toleranceM) : 1;
   const pedestrian = pedestrianScore(attributes);
+  const majorRoad = majorRoadScore(attributes);
+  const elevation = elevationScore(ascentM, distanceM);
 
   const backtracking = clamp01(
     1 - metrics.backtracking.ratio / BACKTRACK_ZERO_SCORE_RATIO,
@@ -569,6 +623,12 @@ export function scoreRoute(
   if (pedestrian !== null) {
     entries.push({ value: pedestrian, weight: QUALITY_WEIGHTS.pedestrian });
   }
+  if (majorRoad !== null) {
+    entries.push({ value: majorRoad, weight: QUALITY_WEIGHTS.majorRoad });
+  }
+  if (elevation !== null) {
+    entries.push({ value: elevation, weight: QUALITY_WEIGHTS.elevation });
+  }
 
   const weightSum = entries.reduce((sum, entry) => sum + entry.weight, 0);
   const total =
@@ -576,5 +636,8 @@ export function scoreRoute(
       ? entries.reduce((sum, entry) => sum + entry.value * entry.weight, 0) / weightSum
       : 0;
 
-  return { total, components: { distance, pedestrian, backtracking, turns, shape } };
+  return {
+    total,
+    components: { distance, pedestrian, majorRoad, elevation, backtracking, turns, shape },
+  };
 }

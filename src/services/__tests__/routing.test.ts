@@ -588,6 +588,24 @@ describe('path attributes (#14)', () => {
     const attributes = pathAttributesFromExtras(ORS_EXTRAS);
     expect(attributes.footwayPercent).toBe(99); // 98.91 + 0.2, rounded
     expect(attributes.roadPercent).toBe(1); // 0.89, rounded
+    // The street in the fixture is waytype 3, not a major road (#56).
+    expect(attributes.majorRoadPercent).toBe(0);
+  });
+
+  test('counts state roads and roads as major-road exposure (#56)', () => {
+    const { pathAttributesFromExtras } = loadRouting('test-key');
+    const attributes = pathAttributesFromExtras({
+      waytype: {
+        summary: [
+          { value: 1, distance: 200, amount: 20 }, // State road
+          { value: 2, distance: 100, amount: 10 }, // Road
+          { value: 3, distance: 300, amount: 30 }, // Street (not major)
+          { value: 7, distance: 400, amount: 40 }, // Footway
+        ],
+      },
+    });
+    expect(attributes.majorRoadPercent).toBe(30);
+    expect(attributes.roadPercent).toBe(60);
   });
 
   test('counts only recognised unsealed surfaces as unpaved', () => {
