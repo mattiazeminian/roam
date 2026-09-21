@@ -34,7 +34,7 @@ export function SectionHeader({ title, emphasis = 'micro', action, style }: Sect
           onPress={action.onPress}
           accessibilityRole="button"
           accessibilityLabel={action.accessibilityLabel ?? action.label}
-          hitSlop={spacing.sm}>
+          hitSlop={spacing.md}>
           <Text variant="label" color="accentText">
             {action.label}
           </Text>

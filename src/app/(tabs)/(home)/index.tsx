@@ -263,7 +263,11 @@ function Today({
       ) : (
         <>
           <Button label="Start workout" variant="accent" onPress={onStart} />
-          <Pressable onPress={() => router.push('/schedule')}>
+          <Pressable
+            onPress={() => router.push('/schedule')}
+            accessibilityRole="button"
+            accessibilityLabel="View this week"
+            hitSlop={spacing.sm}>
             <Text variant="label" color="accentText">
               View this week
             </Text>
@@ -375,7 +379,15 @@ function Training({
 
       <View style={[styles.rule, { backgroundColor: theme.divider }]} />
 
-      <Pressable style={styles.row} onPress={() => router.push('/schedule')}>
+      <Pressable
+        style={styles.row}
+        onPress={() => router.push('/schedule')}
+        accessibilityRole="button"
+        accessibilityLabel={
+          next
+            ? `Next workout: ${WORKOUT_LABELS[next.type]}, ${next.targetKm} km. Open schedule.`
+            : 'Your week is clear. Open schedule.'
+        }>
         <View
           style={[styles.nextIcon, { backgroundColor: next ? theme.fill : theme.background }]}>
           {next ? <WorkoutIcon type={next.type} size={20} tintColor={theme.text} /> : null}
@@ -428,7 +440,11 @@ function Recovery({
             {distance} recorded
           </Text>
         </View>
-        <Pressable onPress={discard}>
+        <Pressable
+          onPress={discard}
+          accessibilityRole="button"
+          accessibilityLabel="Discard unfinished run"
+          hitSlop={spacing.sm}>
           <Text variant="label" color="inverse">
             Discard
           </Text>
@@ -464,6 +480,12 @@ function Recent({ run, fmt }: { run: SavedRun; fmt: Formatters }) {
       />
       <Pressable
         onPress={() => router.push({ pathname: '/profile/run-detail', params: { id: run.id } })}
+        accessibilityRole="button"
+        accessibilityLabel={`${formatRunDate(run.startedAt)}, ${fmt.distance(
+          run.distanceKm * 1000,
+        )} ${fmt.unitSpoken}, ${formatDuration(run.durationSeconds)}, ${fmt.paceSpoken(
+          run.averagePaceMinPerKm,
+        )}. Open run.`}
         style={styles.preview}>
         {route ? (
           <MapCanvas
