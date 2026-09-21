@@ -16,6 +16,7 @@ import {
   DEFAULT_PREFERRED_DAYS,
   DEFAULT_RUNS_PER_WEEK,
   addDays,
+  evaluateProgression,
   goalProgress,
   summarizeProgress,
   toDateKey,
@@ -23,6 +24,7 @@ import {
   weeklyAdherence,
   WORKOUT_LABELS,
   workoutsOnDate,
+  type PlanOverride,
   type TrainingGoalKind,
   type TrainingLevel,
 } from '@/services/training';
@@ -34,6 +36,13 @@ const GOALS: { id: TrainingGoalKind; label: string; detail: string }[] = [
   { id: 'fitness', label: 'General fitness', detail: 'Run consistently, no target distance.' },
   { id: 'distance', label: 'A distance', detail: 'Work toward covering a set distance.' },
   { id: 'race', label: 'A race', detail: 'A target distance on a date.' },
+];
+
+const OVERRIDES: { id: PlanOverride | null; label: string }[] = [
+  { id: 'easier', label: 'Too hard' },
+  { id: 'harder', label: 'Too easy' },
+  { id: 'hold', label: 'Not now' },
+  { id: null, label: 'Follow the plan' },
 ];
 
 const LEVELS: { id: TrainingLevel; label: string }[] = [
@@ -322,7 +331,7 @@ function PlanOverview({ onEdit }: { onEdit: () => void }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const fmt = useFormatters();
-  const { state } = useTraining();
+  const { state, applyProgression, setPlanOverride } = useTraining();
   const [runs, setRuns] = useState<SavedRun[]>([]);
 
   useEffect(() => {
@@ -359,6 +368,9 @@ function PlanOverview({ onEdit }: { onEdit: () => void }) {
       : goal.daysUntilRace === 0
         ? 'Race day is today'
         : `${goal.daysUntilRace} ${goal.daysUntilRace === 1 ? 'day' : 'days'} to race day`;
+
+  const evaluation = evaluateProgression(state, today, plan.lastAction ?? null);
+  const overrideActive = plan.override != null;
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -405,6 +417,30 @@ function PlanOverview({ onEdit }: { onEdit: () => void }) {
             </View>
           </View>
         ))}
+        <View style={[styles.overviewRule, { backgroundColor: theme.track }]} />
+        <Text variant="title">Progression</Text>
+        <Text variant="caption" color="textSecondary">
+          {overrideActive
+            ? 'Your override is holding — the plan will not adjust itself.'
+            : evaluation.reason}
+        </Text>
+        <View style={styles.chipRow}>
+          {OVERRIDES.map((option) => (
+            <Chip
+              key={option.label}
+              label={option.label}
+              selected={(plan.override ?? null) === option.id}
+              accessibilityLabel={`Override the plan: ${option.label}`}
+              onPress={() => void setPlanOverride(option.id)}
+            />
+          ))}
+        </View>
+        <Button
+          label="Update from last week"
+          variant="secondary"
+          onPress={() => void applyProgression()}
+          disabled={overrideActive}
+        />
         <Button label="Edit plan" variant="accent" onPress={onEdit} />
         <Button label="Edit schedule" variant="secondary" onPress={() => router.push('/schedule')} />
       </ScrollView>

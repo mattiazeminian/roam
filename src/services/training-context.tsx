@@ -13,7 +13,9 @@ import {
   addWorkouts,
   baselineKmFromRuns,
   buildPlan,
+  clampLongAdjust,
   EMPTY_TRAINING,
+  evaluateProgression,
   generateBlock,
   generateWeek,
   loadTraining,
@@ -24,7 +26,9 @@ import {
   toDateKey,
   weekStartFor,
   type PlanInput,
+  type PlanOverride,
   type PlannedWorkout,
+  type ProgressionEvaluation,
   type TrainingState,
   type WorkoutStatus,
 } from './training';
@@ -44,6 +48,14 @@ export type TrainingContextValue = {
   /** Move a workout's status; completing it links the run that did it. */
   markWorkout: (id: string, status: WorkoutStatus, runId?: string | null) => Promise<void>;
   removeWorkout: (id: string) => Promise<void>;
+  /**
+   * Evaluate the last completed week and adjust the plan (#74). Does nothing
+   * while the runner has an override set. Returns the evaluation so the caller
+   * can surface it.
+   */
+  applyProgression: () => Promise<ProgressionEvaluation | null>;
+  /** Set or clear the runner's explicit override; it sticks until cleared. */
+  setPlanOverride: (override: PlanOverride | null) => Promise<void>;
 };
 
 const TrainingContext = createContext<TrainingContextValue | null>(null);
@@ -154,6 +166,56 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
     [state],
   );
 
+  /**
+   * Re-schedule the block from today, keeping the past and anything the runner
+   * has acted on, so a long-run change actually reaches the days ahead.
+   */
+  const reschedule = useCallback(
+    async (base: TrainingState, plan: NonNullable<TrainingState['plan']>) => {
+      const today = toDateKey(new Date());
+      const baselineKm = await listRuns()
+        .then((runs) => baselineKmFromRuns(runs))
+        .catch(() => null);
+      const block = generateBlock(plan, weekStartFor(today), { baselineKm });
+      const next = replacePlannedWorkouts({ ...base, plan }, block.workouts, today);
+      setState(next);
+      await saveTraining(next);
+    },
+    [],
+  );
+
+  const applyProgression = useCallback(async () => {
+    if (!state.plan || state.plan.override) {
+      return null;
+    }
+    const evaluation = evaluateProgression(state, toDateKey(new Date()), state.plan.lastAction ?? null);
+    const plan = {
+      ...state.plan,
+      longAdjust: clampLongAdjust((state.plan.longAdjust ?? 1) * evaluation.factor),
+      lastAction: evaluation.action,
+    };
+    await reschedule(state, plan);
+    return evaluation;
+  }, [reschedule, state]);
+
+  const setPlanOverride = useCallback(
+    async (override: PlanOverride | null) => {
+      if (!state.plan) {
+        return;
+      }
+      const current = state.plan.longAdjust ?? 1;
+      const longAdjust =
+        override === 'harder'
+          ? clampLongAdjust(current * 1.05)
+          : override === 'easier'
+            ? clampLongAdjust(current * 0.9)
+            : current;
+      const plan = { ...state.plan, override, longAdjust };
+      await reschedule(state, plan);
+    },
+    [reschedule, state],
+  );
+
   const value = useMemo<TrainingContextValue>(
     () => ({
       state,
@@ -164,8 +226,21 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
       scheduleWorkouts,
       markWorkout,
       removeWorkout,
+      applyProgression,
+      setPlanOverride,
     }),
-    [state, loaded, createPlanFor, clearPlan, generateWeekFor, scheduleWorkouts, markWorkout, removeWorkout],
+    [
+      state,
+      loaded,
+      createPlanFor,
+      clearPlan,
+      generateWeekFor,
+      scheduleWorkouts,
+      markWorkout,
+      removeWorkout,
+      applyProgression,
+      setPlanOverride,
+    ],
   );
 
   return <TrainingContext.Provider value={value}>{children}</TrainingContext.Provider>;

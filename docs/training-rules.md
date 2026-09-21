@@ -97,7 +97,7 @@ Evaluated weekly, on the completed week, using only recorded outcomes:
 | ≥ 80% of sessions completed, and no session marked `skipped` twice in a row | **advance**: long run +5%, up to the goal ceiling |
 | 50–79% completed | **hold**: repeat the same week |
 | < 50% completed, or the same session skipped twice | **reduce**: long run −10%, floor at baseline |
-| Two consecutive *advance* weeks, then a *reduce* | **step back**: repeat the previous week before advancing again |
+| A *reduce* immediately after an *advance* week | **step back**: hold before advancing again |
 
 Progression never exceeds the goal: a `distance` goal of 10 km does not produce
 a 12 km long run, and a half-marathon plan does not exceed 21.1 km.

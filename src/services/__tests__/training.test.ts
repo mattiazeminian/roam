@@ -16,9 +16,11 @@ import {
   baselineKmFromRuns,
   buildPlan,
   deriveWorkoutOutcome,
+  evaluateProgression,
   generateBlock,
   generateWeek,
   goalProgress,
+  longDistanceFor,
   recommendNextWorkout,
   weekdayOf,
   createPlan,
@@ -715,5 +717,73 @@ describe('derived workout outcome (#72)', () => {
       runId: 'run-1',
     });
     expect(setWorkoutStatus(state, 'w', 'skipped', 'run-1').workouts[0].runId).toBeNull();
+  });
+});
+
+describe('progression (#74)', () => {
+  const plan = createPlan({
+    goal: { kind: 'fitness', targetKm: null, raceDate: null },
+    runsPerWeek: 4,
+    preferredDays: [1, 3, 5, 6],
+    level: 'occasional',
+  });
+
+  // The week before the current one (NOW is Tue 2023-11-14; current week starts
+  // Sun 2023-11-12, so last week is 2023-11-05 … 2023-11-11).
+  function lastWeek(statuses: PlannedWorkout['status'][]): TrainingState {
+    const dates = ['2023-11-05', '2023-11-07', '2023-11-09', '2023-11-11'];
+    return {
+      plan,
+      workouts: statuses.map((status, index) => ({
+        ...createWorkout({ id: `w${index}`, date: dates[index], type: 'easy', targetKm: 5 }),
+        status,
+      })),
+    };
+  }
+
+  test('80% or more completed advances', () => {
+    const result = evaluateProgression(
+      lastWeek(['completed', 'completed', 'completed', 'completed']),
+      '2023-11-14',
+    );
+    expect(result.action).toBe('advance');
+    expect(result.factor).toBeGreaterThan(1);
+  });
+
+  test('about half holds', () => {
+    expect(
+      evaluateProgression(lastWeek(['completed', 'completed', 'planned', 'planned']), '2023-11-14').action,
+    ).toBe('hold');
+  });
+
+  test('below half reduces', () => {
+    expect(
+      evaluateProgression(lastWeek(['completed', 'planned', 'planned', 'planned']), '2023-11-14').action,
+    ).toBe('reduce');
+  });
+
+  test('two skipped sessions reduce even if the rest were done', () => {
+    expect(
+      evaluateProgression(lastWeek(['completed', 'completed', 'skipped', 'skipped']), '2023-11-14').action,
+    ).toBe('reduce');
+  });
+
+  test('a reduce right after an advance steps back', () => {
+    expect(
+      evaluateProgression(lastWeek(['completed', 'planned', 'planned', 'planned']), '2023-11-14', 'advance')
+        .action,
+    ).toBe('step-back');
+  });
+
+  test('nothing scheduled holds', () => {
+    expect(evaluateProgression({ plan, workouts: [] }, '2023-11-14').action).toBe('hold');
+  });
+
+  test('the long run is scaled by the adjust and capped by the goal (#74)', () => {
+    // 5 km baseline, occasional → 1.3 × 5 = 6.5 km.
+    expect(longDistanceFor(5, 'occasional', null, 1)).toBe(6.5);
+    expect(longDistanceFor(5, 'occasional', null, 1.2)).toBe(8);
+    // A 7 km ceiling is never exceeded.
+    expect(longDistanceFor(5, 'occasional', 7, 2)).toBe(7);
   });
 });

@@ -94,7 +94,30 @@ export type TrainingPlan = {
    * field existed still load; {@link DEFAULT_PLAN_WEEKS} applies when absent.
    */
   weeks?: number;
+  /**
+   * Multiplier applied to the long run, moved by progression (#74). Defaults
+   * to 1; optional so older plans load.
+   */
+  longAdjust?: number;
+  /** The runner's explicit override, which takes precedence over evaluation. */
+  override?: PlanOverride | null;
+  /** The last progression action, so the step-back rule can see it. */
+  lastAction?: ProgressionAction | null;
 };
+
+export type PlanOverride = 'harder' | 'easier' | 'hold';
+export type ProgressionAction = 'advance' | 'hold' | 'reduce' | 'step-back';
+
+/** Bounds on the long-run multiplier, so repeated adjustments cannot run away. */
+const MIN_LONG_ADJUST = 0.6;
+const MAX_LONG_ADJUST = 2;
+
+export function clampLongAdjust(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 1;
+  }
+  return Math.min(MAX_LONG_ADJUST, Math.max(MIN_LONG_ADJUST, value));
+}
 
 export type WorkoutStatus = 'planned' | 'completed' | 'partial' | 'skipped' | 'modified';
 
@@ -412,6 +435,22 @@ export function distanceFor(
   return Math.max(2, Math.round(capped * 2) / 2);
 }
 
+/**
+ * The long run's distance, with the plan's progression multiplier applied
+ * (#74). Still capped by the goal and floored at 2 km, exactly like the other
+ * distances.
+ */
+export function longDistanceFor(
+  baselineKm: number,
+  level: TrainingLevel,
+  ceilingKm: number | null,
+  adjust: number,
+): number {
+  const raw = baselineKm * longFactorFor(level) * clampLongAdjust(adjust);
+  const capped = ceilingKm !== null ? Math.min(raw, ceilingKm) : raw;
+  return Math.max(2, Math.round(capped * 2) / 2);
+}
+
 export type WeekContext = {
   /** The runner's recent typical distance, or null when there is no history. */
   baselineKm: number | null;
@@ -509,7 +548,10 @@ export function generateWeek(
         id: `plan-${plan.id}-${date}`,
         date,
         type: entry.type,
-        targetKm: distanceFor(entry.type, baseline, plan.level, ceiling),
+        targetKm:
+          entry.type === 'long'
+            ? longDistanceFor(baseline, plan.level, ceiling, plan.longAdjust ?? 1)
+            : distanceFor(entry.type, baseline, plan.level, ceiling),
       });
     })
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
@@ -632,6 +674,54 @@ export function weeklyAdherence(
   }
 
   return result;
+}
+
+export type ProgressionEvaluation = {
+  action: ProgressionAction;
+  /** Multiplier to apply to the current long-run adjust. */
+  factor: number;
+  /** A one-line, plain explanation for the runner. */
+  reason: string;
+};
+
+/**
+ * Evaluate the last completed week against Rule 4 (#74).
+ *
+ * Deterministic and inspectable: at or above 80% completed advances, 50–79%
+ * holds, below that or two skipped sessions reduces. A reduce immediately
+ * after an advance steps back instead of dropping. `previousAction` is the
+ * plan's stored last action, so the step-back is visible rather than hidden.
+ */
+export function evaluateProgression(
+  state: TrainingState,
+  today: string,
+  previousAction: ProgressionAction | null = null,
+): ProgressionEvaluation {
+  const lastWeekStart = addDays(weekStartFor(today), -7);
+  const summary = summarizeProgress(state, lastWeekStart, addDays(lastWeekStart, 6));
+
+  if (summary.planned === 0) {
+    return { action: 'hold', factor: 1, reason: 'Nothing scheduled last week — holding.' };
+  }
+
+  const fraction = summary.completed / summary.planned;
+  const action: ProgressionAction =
+    summary.skipped >= 2 || fraction < 0.5
+      ? 'reduce'
+      : fraction >= 0.8
+        ? 'advance'
+        : 'hold';
+
+  if (action === 'reduce' && previousAction === 'advance') {
+    return { action: 'step-back', factor: 1, reason: 'Stepping back before building again.' };
+  }
+  if (action === 'advance') {
+    return { action, factor: 1.05, reason: 'Most sessions done — the long run goes up a little.' };
+  }
+  if (action === 'reduce') {
+    return { action, factor: 0.9, reason: 'A lighter week — the long run eases back.' };
+  }
+  return { action: 'hold', factor: 1, reason: 'Holding where you are this week.' };
 }
 
 /** Whole days from one `yyyy-mm-dd` to another (to − from). */
@@ -869,7 +959,19 @@ function parsePlan(value: unknown): TrainingPlan | null {
     runsPerWeek,
     preferredDays: normalizePreferredDays(raw.preferredDays ?? []),
     level: isTrainingLevel(raw.level) ? raw.level : 'occasional',
+    longAdjust: clampLongAdjust(raw.longAdjust),
+    override:
+      raw.override === 'harder' || raw.override === 'easier' || raw.override === 'hold'
+        ? raw.override
+        : null,
+    lastAction: isProgressionAction(raw.lastAction) ? raw.lastAction : null,
   };
+}
+
+function isProgressionAction(value: unknown): value is ProgressionAction {
+  return (
+    value === 'advance' || value === 'hold' || value === 'reduce' || value === 'step-back'
+  );
 }
 
 /**
