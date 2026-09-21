@@ -280,13 +280,68 @@ describe('findRoutes', () => {
       (call) => JSON.parse((call[1] as RequestInit).body as string).options.round_trip.seed,
     );
 
+    // Bypass the cache: this is about randomness, not caching (#62).
     fetchMock.mockClear();
-    await findRoutes({ origin: ORIGIN, targetKm: 5 });
+    await findRoutes({ origin: ORIGIN, targetKm: 5, bypassCache: true });
     const secondSeeds = fetchMock.mock.calls.map(
       (call) => JSON.parse((call[1] as RequestInit).body as string).options.round_trip.seed,
     );
 
     expect(firstSeeds).not.toEqual(secondSeeds);
+  });
+
+  test('a repeated search within the window is served from cache (#62)', async () => {
+    const { findRoutes } = loadRouting('test-key');
+    fetchMock.mockResolvedValue(jsonResponse(orsFixture(5000)) as never);
+
+    await findRoutes({ origin: ORIGIN, targetKm: 5 });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    fetchMock.mockClear();
+    const routes = await findRoutes({ origin: ORIGIN, targetKm: 5 });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(routes).toHaveLength(3);
+    expect(routes[0].distanceKm).toBe(5);
+  });
+
+  test('bypassCache forces a fresh call even within the window (#62)', async () => {
+    const { findRoutes } = loadRouting('test-key');
+    fetchMock.mockResolvedValue(jsonResponse(orsFixture(5000)) as never);
+
+    await findRoutes({ origin: ORIGIN, targetKm: 5 });
+    fetchMock.mockClear();
+    await findRoutes({ origin: ORIGIN, targetKm: 5, bypassCache: true });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  test('a different distance is not served from the same cache entry (#62)', async () => {
+    const { findRoutes } = loadRouting('test-key');
+    fetchMock.mockResolvedValue(jsonResponse(orsFixture(5000)) as never);
+
+    await findRoutes({ origin: ORIGIN, targetKm: 5 });
+    fetchMock.mockClear();
+    await findRoutes({ origin: ORIGIN, targetKm: 6 });
+
+    // A miss means it went to the provider at least once; the exact count
+    // depends on whether the adaptive nudge fires.
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(0);
+  });
+
+  test('a 429 arms a backoff, and the next search does not call out (#62)', async () => {
+    const { findRoutes } = loadRouting('test-key');
+    fetchMock.mockResolvedValue(jsonResponse(null, 429) as never);
+
+    await expect(findRoutes({ origin: ORIGIN, targetKm: 5 })).rejects.toMatchObject({
+      code: 'rate-limit',
+    });
+
+    fetchMock.mockClear();
+    await expect(findRoutes({ origin: ORIGIN, targetKm: 6 })).rejects.toMatchObject({
+      code: 'rate-limit',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test('ranks candidates by closeness to target, not request order', async () => {

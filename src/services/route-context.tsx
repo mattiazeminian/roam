@@ -118,7 +118,12 @@ export function RouteProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const find = useCallback(
-    async (origin: Coordinate, requestedKm: number, finish: Coordinate | null = null) => {
+    async (
+      origin: Coordinate,
+      requestedKm: number,
+      finish: Coordinate | null = null,
+      bypassCache = false,
+    ) => {
       if (inFlight.current) {
         return false;
       }
@@ -137,11 +142,13 @@ export function RouteProvider({ children }: { children: ReactNode }) {
               finish,
               targetKm: requestedKm,
               paceMinPerKm: settings.typicalPaceMinPerKm,
+              bypassCache,
             })
           : await findRoutes({
               origin,
               targetKm: requestedKm,
               paceMinPerKm: settings.typicalPaceMinPerKm,
+              bypassCache,
             });
         // New candidates invalidate any edit made to the previous ones.
         clearEdit();
@@ -172,7 +179,9 @@ export function RouteProvider({ children }: { children: ReactNode }) {
     if (!request) {
       return false;
     }
-    return find(request.origin, request.targetKm, request.finish);
+    // A retry is an explicit "give me another look", so it bypasses the cache
+    // rather than returning the same result the runner just rejected (#62).
+    return find(request.origin, request.targetKm, request.finish, true);
   }, [find]);
 
   const select = useCallback(

@@ -79,6 +79,8 @@ export type RouteRequest = {
   targetKm: number;
   /** Minutes per kilometer used for the time estimate. See PACE_MIN_PER_KM. */
   paceMinPerKm?: number;
+  /** Skip the search cache and always ask the provider (#62). */
+  bypassCache?: boolean;
 };
 
 export type RoutingErrorCode =
@@ -107,6 +109,106 @@ export class RoutingError extends Error {
 
 const ORS_API_KEY = process.env.EXPO_PUBLIC_ORS_API_KEY ?? '';
 const ORS_ENDPOINT = 'https://api.openrouteservice.org/v2/directions/foot-walking/geojson';
+
+/**
+ * How long a completed search stays reusable (#62). Short on purpose: routes
+ * are a moment, and the same origin and distance asked again minutes later
+ * should be allowed to return something new. It exists to absorb the common
+ * case — backing out and re-running the same search, a double tap, a retry
+ * after a UI hiccup — not to pin a result for the session.
+ */
+const SEARCH_CACHE_TTL_MS = 5 * 60_000;
+
+/** Bound the cache so it cannot grow with every distance a runner tries. */
+const SEARCH_CACHE_MAX_ENTRIES = 20;
+
+type CachedSearch = { routes: RouteCandidate[]; at: number };
+const searchCache = new Map<string, CachedSearch>();
+
+/**
+ * ~11 m of origin precision and 0.1 km of target, so a runner standing still
+ * and asking for the same distance hits the entry rather than missing it on
+ * floating-point noise. The kind keeps a loop and a one-way apart.
+ */
+function searchCacheKey(
+  origin: Coordinate,
+  targetKm: number,
+  kind: 'loop' | 'one-way',
+  finish?: Coordinate | null,
+): string {
+  const base = `${kind}:${origin.latitude.toFixed(4)},${origin.longitude.toFixed(4)},${targetKm.toFixed(1)}`;
+  // A one-way route also depends on where it ends, so the finish is part of
+  // its key — two different finishes must never share an entry.
+  return finish ? `${base}:${finish.latitude.toFixed(4)},${finish.longitude.toFixed(4)}` : base;
+}
+
+function readSearchCache(key: string, nowMs: number): RouteCandidate[] | null {
+  const entry = searchCache.get(key);
+  if (!entry) {
+    return null;
+  }
+  if (nowMs - entry.at > SEARCH_CACHE_TTL_MS) {
+    searchCache.delete(key);
+    return null;
+  }
+  return entry.routes;
+}
+
+function writeSearchCache(key: string, routes: RouteCandidate[], nowMs: number): void {
+  // Re-insert so the map's insertion order is also recency order, and the
+  // oldest entry is the one evicted when the cache is full.
+  searchCache.delete(key);
+  searchCache.set(key, { routes, at: nowMs });
+  while (searchCache.size > SEARCH_CACHE_MAX_ENTRIES) {
+    const oldest = searchCache.keys().next().value;
+    if (oldest === undefined) {
+      break;
+    }
+    searchCache.delete(oldest);
+  }
+}
+
+/** Forget cached searches. A seam for tests and a manual refresh. */
+export function clearSearchCache(): void {
+  searchCache.clear();
+}
+
+/**
+ * Provider rate-limit backoff (#62). A 429 arms a window during which no
+ * request is sent at all; repeated 429s grow it exponentially, up to a cap. A
+ * completed search clears it. This is deliberately in-memory: a fresh launch
+ * is a fresh budget, and there is no server to coordinate with.
+ */
+const RATE_LIMIT_BASE_MS = 30_000;
+const RATE_LIMIT_MAX_MS = 5 * 60_000;
+let rateLimitedUntil = 0;
+let rateLimitStreak = 0;
+
+function rateLimitWaitMs(nowMs: number): number {
+  return Math.max(0, rateLimitedUntil - nowMs);
+}
+
+function noteRateLimit(nowMs: number): void {
+  rateLimitStreak = Math.min(rateLimitStreak + 1, 5);
+  const waitMs = Math.min(RATE_LIMIT_BASE_MS * 2 ** (rateLimitStreak - 1), RATE_LIMIT_MAX_MS);
+  rateLimitedUntil = nowMs + waitMs;
+}
+
+function noteRateLimitCleared(): void {
+  rateLimitStreak = 0;
+  rateLimitedUntil = 0;
+}
+
+/** Throws if a 429 backoff window is still open, so nothing is sent. */
+function assertNotRateLimited(nowMs: number): void {
+  const waitMs = rateLimitWaitMs(nowMs);
+  if (waitMs > 0) {
+    throw new RoutingError(
+      'rate-limit',
+      `Too many route requests. Try again in about ${Math.ceil(waitMs / 1000)}s.`,
+    );
+  }
+}
 
 /**
  * Pedestrian routing is the closest profile to running that ORS offers. Its
@@ -468,6 +570,9 @@ async function sendDirections(
     throw new RoutingError('auth', 'The routing API key was rejected.');
   }
   if (response.status === 429) {
+    // Arm the backoff before the caller sees the error, so a retry that
+    // immediately follows does not spend another request (#62).
+    noteRateLimit(Date.now());
     throw new RoutingError('rate-limit', 'Too many route requests. Try again shortly.');
   }
   if (!response.ok) {
@@ -642,6 +747,8 @@ export type BetweenRequest = {
   /** The runner's preferred distance, in kilometers. */
   targetKm: number;
   paceMinPerKm?: number;
+  /** Skip the search cache and always ask the provider (#62). */
+  bypassCache?: boolean;
 };
 
 /**
@@ -660,6 +767,7 @@ export async function findRoutesBetween({
   finish,
   targetKm,
   paceMinPerKm = PACE_MIN_PER_KM,
+  bypassCache = false,
 }: BetweenRequest): Promise<RouteCandidate[]> {
   if (!ORS_API_KEY) {
     throw new RoutingError(
@@ -675,6 +783,16 @@ export async function findRoutesBetween({
   }
   if (!Number.isFinite(targetKm) || targetKm <= 0) {
     throw new RoutingError('no-routes', 'Choose a distance before finding routes.');
+  }
+
+  assertNotRateLimited(Date.now());
+
+  const cacheKey = searchCacheKey(origin, targetKm, 'one-way', finish);
+  if (!bypassCache) {
+    const cached = readSearchCache(cacheKey, Date.now());
+    if (cached) {
+      return cached;
+    }
   }
 
   const raw = await sendDirections(
@@ -704,7 +822,7 @@ export async function findRoutesBetween({
     isWithinTolerance(candidate.distanceM, targetM),
   );
 
-  return ranked.map((candidate, index) => {
+  const routes = ranked.map((candidate, index) => {
     const distanceKm = roundTo(candidate.distanceM / 1000, 1);
     return {
       id: `route-${index + 1}`,
@@ -723,6 +841,10 @@ export async function findRoutesBetween({
       finish,
     };
   });
+
+  writeSearchCache(cacheKey, routes, Date.now());
+  noteRateLimitCleared();
+  return routes;
 }
 
 /**
@@ -918,6 +1040,7 @@ export async function findRoutes({
   origin,
   targetKm,
   paceMinPerKm = PACE_MIN_PER_KM,
+  bypassCache = false,
 }: RouteRequest): Promise<RouteCandidate[]> {
   if (!ORS_API_KEY) {
     throw new RoutingError(
@@ -930,6 +1053,16 @@ export async function findRoutes({
   }
   if (!Number.isFinite(targetKm) || targetKm <= 0) {
     throw new RoutingError('no-routes', 'Choose a distance before finding routes.');
+  }
+
+  assertNotRateLimited(Date.now());
+
+  const cacheKey = searchCacheKey(origin, targetKm, 'loop');
+  if (!bypassCache) {
+    const cached = readSearchCache(cacheKey, Date.now());
+    if (cached) {
+      return cached;
+    }
   }
 
   const targetM = targetKm * 1000;
@@ -1008,7 +1141,7 @@ export async function findRoutes({
   const ranked = rankByQuality(safe, targetM).slice(0, CANDIDATE_COUNT);
   const closestAvailable = !ranked.some((candidate) => isWithinTolerance(candidate.distanceM, targetM));
 
-  return ranked.map((candidate, index) => {
+  const routes = ranked.map((candidate, index) => {
     const distanceKm = roundTo(candidate.distanceM / 1000, 1);
     return {
       id: `route-${index + 1}`,
@@ -1020,4 +1153,8 @@ export async function findRoutes({
       attributes: candidate.attributes,
     };
   });
+
+  writeSearchCache(cacheKey, routes, Date.now());
+  noteRateLimitCleared();
+  return routes;
 }
