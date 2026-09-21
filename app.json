@@ -9,7 +9,6 @@
     "userInterfaceStyle": "light",
     "ios": {
       "bundleIdentifier": "com.mattiazeminian.roam",
-      "usesAppleSignIn": true,
       "icon": {
         "light": "./assets/images/icon.png",
         "tinted": "./assets/images/icon-tinted.png"
@@ -44,7 +43,6 @@
         }
       ],
       "@rnmapbox/maps",
-      "expo-apple-authentication",
       [
         "expo-image-picker",
         {

@@ -48,3 +48,4 @@ example
 
 # local xcode derived data
 /build
+/build-device
