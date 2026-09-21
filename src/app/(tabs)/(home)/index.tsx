@@ -7,12 +7,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Appear } from '@/components/appear';
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
+import { DEFAULT_DISTANCE_KM } from '@/components/distance-control';
 import { EmptyState } from '@/components/empty-state';
 import { MapCanvas } from '@/components/map/map-canvas';
 import { SectionHeader } from '@/components/section-header';
 import { Text } from '@/components/text';
 import { WorkoutIcon } from '@/components/workout-icon';
 import { impactLight, impactMedium } from '@/lib/haptics';
+import { useLocation } from '@/services/location-context';
+import { useRoutes } from '@/services/route-context';
 import { listRoutes } from '@/services/route-storage';
 import type { RouteCandidate } from '@/services/routing';
 import { useRun } from '@/services/run-context';
@@ -48,6 +51,12 @@ export default function HomeScreen() {
   const { recoverable, resumeRecovered, discardRecovered, start } = useRun();
   const { settings, loaded } = useSettings();
   const { state } = useTraining();
+  const { origin } = useLocation();
+  const { find } = useRoutes();
+
+  // The common route request — run here, about the remembered distance — is a
+  // single tap from Home (#65). A deliberate distance is set on the Routes tab.
+  const rememberedKm = settings.defaultDistanceKm ?? DEFAULT_DISTANCE_KM;
 
   const [run, setRun] = useState<SavedRun | null>(null);
   const [routeCount, setRouteCount] = useState(0);
@@ -116,6 +125,18 @@ export default function HomeScreen() {
     [discardRecovered],
   );
 
+  const findRoute = useCallback(() => {
+    impactLight();
+    // Without a location there is nothing to build from, so fall back to the
+    // Routes tab rather than starting a search that cannot run.
+    if (!origin) {
+      router.push('/maps');
+      return;
+    }
+    void find(origin, rememberedKm, null);
+    router.push('/generating');
+  }, [find, origin, rememberedKm]);
+
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
       <ScrollView
@@ -178,16 +199,13 @@ export default function HomeScreen() {
         )}
 
         <Pressable
-          onPress={() => {
-            impactLight();
-            router.push('/maps');
-          }}
+          onPress={findRoute}
           accessibilityRole="button"
-          accessibilityLabel={
-            routeCount
-              ? `Find somewhere new. ${routeCount} saved ${routeCount === 1 ? 'route' : 'routes'}.`
-              : 'Find somewhere new.'
-          }
+          accessibilityLabel={`Find a route, about ${fmt.distance(
+            rememberedKm * 1000,
+          )} ${fmt.unitSpoken} from here.${
+            routeCount ? ` ${routeCount} saved ${routeCount === 1 ? 'route' : 'routes'}.` : ''
+          }`}
           style={styles.explore}>
           <SymbolView
             name="point.topleft.down.to.point.bottomright.curvepath"
@@ -198,11 +216,11 @@ export default function HomeScreen() {
             <Text variant="micro" color="textSecondary">
               EXPLORE
             </Text>
-            <Text variant="title">Find somewhere new</Text>
+            <Text variant="title">Find a route</Text>
             <Text variant="caption" color="textSecondary">
-              {routeCount
-                ? `${routeCount} saved ${routeCount === 1 ? 'route' : 'routes'} · explore nearby`
-                : 'See what starts nearby.'}
+              {`About ${fmt.distance(rememberedKm * 1000)} ${fmt.unitLabel} from here${
+                routeCount ? ` · ${routeCount} saved` : ''
+              }`}
             </Text>
           </View>
           <SymbolView name="chevron.right" size={18} tintColor={theme.textSecondary} />
