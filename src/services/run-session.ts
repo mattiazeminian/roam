@@ -9,6 +9,7 @@
 import { bearingDegrees, cumulativeDistances, haversineMeters, projectOntoPath } from './geo';
 import type { LocationSample } from './location';
 import { isValidCoordinate, type Coordinate, type RouteCandidate } from './routing';
+import type { WorkoutType } from './training';
 
 export type RunStatus = 'active' | 'paused' | 'finished';
 
@@ -45,6 +46,12 @@ export type SavedRun = {
    * planned workout completed and links it back.
    */
   plannedWorkoutId?: string;
+  /**
+   * The kind of run the runner set out to do, when they chose one on Record
+   * (#116). Independent of `plannedWorkoutId`: a free run can still be a tempo
+   * run. Optional so older runs load.
+   */
+  workoutType?: WorkoutType;
 };
 
 /**

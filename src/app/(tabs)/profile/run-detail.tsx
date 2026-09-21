@@ -4,6 +4,7 @@ import { Alert, Pressable, ScrollView, Share, StyleSheet, View } from 'react-nat
 import { captureRef } from 'react-native-view-shot';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Badge } from '@/components/badge';
 import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
 import { Metric, MetricRow } from '@/components/metric';
@@ -17,6 +18,7 @@ import { isRouteSaved, saveRoute } from '@/services/route-storage';
 import { useFormatters } from '@/services/settings-context';
 import { getRun, saveRun } from '@/services/run-storage';
 import { loadShoes, shoeName, type Shoe } from '@/services/shoes';
+import { WORKOUT_LABELS } from '@/services/training';
 import { layout, radii, spacing, useTheme } from '@/theme';
 
 /** Run detail — the recorded route, and the numbers that describe it. */
@@ -212,6 +214,8 @@ export default function RunDetailScreen() {
               <Text variant="micro" color="textSecondary">
                 {formatRunDate(run.startedAt)}
               </Text>
+
+              {run.workoutType ? <Badge>{WORKOUT_LABELS[run.workoutType]}</Badge> : null}
 
               <Metric
                 label="Distance"

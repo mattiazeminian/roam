@@ -36,6 +36,7 @@ export default function ActiveRunScreen() {
     status,
     route,
     plannedWorkoutId,
+    workoutType,
     distanceMeters,
     activeSeconds,
     paceMinPerKm,
@@ -142,6 +143,14 @@ export default function ActiveRunScreen() {
                 {`${WORKOUT_LABELS[plannedWorkout.type]} · ${fmt.distance(
                   plannedWorkout.targetKm * 1000,
                 )} ${fmt.unitLabel}`}
+              </Text>
+            </GlassSurface>
+          ) : workoutType ? (
+            // A free run the runner labelled on Record, e.g. a tempo run.
+            <GlassSurface radius={radii.pill} style={styles.pill}>
+              <WorkoutIcon type={workoutType} size={layout.iconSizeSmall} tintColor={theme.text} />
+              <Text variant="micro" color="text">
+                {WORKOUT_LABELS[workoutType]}
               </Text>
             </GlassSurface>
           ) : null}

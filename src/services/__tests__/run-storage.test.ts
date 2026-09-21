@@ -194,6 +194,24 @@ describe('planned workout link (#116)', () => {
   });
 });
 
+describe('workout type (#116)', () => {
+  test('a run labelled on Record keeps the type', async () => {
+    await saveRun(run({ workoutType: 'tempo' }));
+    expect((await getRun('run-1'))?.workoutType).toBe('tempo');
+  });
+
+  test('a missing type is absent, not guessed', async () => {
+    await saveRun(run());
+    expect((await getRun('run-1'))?.workoutType).toBeUndefined();
+  });
+
+  test('an unknown type is dropped, not carried through', async () => {
+    // A hand-edited or future type must not survive parsing.
+    await saveRun({ ...run(), workoutType: 'not-a-type' } as unknown as SavedRun);
+    expect((await getRun('run-1'))?.workoutType).toBeUndefined();
+  });
+});
+
 describe('timed track (#32)', () => {
   test('fix times round-trip with the track', async () => {
     const timestamps = [1_700_000_000_000, 1_700_000_010_000];

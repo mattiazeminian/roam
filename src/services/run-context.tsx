@@ -26,6 +26,7 @@ import {
 } from './run-session';
 import { checkpointRun, clearInProgressRun, getInProgressRun, saveRun } from './run-storage';
 import { canTransition, type RunSessionStatus } from './run-state';
+import type { WorkoutType } from './training';
 
 export type { RunSessionStatus } from './run-state';
 
@@ -66,12 +67,15 @@ export type RunContextValue = RunSnapshot & {
   targetKm: number;
   /** The planned workout this run was started from, when there was one. */
   plannedWorkoutId: string | null;
+  /** The kind of run the runner chose on Record, when they chose one. */
+  workoutType: WorkoutType | null;
   /** Set once a run is finished, until it is saved or discarded. */
   completedRun: SavedRun | null;
   start: (
     route: RouteCandidate | null,
     targetKm: number,
     plannedWorkoutId?: string | null,
+    workoutType?: WorkoutType | null,
   ) => void;
   pause: () => void;
   resume: () => void;
@@ -119,6 +123,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
   const [route, setRoute] = useState<RouteCandidate | null>(null);
   const [targetKm, setTargetKm] = useState(0);
   const [plannedWorkoutId, setPlannedWorkoutId] = useState<string | null>(null);
+  const [workoutType, setWorkoutType] = useState<WorkoutType | null>(null);
   const [snapshot, setSnapshot] = useState<RunSnapshot>(EMPTY_SNAPSHOT);
   const [completedRun, setCompletedRun] = useState<SavedRun | null>(null);
   const [recoverable, setRecoverable] = useState<SavedRun | null>(null);
@@ -255,8 +260,9 @@ export function RunProvider({ children }: { children: ReactNode }) {
       timestamps: state.timestamps,
       status: pausedAt.current === null ? 'active' : 'paused',
       plannedWorkoutId: plannedWorkoutId ?? undefined,
+      workoutType: workoutType ?? undefined,
     });
-  }, [activeSecondsNow, plannedWorkoutId, route, targetKm]);
+  }, [activeSecondsNow, plannedWorkoutId, route, targetKm, workoutType]);
 
   // One timer drives the clock, flushes any accumulated GPS movement, and
   // periodically checkpoints — not on every tick; see CHECKPOINT_EVERY_N_PUBLISHES.
@@ -296,6 +302,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       nextRoute: RouteCandidate | null,
       nextTargetKm: number,
       nextPlannedWorkoutId: string | null = null,
+      nextWorkoutType: WorkoutType | null = null,
     ) => {
       if (!canTransition(status, 'start')) {
         // Unreachable today — `start` is legal from every state — but kept
@@ -315,6 +322,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       setRoute(nextRoute);
       setTargetKm(nextTargetKm);
       setPlannedWorkoutId(nextPlannedWorkoutId);
+      setWorkoutType(nextWorkoutType);
       setCompletedRun(null);
       setRecoverable(null);
       setSnapshot(EMPTY_SNAPSHOT);
@@ -394,8 +402,9 @@ export function RunProvider({ children }: { children: ReactNode }) {
       timestamps: state.timestamps,
       status: 'finished',
       plannedWorkoutId: plannedWorkoutId ?? undefined,
+      workoutType: workoutType ?? undefined,
     });
-  }, [activeSecondsNow, plannedWorkoutId, publish, route, status, stopWatching, targetKm]);
+  }, [activeSecondsNow, plannedWorkoutId, publish, route, status, stopWatching, targetKm, workoutType]);
 
   const reset = useCallback(() => {
     tracker.current = createTrackerState();
@@ -409,6 +418,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
     setRoute(null);
     setTargetKm(0);
     setPlannedWorkoutId(null);
+    setWorkoutType(null);
     setCompletedRun(null);
     setStatus('idle');
   }, []);
@@ -451,6 +461,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
     setRoute(run.route);
     setTargetKm(run.targetDistanceKm);
     setPlannedWorkoutId(run.plannedWorkoutId ?? null);
+    setWorkoutType(run.workoutType ?? null);
     setCompletedRun(null);
     setSnapshot({
       distanceMeters: tracker.current.distanceMeters,
@@ -494,6 +505,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       route,
       targetKm,
       plannedWorkoutId,
+      workoutType,
       completedRun,
       start,
       pause,
@@ -512,6 +524,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       route,
       targetKm,
       plannedWorkoutId,
+      workoutType,
       completedRun,
       start,
       pause,

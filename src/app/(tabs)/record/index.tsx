@@ -71,9 +71,11 @@ export default function RecordScreen() {
       return;
     }
     impactMedium();
-    start(null, targetKm);
+    // Carry the chosen workout type into the run, so the chip the runner
+    // picked is recorded rather than discarded (#116).
+    start(null, targetKm, null, type);
     router.push('/run');
-  }, [coordinate, start, targetKm]);
+  }, [coordinate, start, targetKm, type]);
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
