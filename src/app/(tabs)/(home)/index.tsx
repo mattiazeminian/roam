@@ -20,6 +20,7 @@ import { listRoutes } from '@/services/route-storage';
 import type { RouteCandidate } from '@/services/routing';
 import { useRun } from '@/services/run-context';
 import { formatDuration, formatRunDate, type SavedRun } from '@/services/run-session';
+import { weeklyRunSummary } from '@/services/run-analytics';
 import { listRuns } from '@/services/run-storage';
 import { useFormatters, useSettings, type Formatters } from '@/services/settings-context';
 import {
@@ -59,6 +60,7 @@ export default function HomeScreen() {
   const rememberedKm = settings.defaultDistanceKm ?? DEFAULT_DISTANCE_KM;
 
   const [run, setRun] = useState<SavedRun | null>(null);
+  const [allRuns, setAllRuns] = useState<SavedRun[]>([]);
   const [routeCount, setRouteCount] = useState(0);
   const [today, setToday] = useState(() => toDateKey(new Date()));
 
@@ -69,6 +71,7 @@ export default function HomeScreen() {
         .then(([runs, routes]) => {
           if (active) {
             setRun(runs[0] ?? null);
+            setAllRuns(runs);
             setRouteCount(routes.length);
             setToday(toDateKey(new Date()));
           }
@@ -76,6 +79,7 @@ export default function HomeScreen() {
         .catch(() => {
           if (active) {
             setRun(null);
+            setAllRuns([]);
             setRouteCount(0);
           }
         });
@@ -96,6 +100,7 @@ export default function HomeScreen() {
   const workout = suggestion.kind === 'today' ? suggestion.workout : null;
   const week = weekStartFor(today);
   const progress = summarizeProgress(state, week, addDays(week, 6));
+  const weekSummary = weeklyRunSummary(allRuns, week);
   const next = workoutsFrom(state, addDays(today, 1))[0] ?? null;
 
   const startRun = useCallback(() => {
@@ -182,7 +187,9 @@ export default function HomeScreen() {
             today={today}
             week={week}
             progress={progress}
+            summary={weekSummary}
             next={next}
+            fmt={fmt}
           />
         ) : (
           <CreatePlan />
@@ -322,14 +329,18 @@ function Training({
   today,
   week,
   progress,
+  summary,
   next,
+  fmt,
 }: {
   goal: string;
   state: ReturnType<typeof useTraining>['state'];
   today: string;
   week: string;
   progress: ReturnType<typeof summarizeProgress>;
+  summary: ReturnType<typeof weeklyRunSummary>;
   next: PlannedWorkout | null;
+  fmt: Formatters;
 }) {
   const theme = useTheme();
   return (
@@ -344,6 +355,15 @@ function Training({
           {`${progress.completed}/${progress.planned} this week`}
         </Text>
       </View>
+
+      {/* What was actually run this week — recorded runs only (#76). */}
+      {summary.runCount > 0 ? (
+        <Text variant="caption" color="textSecondary" tabular>
+          {`Ran ${fmt.distance(summary.meters)} ${fmt.unitLabel} · ${formatDuration(
+            summary.seconds,
+          )}`}
+        </Text>
+      ) : null}
 
       <View style={styles.timeline}>
         {Array.from({ length: 7 }, (_, i) => {

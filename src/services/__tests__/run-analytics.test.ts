@@ -15,6 +15,7 @@ import {
   weekDayBuckets,
   weeklyDistanceSeries,
   weeklyRunStreak,
+  weeklyRunSummary,
   filterRunsByPeriod,
   summarizeRuns,
 } from '../run-analytics';
@@ -275,5 +276,23 @@ describe('paceTrend (#101)', () => {
     const trend = paceTrend([], NOW);
     expect(trend.currentMinPerKm).toBeNull();
     expect(trend.previousMinPerKm).toBeNull();
+  });
+});
+
+describe('weeklyRunSummary (#76)', () => {
+  test('sums sessions, distance and time for a Sunday–Saturday week', () => {
+    // NOW is Tue 2023-11-14; the week starts Sun 2023-11-12.
+    const runs = [run(0, 5, 'a'), run(1, 3, 'b'), run(2, 4, 'c'), run(9, 8, 'old')];
+    const summary = weeklyRunSummary(runs, '2023-11-12');
+    expect(summary.weekStart).toBe('2023-11-12');
+    expect(summary.weekEnd).toBe('2023-11-18');
+    expect(summary.runCount).toBe(3);
+    expect(summary.meters).toBeCloseTo(12_000, 0);
+    expect(summary.seconds).toBe(3 * 1800);
+  });
+
+  test('a week with no runs is zeroes, not missing', () => {
+    const summary = weeklyRunSummary([run(30, 5, 'x')], '2023-11-12');
+    expect(summary).toMatchObject({ runCount: 0, meters: 0, seconds: 0 });
   });
 });

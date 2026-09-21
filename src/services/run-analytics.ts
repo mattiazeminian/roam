@@ -203,6 +203,40 @@ export function compareRunToRecent(run: SavedRun, runs: SavedRun[]): RecentCompa
   };
 }
 
+export type WeeklyRunSummary = {
+  /** The Sunday that starts the week. */
+  weekStart: string;
+  /** The Saturday that ends it. */
+  weekEnd: string;
+  runCount: number;
+  meters: number;
+  seconds: number;
+};
+
+/**
+ * What the runner actually ran in one week (#76): sessions, distance and time,
+ * derived only from recorded runs. Week boundaries are Sunday–Saturday, the
+ * same as everywhere else. No calories, no load, no interpretation.
+ */
+export function weeklyRunSummary(runs: SavedRun[], weekStart: string): WeeklyRunSummary {
+  const weekEnd = addDays(weekStart, 6);
+  let runCount = 0;
+  let meters = 0;
+  let seconds = 0;
+
+  for (const run of runs) {
+    const day = toDateKey(new Date(run.startedAt));
+    if (day < weekStart || day > weekEnd) {
+      continue;
+    }
+    runCount += 1;
+    meters += run.distanceKm * 1000;
+    seconds += run.durationSeconds;
+  }
+
+  return { weekStart, weekEnd, runCount, meters, seconds };
+}
+
 export type WeekPoint = {
   /** The Sunday that starts the week. */
   weekStart: string;
