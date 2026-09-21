@@ -20,15 +20,18 @@ export const palette = {
   offWhite: '#FBFBF9',
   white: '#FFFFFF',
 
-  /** Wise Green. Buttons, selection and the active route — fills only. */
-  green: '#9FE870',
-  /** Pressed/hover green. */
-  greenPastel: '#CDFFAD',
-  greenDeep: '#8AD65C',
-  /** Text that sits on green, and the way to emphasise type without lime. */
+  /**
+   * The brand lime — a hot chartreuse, brighter and yellower than the old
+   * Wise green, matching the club-poster feel (#141 follow-up). Fills only.
+   */
+  green: '#CDF24B',
+  /** Pressed/hover lime. */
+  greenPastel: '#E4FF9E',
+  greenDeep: '#B6DD2B',
+  /** Deep, near-black green, kept for the rare place a green ink is wanted. */
   greenDark: '#163300',
-  /** Soft green surface for badges and quiet emphasis. */
-  greenMint: '#E2F6D5',
+  /** Soft lime surface for badges and quiet emphasis. */
+  greenMint: '#F2FCD8',
 
   /** Secondary text and borders. */
   warmDark: '#454745',
@@ -64,13 +67,17 @@ export const colors = {
 
   /** Fills, selection, the active route. Never a foreground. */
   accent: palette.green,
-  /** What sits on top of the accent. */
-  accentForeground: palette.greenDark,
   /**
-   * Emphasis in type — the distance, a record, a live metric. Dark Green keeps
-   * the brand in the numerals at 13.44:1 where the lime would be 1.42:1.
+   * What sits on top of the accent. Near-black, as the brand's own artwork
+   * sets type on the lime — not a dark green.
    */
-  accentText: palette.greenDark,
+  accentForeground: palette.nearBlack,
+  /**
+   * Emphasis in type — the distance, a record, a live metric. Black, like the
+   * brand's artwork, which keeps the numerals at maximum contrast where the
+   * lime would be near-invisible on the canvas.
+   */
+  accentText: palette.nearBlack,
   accentPressed: palette.greenDeep,
   /** Soft green wash for badges and progress tracks. */
   accentMuted: palette.greenMint,

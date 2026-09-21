@@ -39,7 +39,15 @@ export function Text({
       maxFontSizeMultiplier={fontScaleCap}
       style={[
         typography[variant],
-        { color: theme[color], fontFamily: mono ? fontFamilies.mono : fontFamilies.sans },
+        {
+          color: theme[color],
+          // A variant may carry its own face (the condensed display type); only
+          // fall back to the system sans when it does not.
+          fontFamily: mono
+            ? fontFamilies.mono
+            : ((typography[variant] as { fontFamily?: string }).fontFamily ??
+              fontFamilies.sans),
+        },
         tabular && tabularFigures,
         style,
       ]}

@@ -5,12 +5,17 @@ import { Platform, type TextStyle } from 'react-native';
  */
 export const fontFamilies = {
   sans: Platform.select({ ios: 'system-ui', default: undefined }),
+  /**
+   * The display face: a heavy condensed grotesque, matching the brand's
+   * all-caps artwork. iOS ships it, so it costs no asset or dependency.
+   */
+  display: Platform.select({ ios: 'HelveticaNeue-CondensedBlack', default: undefined }),
   mono: Platform.select({ ios: 'ui-monospace', default: 'monospace' }),
 } as const;
 
 type TypeToken = Pick<
   TextStyle,
-  'fontSize' | 'lineHeight' | 'fontWeight' | 'letterSpacing' | 'textTransform'
+  'fontFamily' | 'fontSize' | 'lineHeight' | 'fontWeight' | 'letterSpacing' | 'textTransform'
 >;
 
 /**
@@ -25,12 +30,14 @@ type TypeToken = Pick<
 export const typography = {
   /** The single number a screen is about: distance while running. */
   metric: {
+    fontFamily: fontFamilies.display,
     fontSize: 64,
     lineHeight: 66,
     fontWeight: '700',
     letterSpacing: -2.5,
   },
   hero: {
+    fontFamily: fontFamilies.display,
     fontSize: 56,
     lineHeight: 58,
     fontWeight: '700',
@@ -38,18 +45,21 @@ export const typography = {
   },
   /** Secondary metrics sitting under a `metric`: time, pace. */
   display: {
+    fontFamily: fontFamilies.display,
     fontSize: 34,
     lineHeight: 38,
     fontWeight: '700',
     letterSpacing: -1,
   },
   large: {
+    fontFamily: fontFamilies.display,
     fontSize: 30,
     lineHeight: 36,
     fontWeight: '700',
     letterSpacing: -0.6,
   },
   title: {
+    fontFamily: fontFamilies.display,
     fontSize: 22,
     lineHeight: 28,
     fontWeight: '600',
