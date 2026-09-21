@@ -348,6 +348,10 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   headerRow: {
+    // `content` aligns children to flex-start, so the row must stretch to the
+    // full width or `space-between` has nothing to push against and the
+    // save/share controls collapse next to the back button.
+    alignSelf: 'stretch',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
