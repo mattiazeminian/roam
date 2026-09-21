@@ -26,7 +26,14 @@ import {
   shoeName,
   type Shoe,
 } from '@/services/shoes';
-import { summarizeRuns, shoeMileageMeters, weekDayBuckets, type RunOverview } from '@/services/run-analytics';
+import {
+  paceTrend,
+  summarizeRuns,
+  shoeMileageMeters,
+  weekDayBuckets,
+  weeklyDistanceSeries,
+  type RunOverview,
+} from '@/services/run-analytics';
 import { formatDuration, formatRunDate, type SavedRun } from '@/services/run-session';
 import { listRuns } from '@/services/run-storage';
 import { listRoutes, type SavedRoute } from '@/services/route-storage';
@@ -209,6 +216,12 @@ export default function ProfileScreen() {
         {runs !== null ? (
           <Appear>
             <WeekChart buckets={weekBuckets} todayKey={todayKey} fmt={fmt} />
+          </Appear>
+        ) : null}
+
+        {runs !== null && allRuns.length > 0 ? (
+          <Appear>
+            <Trends runs={allRuns} nowMs={loadedAt} fmt={fmt} />
           </Appear>
         ) : null}
 
@@ -449,6 +462,90 @@ function StatBar({
   );
 }
 
+/**
+ * Trends over time (#101, #117): distance per week and a plain pace
+ * comparison. Two simple shapes, not a dashboard — and nothing is drawn from
+ * anything but the runner's own recorded runs.
+ */
+function Trends({ runs, nowMs, fmt }: { runs: SavedRun[]; nowMs: number; fmt: Formatters }) {
+  const theme = useTheme();
+  const series = weeklyDistanceSeries(runs, nowMs, 8);
+  const trend = paceTrend(runs, nowMs, 30);
+  const maxMeters = Math.max(...series.map((point) => point.meters), 1);
+  const total = series.reduce((sum, point) => sum + point.meters, 0);
+  const currentIndex = series.length - 1;
+  const pace = paceSentence(trend, fmt);
+
+  return (
+    <Card style={styles.trendCard}>
+      <View style={styles.weekHeader}>
+        <Text variant="micro" color="textSecondary">
+          LAST 8 WEEKS
+        </Text>
+        {total > 0 ? (
+          <Text variant="caption" color="textSecondary" tabular>
+            {`${fmt.distance(total)} ${fmt.unitLabel}`}
+          </Text>
+        ) : null}
+      </View>
+
+      <View style={styles.trendBars}>
+        {series.map((point, index) => {
+          const active = point.meters > 0;
+          const height = active
+            ? BAR_MIN + (point.meters / maxMeters) * (BAR_MAX - BAR_MIN)
+            : BAR_EMPTY;
+          return (
+            <View key={point.weekStart} style={styles.trendBar}>
+              <View
+                style={[
+                  styles.bar,
+                  {
+                    height,
+                    backgroundColor: active
+                      ? index === currentIndex
+                        ? theme.accentText
+                        : theme.accent
+                      : theme.borderSubtle,
+                  },
+                ]}
+              />
+            </View>
+          );
+        })}
+      </View>
+
+      {pace ? (
+        <Text variant="caption" color="textSecondary">
+          {pace}
+        </Text>
+      ) : null}
+    </Card>
+  );
+}
+
+/**
+ * A factual pace line, or null. States a difference against the runner's own
+ * previous window and stops there — no performance or health claim.
+ */
+function paceSentence(trend: ReturnType<typeof paceTrend>, fmt: Formatters): string | null {
+  if (trend.currentMinPerKm === null) {
+    return null;
+  }
+  const base = `Last ${trend.windowDays} days · average pace ${fmt.paceWithUnit(
+    trend.currentMinPerKm,
+  )}`;
+  if (trend.previousMinPerKm === null) {
+    return base;
+  }
+  const seconds = Math.round(Math.abs(trend.currentMinPerKm - trend.previousMinPerKm) * 60);
+  if (seconds < 5) {
+    return base;
+  }
+  const direction = trend.currentMinPerKm < trend.previousMinPerKm ? 'faster' : 'slower';
+  return `${base} · ${seconds}s/km ${direction} than the ${trend.windowDays} days before`;
+}
+
 function WeekChart({
   buckets,
   todayKey,
@@ -644,6 +741,21 @@ const styles = StyleSheet.create({
   weekCard: {
     gap: spacing.sm,
     marginTop: spacing.sm,
+  },
+  trendCard: {
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  trendBars: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: spacing.xxs,
+  },
+  trendBar: {
+    flex: 1,
+    height: BAR_MAX,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
   },
   weekHeader: {
     flexDirection: 'row',

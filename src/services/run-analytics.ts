@@ -203,6 +203,91 @@ export function compareRunToRecent(run: SavedRun, runs: SavedRun[]): RecentCompa
   };
 }
 
+export type WeekPoint = {
+  /** The Sunday that starts the week. */
+  weekStart: string;
+  meters: number;
+  seconds: number;
+  count: number;
+};
+
+/**
+ * Distance and time per week over the last `weeks` weeks, oldest first (#101,
+ * #117). Weeks with nothing are zeroes, not gaps, so a chart can show a rest
+ * week as a rest week. Derived from recorded runs only.
+ */
+export function weeklyDistanceSeries(
+  runs: SavedRun[],
+  nowMs: number,
+  weeks = 8,
+): WeekPoint[] {
+  const currentWeek = weekStartFor(toDateKey(new Date(nowMs)));
+  const points: WeekPoint[] = [];
+  for (let index = weeks - 1; index >= 0; index -= 1) {
+    points.push({ weekStart: addDays(currentWeek, -7 * index), meters: 0, seconds: 0, count: 0 });
+  }
+  const byWeek = new Map(points.map((point, index) => [point.weekStart, index]));
+
+  for (const run of runs) {
+    const index = byWeek.get(weekStartFor(toDateKey(new Date(run.startedAt))));
+    if (index === undefined) {
+      continue;
+    }
+    points[index].meters += run.distanceKm * 1000;
+    points[index].seconds += run.durationSeconds;
+    points[index].count += 1;
+  }
+
+  return points;
+}
+
+export type PaceTrend = {
+  /** Average pace over the current window, or null when there is no usable data. */
+  currentMinPerKm: number | null;
+  /** Average pace over the window before it, or null. */
+  previousMinPerKm: number | null;
+  currentCount: number;
+  previousCount: number;
+  windowDays: number;
+};
+
+/**
+ * Average pace over the last window versus the one before it (#101).
+ *
+ * A plain average of recorded paces; runs without a usable pace are excluded,
+ * and an absent window stays null rather than borrowing a number. No
+ * performance claim is made — the caller decides how to state the difference.
+ */
+export function paceTrend(
+  runs: SavedRun[],
+  nowMs: number,
+  windowDays = RECENT_WINDOW_DAYS,
+): PaceTrend {
+  const currentCutoff = nowMs - windowDays * DAY_MS;
+  const previousCutoff = currentCutoff - windowDays * DAY_MS;
+
+  const paced = runs.filter(
+    (run): run is SavedRun & { averagePaceMinPerKm: number } => run.averagePaceMinPerKm !== null,
+  );
+  const average = (list: (SavedRun & { averagePaceMinPerKm: number })[]) =>
+    list.length > 0
+      ? list.reduce((sum, run) => sum + run.averagePaceMinPerKm, 0) / list.length
+      : null;
+
+  const current = paced.filter((run) => run.startedAt >= currentCutoff);
+  const previous = paced.filter(
+    (run) => run.startedAt >= previousCutoff && run.startedAt < currentCutoff,
+  );
+
+  return {
+    currentMinPerKm: average(current),
+    previousMinPerKm: average(previous),
+    currentCount: current.length,
+    previousCount: previous.length,
+    windowDays,
+  };
+}
+
 export type DayBucket = {
   date: string;
   meters: number;

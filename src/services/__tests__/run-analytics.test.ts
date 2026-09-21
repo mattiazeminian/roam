@@ -9,9 +9,11 @@ import { describe, expect, test } from '@jest/globals';
 
 import {
   compareRunToRecent,
+  paceTrend,
   RECENT_WINDOW_DAYS,
   shoeMileageMeters,
   weekDayBuckets,
+  weeklyDistanceSeries,
   weeklyRunStreak,
   filterRunsByPeriod,
   summarizeRuns,
@@ -213,5 +215,65 @@ describe('compareRunToRecent (#42)', () => {
     const target = run(0, 5, 'target');
     const others = Array.from({ length: 8 }, (_, i) => withPace(run(i + 1, 5, `r${i}`), 6));
     expect(compareRunToRecent(target, others)?.comparedCount).toBe(5);
+  });
+});
+
+describe('weeklyDistanceSeries (#101)', () => {
+  test('returns one zeroed point per week, oldest first', () => {
+    const series = weeklyDistanceSeries([], NOW, 4);
+    expect(series).toHaveLength(4);
+    expect(series.every((point) => point.meters === 0 && point.count === 0)).toBe(true);
+    // Oldest first: each week start is seven days after the previous.
+    for (let i = 1; i < series.length; i += 1) {
+      expect(series[i].weekStart > series[i - 1].weekStart).toBe(true);
+    }
+  });
+
+  test('buckets runs into the week they started in', () => {
+    const series = weeklyDistanceSeries([run(0, 5, 'a'), run(1, 3, 'b'), run(20, 4, 'c')], NOW, 4);
+    // All three fall inside the four-week window (NOW is a Tuesday).
+    const total = series.reduce((sum, point) => sum + point.meters, 0);
+    expect(total).toBeCloseTo(12_000, 0);
+    // Today and yesterday are the same week.
+    const current = series[series.length - 1];
+    expect(current.count).toBe(2);
+    expect(current.meters).toBeCloseTo(8000, 0);
+
+    // A run outside the window is excluded entirely.
+    const short = weeklyDistanceSeries([run(0, 5, 'a'), run(40, 9, 'old')], NOW, 4);
+    expect(short.reduce((sum, point) => sum + point.meters, 0)).toBeCloseTo(5000, 0);
+  });
+});
+
+describe('paceTrend (#101)', () => {
+  function paced(daysAgo: number, pace: number, id: string): SavedRun {
+    return { ...run(daysAgo, 5, id), averagePaceMinPerKm: pace };
+  }
+
+  test('averages the current window and the one before it', () => {
+    const trend = paceTrend([paced(1, 6, 'a'), paced(2, 6, 'b'), paced(40, 7, 'c'), paced(50, 7, 'd')], NOW);
+    expect(trend.currentMinPerKm).toBeCloseTo(6, 3);
+    expect(trend.previousMinPerKm).toBeCloseTo(7, 3);
+    expect(trend.currentCount).toBe(2);
+    expect(trend.previousCount).toBe(2);
+  });
+
+  test('an absent previous window is null, never borrowed', () => {
+    const trend = paceTrend([paced(1, 6, 'a')], NOW);
+    expect(trend.currentMinPerKm).toBeCloseTo(6, 3);
+    expect(trend.previousMinPerKm).toBeNull();
+  });
+
+  test('runs without a usable pace are excluded', () => {
+    const noPace = { ...run(1, 5, 'x'), averagePaceMinPerKm: null };
+    const trend = paceTrend([paced(1, 6, 'a'), noPace], NOW);
+    expect(trend.currentCount).toBe(1);
+    expect(trend.currentMinPerKm).toBeCloseTo(6, 3);
+  });
+
+  test('null when there is no data at all', () => {
+    const trend = paceTrend([], NOW);
+    expect(trend.currentMinPerKm).toBeNull();
+    expect(trend.previousMinPerKm).toBeNull();
   });
 });
