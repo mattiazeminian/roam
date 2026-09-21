@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { useKeepAwake } from 'expo-keep-awake';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { GlassSurface } from '@/components/glass-surface';
@@ -54,6 +54,9 @@ export default function ActiveRunScreen() {
     resume,
     finish,
     dismissCompletionSuggestion,
+    reroute,
+    rerouting,
+    rerouteError,
   } = useRun();
 
   const fmt = useFormatters();
@@ -214,6 +217,37 @@ export default function ActiveRunScreen() {
               </Text>
             </GlassSurface>
           ) : null}
+
+          {/* The way back is always an explicit tap, never automatic (#64). */}
+          {offRoute && route ? (
+            <Pressable
+              onPress={() => void reroute()}
+              disabled={rerouting}
+              accessibilityRole="button"
+              accessibilityLabel={
+                rerouting
+                  ? 'Finding a way back to your route'
+                  : 'Route back to your planned route'
+              }
+              style={({ pressed }) => (pressed && !rerouting ? styles.pressed : undefined)}>
+              <GlassSurface radius={radii.pill} style={styles.pill}>
+                <SymbolView
+                  name="arrow.uturn.backward"
+                  size={layout.iconSizeSmall}
+                  tintColor={theme.text}
+                />
+                <Text variant="micro" color="text">
+                  {rerouting ? 'Finding a way back…' : 'Back to route'}
+                </Text>
+              </GlassSurface>
+            </Pressable>
+          ) : null}
+
+          {rerouteError ? (
+            <Text variant="caption" color="textSecondary" accessibilityLiveRegion="polite">
+              {rerouteError}
+            </Text>
+          ) : null}
         </View>
 
         {followBroken ? (
@@ -333,5 +367,8 @@ const styles = StyleSheet.create({
   },
   controls: {
     gap: spacing.xs,
+  },
+  pressed: {
+    opacity: 0.6,
   },
 });

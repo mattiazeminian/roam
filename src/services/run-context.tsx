@@ -12,7 +12,7 @@ import {
 import * as location from './location';
 import type { LocationSample } from './location';
 import { setRunLocationSink, startRunLocationUpdates, stopRunLocationUpdates } from './background-location';
-import type { Coordinate, RouteCandidate } from './routing';
+import { findRoutesBetween, RoutingError, type Coordinate, type RouteCandidate } from './routing';
 import {
   applySample,
   createTrackerState,
@@ -69,6 +69,10 @@ export type RunContextValue = RunSnapshot & {
   plannedWorkoutId: string | null;
   /** The kind of run the runner chose on Record, when they chose one. */
   workoutType: WorkoutType | null;
+  /** True while an explicit reroute is being calculated. */
+  rerouting: boolean;
+  /** The last reroute failure, if any, for the runner to read. */
+  rerouteError: string | null;
   /** Set once a run is finished, until it is saved or discarded. */
   completedRun: SavedRun | null;
   start: (
@@ -84,6 +88,11 @@ export type RunContextValue = RunSnapshot & {
   discardCompleted: () => void;
   /** Dismisses a completion suggestion without ending the run. */
   dismissCompletionSuggestion: () => void;
+  /**
+   * Explicitly route the runner back to the planned route (#64). Never
+   * automatic, and never touches the recorded track or distance.
+   */
+  reroute: () => Promise<void>;
   /** A run that was active/paused when the app last stopped running, if any. */
   recoverable: SavedRun | null;
   resumeRecovered: () => void;
@@ -127,6 +136,8 @@ export function RunProvider({ children }: { children: ReactNode }) {
   const [snapshot, setSnapshot] = useState<RunSnapshot>(EMPTY_SNAPSHOT);
   const [completedRun, setCompletedRun] = useState<SavedRun | null>(null);
   const [recoverable, setRecoverable] = useState<SavedRun | null>(null);
+  const [rerouting, setRerouting] = useState(false);
+  const [rerouteError, setRerouteError] = useState<string | null>(null);
 
   // Everything below is mutated by GPS callbacks and must not trigger renders.
   const tracker = useRef<TrackerState>(createTrackerState());
@@ -420,6 +431,8 @@ export function RunProvider({ children }: { children: ReactNode }) {
     setPlannedWorkoutId(null);
     setWorkoutType(null);
     setCompletedRun(null);
+    setRerouting(false);
+    setRerouteError(null);
     setStatus('idle');
   }, []);
 
@@ -498,6 +511,67 @@ export function RunProvider({ children }: { children: ReactNode }) {
     publish();
   }, [publish]);
 
+  /**
+   * Route the runner back to the planned route (#64).
+   *
+   * Explicit only: nothing calls this automatically. It asks for a one-way
+   * route from the runner's current position to the planned route's end (a
+   * loop's start, or a one-way's finish) and adopts it as the new plan. The
+   * tracker — and so the recorded track, distance and elapsed time — is left
+   * untouched; only the reference route and the off-route progress reset.
+   */
+  const reroute = useCallback(async () => {
+    const currentRoute = route;
+    const position =
+      tracker.current.lastSample?.coordinate ?? tracker.current.coordinates.at(-1) ?? null;
+    if (!currentRoute || !position || (status !== 'active' && status !== 'paused')) {
+      return;
+    }
+
+    setRerouting(true);
+    setRerouteError(null);
+    try {
+      const target = currentRoute.finish ?? currentRoute.geometry[0];
+      const remainingKm = Math.max(
+        1,
+        targetKm > 0 ? targetKm - tracker.current.distanceMeters / 1000 : 1,
+      );
+      const candidates = await findRoutesBetween({
+        origin: position,
+        finish: target,
+        targetKm: remainingKm,
+      });
+      const next = candidates[0];
+      if (!next) {
+        setRerouteError('No way back to your route was found.');
+        return;
+      }
+
+      planned.current = preparePlannedRoute(next);
+      // A new reference route means the old progress/off-route readings no
+      // longer describe anything. The track and distance are untouched.
+      tracker.current = {
+        ...tracker.current,
+        progressMeters: 0,
+        segmentIndex: 0,
+        offRoute: false,
+        offRouteStreak: 0,
+        distanceToRouteMeters: 0,
+        directionToRouteDegrees: null,
+        nearStartStreak: 0,
+        completionSuggested: false,
+      };
+      setRoute(next);
+      publish();
+    } catch (error) {
+      setRerouteError(
+        error instanceof RoutingError ? error.message : 'Could not find a way back to your route.',
+      );
+    } finally {
+      setRerouting(false);
+    }
+  }, [publish, route, status, targetKm]);
+
   const value = useMemo<RunContextValue>(
     () => ({
       ...snapshot,
@@ -506,6 +580,8 @@ export function RunProvider({ children }: { children: ReactNode }) {
       targetKm,
       plannedWorkoutId,
       workoutType,
+      rerouting,
+      rerouteError,
       completedRun,
       start,
       pause,
@@ -514,6 +590,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       saveCompleted,
       discardCompleted,
       dismissCompletionSuggestion,
+      reroute,
       recoverable,
       resumeRecovered,
       discardRecovered,
@@ -525,6 +602,8 @@ export function RunProvider({ children }: { children: ReactNode }) {
       targetKm,
       plannedWorkoutId,
       workoutType,
+      rerouting,
+      rerouteError,
       completedRun,
       start,
       pause,
@@ -533,6 +612,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       saveCompleted,
       discardCompleted,
       dismissCompletionSuggestion,
+      reroute,
       recoverable,
       resumeRecovered,
       discardRecovered,

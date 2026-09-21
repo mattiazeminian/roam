@@ -15,6 +15,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import * as Location from 'expo-location';
 
 import { RunProvider, useRun, type RunContextValue } from '../run-context';
+import { findRoutesBetween } from '../routing';
 import {
   setRunLocationSink,
   startRunLocationUpdates,
@@ -48,6 +49,17 @@ jest.mock('../background-location', () => ({
   startRunLocationUpdates: jest.fn(() => Promise.resolve(true)),
   stopRunLocationUpdates: jest.fn(() => Promise.resolve()),
 }));
+
+// Rerouting (#64) calls the provider; here only the provider call is mocked so
+// the run's own behaviour (track and distance untouched) can be asserted.
+jest.mock('../routing', () => {
+  const actual = jest.requireActual<typeof import('../routing')>('../routing');
+  return { ...actual, findRoutesBetween: jest.fn() };
+});
+
+const findRoutesBetweenMock = findRoutesBetween as unknown as jest.Mock<
+  (...args: unknown[]) => Promise<unknown>
+>;
 
 const setSinkMock = setRunLocationSink as unknown as jest.Mock;
 const startBackgroundMock = startRunLocationUpdates as unknown as jest.Mock;
@@ -624,6 +636,74 @@ describe('state machine guards (#35)', () => {
     // ...but resolving it must not overwrite the live session.
     expect(harness.value.status).toBe('paused');
     expect(harness.value.distanceMeters).toBe(distanceBeforeRace);
+    harness.unmount();
+  });
+});
+
+describe('reroute (#64)', () => {
+  const planned = {
+    id: 'planned',
+    distanceKm: 3,
+    estimatedMinutes: 20,
+    geometry: [
+      offsetCoord(0, 0),
+      offsetCoord(0, 50),
+      offsetCoord(50, 50),
+      offsetCoord(50, 0),
+      offsetCoord(0, 0),
+    ],
+    characteristics: [],
+  };
+
+  test('adopts a new plan without touching the recorded track or distance', async () => {
+    findRoutesBetweenMock.mockReset();
+    findRoutesBetweenMock.mockResolvedValue([
+      {
+        id: 'way-back',
+        distanceKm: 1.1,
+        estimatedMinutes: 7,
+        geometry: [offsetCoord(60, 0), offsetCoord(30, 0), offsetCoord(0, 0)],
+        characteristics: [],
+        finish: offsetCoord(0, 0),
+      },
+    ]);
+
+    const harness = renderRun();
+    act(() => harness.value.start(planned, 3));
+    await flush();
+
+    const t0 = Date.now();
+    act(() => registrations[0].callback(nativeLocation(offsetCoord(0, 0), t0)));
+    act(() => registrations[0].callback(nativeLocation(offsetCoord(0, 60), t0 + 10_000)));
+    act(() => harness.value.pause()); // force a publish
+
+    const distanceBefore = harness.value.distanceMeters;
+    const trackBefore = harness.value.track.length;
+    expect(distanceBefore).toBeGreaterThan(0);
+
+    await act(async () => {
+      await harness.value.reroute();
+    });
+
+    expect(findRoutesBetweenMock).toHaveBeenCalledTimes(1);
+    expect(harness.value.route?.id).toBe('way-back');
+    // The recorded run is the truth; rerouting only swaps the reference route.
+    expect(harness.value.distanceMeters).toBe(distanceBefore);
+    expect(harness.value.track).toHaveLength(trackBefore);
+    harness.unmount();
+  });
+
+  test('does nothing, and calls no provider, without a route to rejoin', async () => {
+    findRoutesBetweenMock.mockReset();
+    const harness = renderRun();
+    act(() => harness.value.start(null, 5));
+    await flush();
+
+    await act(async () => {
+      await harness.value.reroute();
+    });
+
+    expect(findRoutesBetweenMock).not.toHaveBeenCalled();
     harness.unmount();
   });
 });
