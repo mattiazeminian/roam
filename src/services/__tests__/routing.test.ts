@@ -28,6 +28,21 @@ function loadRouting(apiKey: string | undefined): RoutingModule {
   return require('../routing') as RoutingModule;
 }
 
+/** Loads the module with an explicit proxy/key combination (#63). */
+function loadRoutingWithEnv(env: { apiKey?: string; proxyUrl?: string }): RoutingModule {
+  jest.resetModules();
+  delete process.env.EXPO_PUBLIC_ORS_API_KEY;
+  delete process.env.EXPO_PUBLIC_ORS_PROXY_URL;
+  if (env.apiKey !== undefined) {
+    process.env.EXPO_PUBLIC_ORS_API_KEY = env.apiKey;
+  }
+  if (env.proxyUrl !== undefined) {
+    process.env.EXPO_PUBLIC_ORS_PROXY_URL = env.proxyUrl;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('../routing') as RoutingModule;
+}
+
 const ORIGIN = { latitude: 40.7484, longitude: -73.9857 };
 
 /**
@@ -948,5 +963,83 @@ describe('steps reporting (#14)', () => {
         400,
       ),
     ).toBeNull();
+  });
+});
+
+describe('routing proxy (#63)', () => {
+  let fetchMock: jest.Mock;
+
+  beforeEach(() => {
+    fetchMock = jest.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    delete process.env.EXPO_PUBLIC_ORS_PROXY_URL;
+  });
+
+  test('talks to the proxy and sends no Authorization header', async () => {
+    const { findRoutes } = loadRoutingWithEnv({
+      proxyUrl: 'https://roam-routing.example.workers.dev',
+    });
+    fetchMock.mockResolvedValue(jsonResponse(orsFixture(5000)) as never);
+
+    await findRoutes({ origin: ORIGIN, targetKm: 5 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    for (const call of fetchMock.mock.calls) {
+      expect(call[0]).toBe(
+        'https://roam-routing.example.workers.dev/directions/foot-walking/geojson',
+      );
+      const headers = (call[1] as RequestInit).headers as Record<string, string>;
+      expect(headers.Authorization).toBeUndefined();
+    }
+  });
+
+  test('a trailing slash on the proxy URL does not double up', async () => {
+    const { findRoutes } = loadRoutingWithEnv({
+      proxyUrl: 'https://roam-routing.example.workers.dev/',
+    });
+    fetchMock.mockResolvedValue(jsonResponse(orsFixture(5000)) as never);
+
+    await findRoutes({ origin: ORIGIN, targetKm: 5 });
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://roam-routing.example.workers.dev/directions/foot-walking/geojson',
+    );
+  });
+
+  test('the proxy takes priority over a direct key', async () => {
+    const { findRoutes } = loadRoutingWithEnv({
+      apiKey: 'direct-key',
+      proxyUrl: 'https://roam-routing.example.workers.dev',
+    });
+    fetchMock.mockResolvedValue(jsonResponse(orsFixture(5000)) as never);
+
+    await findRoutes({ origin: ORIGIN, targetKm: 5 });
+
+    const headers = (fetchMock.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
+    expect(headers.Authorization).toBeUndefined();
+    expect(fetchMock.mock.calls[0][0]).toContain('roam-routing.example.workers.dev');
+  });
+
+  test('preserves a rate-limit from the proxy', async () => {
+    const { findRoutes } = loadRoutingWithEnv({
+      proxyUrl: 'https://roam-routing.example.workers.dev',
+    });
+    fetchMock.mockResolvedValue(jsonResponse(null, 429) as never);
+
+    await expect(findRoutes({ origin: ORIGIN, targetKm: 5 })).rejects.toMatchObject({
+      code: 'rate-limit',
+    });
+  });
+
+  test('neither a proxy nor a key is a missing-key error, without calling out', async () => {
+    const { findRoutes } = loadRoutingWithEnv({});
+    await expect(findRoutes({ origin: ORIGIN, targetKm: 5 })).rejects.toMatchObject({
+      code: 'missing-key',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

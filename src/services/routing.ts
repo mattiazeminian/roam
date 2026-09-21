@@ -120,8 +120,32 @@ export class RoutingError extends Error {
   }
 }
 
+const ORS_DIRECT_ENDPOINT = 'https://api.openrouteservice.org/v2/directions/foot-walking/geojson';
+const ORS_DIRECTIONS_PATH = '/directions/foot-walking/geojson';
+
+/**
+ * The routing credentials, in priority order (#63).
+ *
+ * Preferred: a proxy base URL. The key lives on the proxy, the client sends no
+ * secret, and the proxy forwards to ORS. See `docs/ors-proxy.md`.
+ *
+ * Fallback: a direct key, for local development only. It is read at module
+ * load from an `EXPO_PUBLIC_` variable, which means it is embedded in the
+ * bundle — acceptable for a dev build, not for anything shipped.
+ */
+const ORS_PROXY_URL = (process.env.EXPO_PUBLIC_ORS_PROXY_URL ?? '').replace(/\/+$/, '');
 const ORS_API_KEY = process.env.EXPO_PUBLIC_ORS_API_KEY ?? '';
-const ORS_ENDPOINT = 'https://api.openrouteservice.org/v2/directions/foot-walking/geojson';
+
+const usingProxy = ORS_PROXY_URL.length > 0;
+const ORS_ENDPOINT = usingProxy ? `${ORS_PROXY_URL}${ORS_DIRECTIONS_PATH}` : ORS_DIRECT_ENDPOINT;
+
+/** True when the app has a way to reach routing: a proxy, or a direct key. */
+function hasRoutingCredentials(): boolean {
+  return usingProxy || ORS_API_KEY.length > 0;
+}
+
+const MISSING_CREDENTIALS_MESSAGE =
+  'No routing credentials are configured. Set EXPO_PUBLIC_ORS_PROXY_URL, or EXPO_PUBLIC_ORS_API_KEY for local development.';
 
 /**
  * How long a completed search stays reusable (#62). Short on purpose: routes
@@ -562,15 +586,21 @@ async function sendDirections(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
+  // Through the proxy, the key stays server-side: no Authorization header is
+  // sent from the device (#63). Direct mode keeps the existing header.
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'application/geo+json',
+  };
+  if (!usingProxy) {
+    headers.Authorization = ORS_API_KEY;
+  }
+
   let response: Response;
   try {
     response = await fetch(ORS_ENDPOINT, {
       method: 'POST',
-      headers: {
-        Authorization: ORS_API_KEY,
-        'Content-Type': 'application/json',
-        Accept: 'application/geo+json',
-      },
+      headers,
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -713,11 +743,8 @@ export async function routeThroughWaypoints({
   waypoints,
   paceMinPerKm = PACE_MIN_PER_KM,
 }: WaypointsRequest): Promise<RouteCandidate> {
-  if (!ORS_API_KEY) {
-    throw new RoutingError(
-      'missing-key',
-      'No routing API key is configured. Add EXPO_PUBLIC_ORS_API_KEY.',
-    );
+  if (!hasRoutingCredentials()) {
+    throw new RoutingError('missing-key', MISSING_CREDENTIALS_MESSAGE);
   }
   if (!isValidCoordinate(origin)) {
     throw new RoutingError('invalid-origin', 'Your location is not available yet.');
@@ -786,11 +813,8 @@ export async function findRoutesBetween({
   paceMinPerKm = PACE_MIN_PER_KM,
   bypassCache = false,
 }: BetweenRequest): Promise<RouteCandidate[]> {
-  if (!ORS_API_KEY) {
-    throw new RoutingError(
-      'missing-key',
-      'No routing API key is configured. Add EXPO_PUBLIC_ORS_API_KEY.',
-    );
+  if (!hasRoutingCredentials()) {
+    throw new RoutingError('missing-key', MISSING_CREDENTIALS_MESSAGE);
   }
   if (!isValidCoordinate(origin)) {
     throw new RoutingError('invalid-origin', 'Your location is not available yet.');
@@ -1062,11 +1086,8 @@ export async function findRoutes({
   paceMinPerKm = PACE_MIN_PER_KM,
   bypassCache = false,
 }: RouteRequest): Promise<RouteCandidate[]> {
-  if (!ORS_API_KEY) {
-    throw new RoutingError(
-      'missing-key',
-      'No routing API key is configured. Add EXPO_PUBLIC_ORS_API_KEY.',
-    );
+  if (!hasRoutingCredentials()) {
+    throw new RoutingError('missing-key', MISSING_CREDENTIALS_MESSAGE);
   }
   if (!isValidCoordinate(origin)) {
     throw new RoutingError('invalid-origin', 'Your location is not available yet.');
