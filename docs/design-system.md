@@ -17,7 +17,7 @@ src/theme/
 ├── typography.ts  # font families + type scale + tabular figures
 ├── spacing.ts     # 4pt spacing scale
 ├── borders.ts     # border widths + radii
-├── layout.ts      # control sizes, margins, tab-bar clearance
+├── layout.ts      # control sizes, margins, map preview height
 ├── motion.ts      # named motion roles and durations
 ├── use-theme.ts   # resolves the semantic colour set
 └── index.ts       # barrel export
@@ -151,7 +151,9 @@ colour token and optional `mono` / `tabular` modifiers.
 - `layout.screenMargin` (16) is the single horizontal page margin, used by both
   list content and controls floating over the map, so they line up.
 - `layout` owns control sizes (`controlHeight` 52, `controlHeightCompact` 44,
-  `controlSizeCircular` 48, `minTouchTarget` 44) and tab-bar clearance.
+  `controlSizeCircular` 48, `minTouchTarget` 44) and the map preview height.
+  Screens inside the tab bar add no clearance of their own: `NativeTabs`
+  applies the bar's bottom content inset to the first scroll view on iOS.
 - Density stays low. A screen leads with one clear action, not a wall of
   metrics.
 

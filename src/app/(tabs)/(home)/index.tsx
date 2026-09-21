@@ -121,7 +121,10 @@ export default function HomeScreen() {
           styles.content,
           {
             paddingTop: insets.top + spacing.lg,
-            paddingBottom: insets.bottom + layout.tabBarClearance + spacing.xl,
+            // The native tab bar already contributes its own content inset on
+            // iOS, so only the page margin is added here — matching the other
+            // tab roots rather than double-counting the bar.
+            paddingBottom: insets.bottom + spacing.xl,
           },
         ]}>
         <View style={styles.topline}>

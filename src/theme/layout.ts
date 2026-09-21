@@ -30,13 +30,10 @@ export const layout = {
   /** Small status dots (location, GPS signal). */
   indicatorSize: 8,
 
-  /** Approximate height of the native tab bar, excluding its bottom margin. */
-  tabBarHeight: 56,
-  /** Gap between the tab bar and the safe-area bottom. */
-  tabBarMargin: 8,
-  /** Space screens must leave below floating content when the tab bar is present. */
-  tabBarClearance: 68,
-
-  /** Height of an inline map preview on a summary or detail screen. */
+  /**
+   * Height of an inline map preview on a summary or detail screen. Screens
+   * inside the tab bar do not need a clearance token: `NativeTabs` applies the
+   * tab bar's own bottom content inset to the first scroll view on iOS.
+   */
   mapPreviewHeight: 280,
 } as const;
