@@ -8,9 +8,11 @@ export {
   brand,
   colors,
   palette,
+  setup,
   type BrandToken,
   type ColorToken,
   type PaletteToken,
+  type SetupColors,
   type ThemeColors,
 } from './colors';
 export { layout } from './layout';

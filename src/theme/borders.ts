@@ -21,9 +21,12 @@ export const borderWidths = {
  */
 export const radii = {
   none: 0,
+  /** Small marks: a chart bar, a badge. */
+  xs: 4,
   small: 12,
   medium: 16,
   large: 20,
+  /** Genuinely round controls, and any perfect circle. */
   pill: 999,
 } as const;
 

@@ -1,16 +1,17 @@
 /**
- * Roam color system — adapted from docs/design.md (Wise).
+ * Roam color system. The tokens here are the source of truth; docs/design.md
+ * (the Wise analysis the first palette was derived from) is historical and is
+ * not followed. docs/design-system.md names the roles and the rules.
  *
- * The governing rule, taken from design.md and confirmed by measurement: the
- * green is a *fill*, never a foreground. `#9fe870` on the off-white canvas is
- * 1.42:1, so any green text would be unreadable. Emphasis in type is carried by
- * Dark Green (`accentText`, 13.44:1) instead, which keeps the brand present in
- * the big numbers without putting lime on white.
+ * The governing rule, confirmed by measurement: the green is a *fill*, never a
+ * foreground. `#CDF24B` on the off-white canvas is 1.42:1, so any green text
+ * would be unreadable. Emphasis in type is carried by near-black (`accentText`)
+ * instead, which keeps the brand present in the big numbers without putting
+ * lime on white.
  *
- * One deliberate deviation from design.md: its neutral Gray `#868685` measures
- * 3.52:1 on the canvas and fails AA for body text, so secondary copy uses Warm
- * Dark `#454745` (9.05:1) and the gray is kept for disabled states only. The
- * brief ranks accessibility above Wise fidelity.
+ * The neutral Gray `#868685` measures 3.52:1 on the canvas and fails AA for
+ * body text, so secondary copy uses Warm Dark `#454745` (9.05:1) and the gray
+ * is kept for disabled states only.
  */
 
 export const palette = {
@@ -61,7 +62,14 @@ export const colors = {
   textTertiary: palette.nearBlack,
   textDisabled: palette.gray,
 
+  /**
+   * Destructive actions only — delete, discard, remove. Not a brand accent,
+   * and never used for decoration or state other than destruction.
+   */
+  danger: '#B3261E',
   disabled: 'rgba(14, 15, 12, 0.06)',
+  /** The quietest neutral fill — an inert inset, a skeleton. */
+  fillSubtle: 'rgba(14, 15, 12, 0.04)',
   inverse: palette.white,
   inverseBackground: palette.nearBlack,
 
@@ -79,6 +87,8 @@ export const colors = {
    */
   accentText: palette.nearBlack,
   accentPressed: palette.greenDeep,
+  /** The inactive track of a progress control sitting on the accent fill. */
+  accentTrack: 'rgba(22, 51, 0, 0.16)',
   /** Soft green wash for badges and progress tracks. */
   accentMuted: palette.greenMint,
   selected: palette.green,
@@ -89,9 +99,13 @@ export const colors = {
   fill: 'rgba(22, 51, 0, 0.08)',
   fillPressed: 'rgba(22, 51, 0, 0.14)',
 
+  /** Inactive progress track and resting marks (e.g. a rest day). */
+  track: 'rgba(14, 15, 12, 0.10)',
   /** Material for floating controls over the map. */
   glass: 'rgba(255, 255, 255, 0.76)',
   glassBorder: 'rgba(14, 15, 12, 0.10)',
+  /** A translucent readout floating over the map. */
+  overlay: 'rgba(255, 255, 255, 0.92)',
   /** Kept minimal on purpose: depth comes from the ring, not the shadow. */
   shadow: 'rgba(14, 15, 12, 0.12)',
   scrim: 'rgba(14, 15, 12, 0.32)',
@@ -99,6 +113,36 @@ export const colors = {
 
 export type ColorToken = keyof typeof colors;
 export type ThemeColors = Record<ColorToken, string>;
+
+/**
+ * The light setup theme (docs/design-system.md §2).
+ *
+ * First-run setup sits on a fixed light ground regardless of system
+ * appearance, so it names its own values here rather than inlining them in
+ * `onboarding.tsx` / `onboarding-shell.tsx`.
+ */
+export const setup = {
+  /** Input text and primary copy. */
+  text: 'rgba(14, 15, 12, 1)',
+  /** Lede and supporting copy. */
+  textSecondary: 'rgba(14, 15, 12, 0.62)',
+  /** Placeholder text in a field. */
+  placeholder: 'rgba(14, 15, 12, 0.35)',
+  /** Quiet fill for inputs and identity tiles. */
+  fill: 'rgba(22, 51, 0, 0.06)',
+  /** Slightly stronger fill for chips and tiles. */
+  fillStrong: 'rgba(22, 51, 0, 0.08)',
+  /** Structural border. */
+  border: 'rgba(14, 15, 12, 0.12)',
+  /** Low-emphasis border. */
+  borderSubtle: 'rgba(14, 15, 12, 0.10)',
+  /** Inactive progress segment. */
+  track: 'rgba(14, 15, 12, 0.14)',
+  /** Selected chip fill and border. */
+  accent: palette.green,
+} as const;
+
+export type SetupColors = typeof setup;
 
 /**
  * The brand palette, named by role (#141).
