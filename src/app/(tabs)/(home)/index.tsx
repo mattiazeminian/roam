@@ -5,6 +5,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Appear } from '@/components/appear';
+import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
 import { EmptyState } from '@/components/empty-state';
 import { MapCanvas } from '@/components/map/map-canvas';
@@ -92,7 +93,8 @@ export default function HomeScreen() {
   }, []);
 
   const startWorkout = useCallback(() => {
-    if (workout) {
+    // A workout already done or skipped today is not startable again.
+    if (workout && workout.status !== 'completed' && workout.status !== 'skipped') {
       impactMedium();
       start(null, workout.targetKm, workout.id);
       router.push('/run');
@@ -145,7 +147,7 @@ export default function HomeScreen() {
         ) : null}
 
         {workout ? (
-          <Today workout={workout} fmt={fmt} onStart={startWorkout} />
+          <Today workout={workout} fmt={fmt} onStart={startWorkout} onFreeRun={startRun} />
         ) : (
           <FreeRun onStart={startRun} />
         )}
@@ -215,12 +217,18 @@ function Today({
   workout,
   fmt,
   onStart,
+  onFreeRun,
 }: {
   workout: PlannedWorkout;
   fmt: Formatters;
   onStart: () => void;
+  onFreeRun: () => void;
 }) {
   const theme = useTheme();
+  const completed = workout.status === 'completed';
+  const skipped = workout.status === 'skipped';
+  const settled = completed || skipped;
+
   return (
     <View style={[styles.section, { borderBottomColor: theme.divider }]}>
       <Text variant="micro" color="textSecondary">
@@ -242,12 +250,26 @@ function Today({
           </Text>
         </View>
       </View>
-      <Button label="Start workout" variant="accent" onPress={onStart} />
-      <Pressable onPress={() => router.push('/schedule')}>
-        <Text variant="label" color="accentText">
-          View this week
-        </Text>
-      </Pressable>
+
+      {/* A workout already done or skipped today is not offered again; the
+          runner can still head out for a free run. */}
+      {settled ? (
+        <>
+          <Badge tone={completed ? 'accent' : 'neutral'}>
+            {completed ? 'Completed' : 'Skipped'}
+          </Badge>
+          <Button label="Start a free run" variant="secondary" onPress={onFreeRun} />
+        </>
+      ) : (
+        <>
+          <Button label="Start workout" variant="accent" onPress={onStart} />
+          <Pressable onPress={() => router.push('/schedule')}>
+            <Text variant="label" color="accentText">
+              View this week
+            </Text>
+          </Pressable>
+        </>
+      )}
     </View>
   );
 }
