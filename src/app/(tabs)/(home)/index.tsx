@@ -177,6 +177,12 @@ export default function HomeScreen() {
             impactLight();
             router.push('/maps');
           }}
+          accessibilityRole="button"
+          accessibilityLabel={
+            routeCount
+              ? `Find somewhere new. ${routeCount} saved ${routeCount === 1 ? 'route' : 'routes'}.`
+              : 'Find somewhere new.'
+          }
           style={styles.explore}>
           <SymbolView
             name="point.topleft.down.to.point.bottomright.curvepath"
@@ -296,8 +302,21 @@ function Training({
           const item = state.workouts.find((entry) => entry.date === date);
           const current = date === today;
           const done = item?.status === 'completed';
+          const weekday = new Date(`${date}T12:00:00`).toLocaleDateString(undefined, {
+            weekday: 'long',
+          });
           return (
-            <View key={date} style={styles.day}>
+            <View
+              key={date}
+              accessible
+              accessibilityLabel={
+                item
+                  ? `${weekday}, ${WORKOUT_LABELS[item.type]}, ${item.targetKm} km${
+                      done ? ', completed' : ''
+                    }`
+                  : `${weekday}, rest day`
+              }
+              style={styles.day}>
               <Text variant="caption" color={current ? 'accentText' : 'textSecondary'}>
                 {new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'narrow' })}
               </Text>
