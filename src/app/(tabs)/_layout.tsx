@@ -21,8 +21,7 @@ export default function TabsLayout() {
         <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      {/* Labelled Routes rather than Maps: the tab is the route workspace, and
-          the file stays `maps.tsx` because `(tabs)/routes.tsx` would collide
+      {/* The file stays `maps.tsx` because `(tabs)/routes.tsx` would collide
           with the route-selection screen's own `/routes` URL. */}
       <NativeTabs.Trigger name="maps">
         <NativeTabs.Trigger.Icon
@@ -34,9 +33,9 @@ export default function TabsLayout() {
         <NativeTabs.Trigger.Label>Routes</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="record">
-        <NativeTabs.Trigger.Icon sf="figure.run" />
-        <NativeTabs.Trigger.Label>Record</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger name="activity">
+        <NativeTabs.Trigger.Icon sf={{ default: 'clock', selected: 'clock.fill' }} />
+        <NativeTabs.Trigger.Label>Activity</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="profile">

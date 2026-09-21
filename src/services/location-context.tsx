@@ -49,6 +49,12 @@ export type LocationContextValue = {
 
 const LocationContext = createContext<LocationContextValue | null>(null);
 
+/** Fixed product/demo origin. Run recording still uses live GPS in RunProvider. */
+export const DEFAULT_ORIGIN: OriginOverride = {
+  label: 'Via San Giovanni 53, Lonigo, Vicenza, Italy',
+  coordinate: { latitude: 45.389, longitude: 11.3816 },
+};
+
 /**
  * Single source of the user's location for the app. Requests foreground
  * permission once (the system dialog only appears while undetermined), fetches
@@ -115,8 +121,8 @@ export function LocationProvider({ children }: { children: ReactNode }) {
     () => ({
       status,
       coordinate,
-      origin: override?.coordinate ?? coordinate,
-      originLabel: override?.label ?? 'Current location',
+      origin: override?.coordinate ?? DEFAULT_ORIGIN.coordinate,
+      originLabel: override?.label ?? DEFAULT_ORIGIN.label,
       hasCustomOrigin: override !== null,
       setOrigin: setOverride,
       resetOrigin: () => setOverride(null),

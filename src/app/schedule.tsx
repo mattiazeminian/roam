@@ -139,6 +139,7 @@ export default function ScheduleScreen() {
         </View>
 
         <Text variant="large">Schedule</Text>
+        <Text variant="body" color="textSecondary">Make this week fit real life. Tap a day to move, complete, skip, or add a run.</Text>
 
         <View style={styles.weekHeader}>
           <MapControl
@@ -224,7 +225,7 @@ export default function ScheduleScreen() {
         ) : null}
 
         <Text variant="caption" color="textSecondary" style={styles.hint}>
-          Tap a day to mark it done, skip it, move it, or add a run.
+          Plan shows your direction. Schedule is where you adjust the week.
         </Text>
 
         <Button

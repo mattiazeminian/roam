@@ -217,7 +217,7 @@ export default function ProfileScreen() {
           <Text variant="title">Recent runs</Text>
           {overview.count > 0 ? (
             <Pressable
-              onPress={() => router.push('/history')}
+              onPress={() => router.push('/activity')}
               accessibilityRole="button"
               accessibilityLabel="See all runs"
               hitSlop={spacing.sm}>

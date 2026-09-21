@@ -7,16 +7,23 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/components/button';
 import { DEFAULT_DISTANCE_KM, DistanceControl } from '@/components/distance-control';
 import { Text } from '@/components/text';
+import { WorkoutIcon } from '@/components/workout-icon';
 import { impactMedium, selectionFeedback, successFeedback } from '@/lib/haptics';
 import { useSettings } from '@/services/settings-context';
 import {
   DEFAULT_PREFERRED_DAYS,
   DEFAULT_RUNS_PER_WEEK,
+  addDays,
+  summarizeProgress,
   toDateKey,
+  weekStartFor,
+  WORKOUT_LABELS,
+  workoutsOnDate,
   type TrainingGoalKind,
   type TrainingLevel,
 } from '@/services/training';
 import { useTraining } from '@/services/training-context';
+import { planGoalLabel } from '@/services/training-presentation';
 import { layout, radii, spacing, useTheme } from '@/theme';
 
 const GOALS: { id: TrainingGoalKind; label: string; detail: string }[] = [
@@ -90,6 +97,7 @@ export default function PlanScreen() {
   const [saving, setSaving] = useState(false);
   const [building, setBuilding] = useState(false);
   const [buildStep, setBuildStep] = useState(0);
+  const [editing, setEditing] = useState(false);
   const reduceMotion = useReducedMotion();
 
   // Advance the build narration. Reduce Motion skips straight to the end rather
@@ -148,6 +156,10 @@ export default function PlanScreen() {
     await clearPlan();
     router.back();
   }, [clearPlan]);
+
+  if (state.plan && !editing) {
+    return <PlanOverview onEdit={() => setEditing(true)} />;
+  }
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -300,6 +312,46 @@ export default function PlanScreen() {
   );
 }
 
+function PlanOverview({ onEdit }: { onEdit: () => void }) {
+  const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const { state } = useTraining();
+  const plan = state.plan;
+  if (!plan) return null;
+  const today = toDateKey(new Date());
+  const weekStart = weekStartFor(today);
+  const progress = summarizeProgress(state, weekStart, addDays(weekStart, 6));
+  const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
+
+  return (
+    <View style={[styles.root, { backgroundColor: theme.background }]}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.xxl }]}>
+        <View style={styles.headerRow}>
+          <Text variant="large">Training plan</Text>
+          <Pressable onPress={() => router.back()} accessibilityRole="button"><Text variant="body" color="accentText">Close</Text></Pressable>
+        </View>
+        <Text variant="micro" color="textSecondary">YOUR DIRECTION</Text>
+        <Text variant="hero">{planGoalLabel(plan)}</Text>
+        <Text variant="body" color="textSecondary">{`${plan.runsPerWeek} runs each week · ${plan.level} starting point`}</Text>
+        <View style={styles.overviewRule} />
+        <View style={styles.overviewHeading}><Text variant="title">This week</Text><Text variant="caption" color="textSecondary" tabular>{`${progress.completed} of ${progress.planned} complete`}</Text></View>
+        <View style={styles.overviewTimeline}>
+          {days.map((date) => {
+            const workout = workoutsOnDate(state, date)[0] ?? null;
+            const isToday = date === today;
+            return <View key={date} style={styles.overviewDay}><Text variant="caption" color={isToday ? 'accentText' : 'textSecondary'}>{new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'narrow' })}</Text><View style={[styles.overviewMark, { backgroundColor: workout?.status === 'completed' ? theme.accent : workout ? theme.fill : theme.background, borderColor: isToday ? theme.accent : theme.divider }]}>{workout ? <WorkoutIcon type={workout.type} size={16} tintColor={workout.status === 'completed' ? theme.accentForeground : theme.textSecondary} /> : null}</View>{workout ? <Text variant="micro" color="textSecondary">{workout.targetKm}</Text> : null}</View>;
+          })}
+        </View>
+        <View style={styles.overviewRule} />
+        <Text variant="title">The week ahead</Text>
+        {state.workouts.filter((workout) => workout.date >= today).slice(0, 4).map((workout) => <View key={workout.id} style={styles.overviewWorkout}><WorkoutIcon type={workout.type} size={20} tintColor={theme.textSecondary} /><View style={styles.overviewWorkoutCopy}><Text variant="body">{WORKOUT_LABELS[workout.type]}</Text><Text variant="caption" color="textSecondary">{workout.date} · {workout.targetKm} km</Text></View><Text variant="caption" color="textSecondary">{workout.status}</Text></View>)}
+        <Button label="Edit plan" variant="accent" onPress={onEdit} />
+        <Button label="Edit schedule" variant="secondary" onPress={() => router.push('/schedule')} />
+      </ScrollView>
+    </View>
+  );
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <View style={styles.field}>
@@ -417,6 +469,46 @@ const styles = StyleSheet.create({
   },
   note: {
     marginTop: spacing.sm,
+  },
+  overviewRule: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#D9DDD6',
+    marginVertical: spacing.sm,
+  },
+  overviewHeading: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+  },
+  overviewTimeline: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+  },
+  overviewDay: {
+    alignItems: 'center',
+    gap: spacing.xxs,
+    minWidth: 32,
+  },
+  overviewMark: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  overviewWorkout: {
+    minHeight: layout.minTouchTarget,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#D9DDD6',
+  },
+  overviewWorkoutCopy: {
+    flex: 1,
+    gap: 2,
   },
   pressed: {
     opacity: 0.6,

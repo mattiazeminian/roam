@@ -44,7 +44,7 @@ export default function RunSummaryScreen() {
     setSaving(true);
     try {
       await saveCompleted();
-      router.replace('/history');
+      router.replace('/activity');
     } catch {
       setSaving(false);
       Alert.alert('Could not save run', 'The run could not be written to this device.');

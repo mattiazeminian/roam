@@ -33,7 +33,7 @@ export default function RecordScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const fmt = useFormatters();
-  const { origin, originLabel, status: locationStatus } = useLocation();
+  const { coordinate, originLabel, status: locationStatus } = useLocation();
   const { start } = useRun();
   const { settings } = useSettings();
 
@@ -51,16 +51,19 @@ export default function RecordScreen() {
   const targetKm = mode === 'distance' ? distanceKm : roundedEstimate;
 
   const handleStart = useCallback(() => {
+    if (!coordinate) {
+      return;
+    }
     impactMedium();
     start(null, targetKm);
     router.push('/run');
-  }, [start, targetKm]);
+  }, [coordinate, start, targetKm]);
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
       <View style={styles.map}>
         <MapCanvas
-          origin={origin}
+          origin={coordinate}
           routes={[]}
           cameraMode="center"
           recenterSignal={recenterSignal}
@@ -72,7 +75,10 @@ export default function RecordScreen() {
             { top: insets.top + spacing.xs, paddingHorizontal: layout.screenMargin },
           ]}
           pointerEvents="box-none">
-          <Text variant="large">Record</Text>
+          <View>
+            <Text variant="micro" color="textSecondary">RUN NOW</Text>
+            <Text variant="large">Start a run</Text>
+          </View>
           <MapControl
             symbol="location"
             accessibilityLabel="Recenter on current location"
@@ -90,6 +96,13 @@ export default function RecordScreen() {
             paddingBottom: insets.bottom + spacing.lg,
           },
         ]}>
+        <View style={styles.panelIntro}>
+          <Text variant="title">Ready when you are</Text>
+          <Text variant="caption" color="textSecondary">
+            Choose a target or just head out. ROAM will record from your current location.
+          </Text>
+        </View>
+
         {/* What kind of run this is, if it is a particular one. */}
         <ScrollView
           horizontal
@@ -190,14 +203,18 @@ export default function RecordScreen() {
         <Text variant="caption" color="textSecondary" tabular>
           {mode === 'time'
             ? `${minutes} min · about ${fmt.distance(roundedEstimate * 1000)} ${fmt.unitLabel} at your pace`
-            : `Starting from ${originLabel}`}
+            : coordinate
+              ? `Starting from your current location · ${originLabel}`
+              : locationStatus === 'requesting'
+                ? 'Getting your current location…'
+                : 'Current location unavailable'}
         </Text>
 
         <Button
           label="Start run"
           variant="accent"
           onPress={handleStart}
-          disabled={locationStatus === 'denied'}
+          disabled={locationStatus !== 'available' || !coordinate}
         />
       </View>
     </View>
@@ -294,8 +311,11 @@ const styles = StyleSheet.create({
   panel: {
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: layout.screenMargin,
-    paddingTop: spacing.md,
-    gap: spacing.sm,
+    paddingTop: spacing.lg,
+    gap: spacing.md,
+  },
+  panelIntro: {
+    gap: spacing.xxs,
   },
   chips: {
     gap: spacing.xs,
