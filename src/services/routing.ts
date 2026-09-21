@@ -94,6 +94,12 @@ export type RoutingErrorCode =
   | 'missing-key'
   | 'auth'
   | 'rate-limit'
+  /** The request never reached the network — offline, DNS, or a dropped
+   *  connection (#94). Distinct from `provider`, so the runner is told the
+   *  right thing. */
+  | 'offline'
+  /** The service was reached but failed (a 5xx, or an unreadable body). */
+  | 'provider'
   | 'network'
   | 'no-routes'
   | 'invalid-origin'
@@ -569,7 +575,10 @@ async function sendDirections(
       signal: controller.signal,
     });
   } catch {
-    throw new RoutingError('network', 'Could not reach the routing service.');
+    // `fetch` rejects when the request never completed: no connectivity, DNS
+    // failure, or a dropped connection. That is a different problem from the
+    // service answering with an error, and the runner is told which (#94).
+    throw new RoutingError('offline', 'No connection. Check your network, then try again.');
   } finally {
     clearTimeout(timeout);
   }
@@ -584,14 +593,14 @@ async function sendDirections(
     throw new RoutingError('rate-limit', 'Too many route requests. Try again shortly.');
   }
   if (!response.ok) {
-    throw new RoutingError('network', 'The routing service returned an error.');
+    throw new RoutingError('provider', 'The routing service is having trouble. Try again shortly.');
   }
 
   let payload: { features?: OrsFeature[] };
   try {
     payload = (await response.json()) as { features?: OrsFeature[] };
   } catch {
-    throw new RoutingError('network', 'The routing service returned an unreadable response.');
+    throw new RoutingError('provider', 'The routing service returned an unreadable response.');
   }
 
   const features = Array.isArray(payload.features) ? payload.features : [];

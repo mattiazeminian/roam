@@ -510,12 +510,21 @@ describe('findRoutes', () => {
     });
   });
 
-  test('a network failure surfaces as network, not a generic failure', async () => {
+  test('a request that never reaches the network surfaces as offline (#94)', async () => {
     const { findRoutes } = loadRouting('test-key');
-    fetchMock.mockRejectedValue(new Error('offline') as never);
+    fetchMock.mockRejectedValue(new Error('Network request failed') as never);
 
     await expect(findRoutes({ origin: ORIGIN, targetKm: 5 })).rejects.toMatchObject({
-      code: 'network',
+      code: 'offline',
+    });
+  });
+
+  test('a provider failure is distinct from being offline (#94)', async () => {
+    const { findRoutes } = loadRouting('test-key');
+    fetchMock.mockResolvedValue(jsonResponse(null, 503) as never);
+
+    await expect(findRoutes({ origin: ORIGIN, targetKm: 5 })).rejects.toMatchObject({
+      code: 'provider',
     });
   });
 

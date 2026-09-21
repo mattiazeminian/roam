@@ -42,6 +42,7 @@ export default function RouteSelectionScreen() {
     selectedIndex,
     targetKm,
     status,
+    errorCode,
     errorMessage,
     retry,
     select,
@@ -202,17 +203,29 @@ export default function RouteSelectionScreen() {
               <Text variant="body" color="textSecondary" accessibilityLiveRegion="polite">
                 {isFinding
                   ? 'Looking for loops that start and end where you are.'
-                  : (errorMessage ??
-                    'Roam could not find a running loop near you at this distance.')}
+                  : errorCode === 'offline'
+                    ? 'You appear to be offline. Saved routes still work, and you can start a run without one.'
+                    : (errorMessage ??
+                      'Roam could not find a running loop near you at this distance.')}
               </Text>
               {!isFinding ? (
                 <View style={styles.noticeActions}>
                   <Button label="Try again" variant="accent" onPress={() => void retry()} />
-                  <Button
-                    label="Change distance"
-                    variant="secondary"
-                    onPress={() => router.back()}
-                  />
+                  {errorCode === 'offline' ? (
+                    // Routing needs the network; saved routes and a plain run do
+                    // not, so offer the way that still works (#94).
+                    <Button
+                      label="Saved routes"
+                      variant="secondary"
+                      onPress={() => router.replace('/maps/favorites')}
+                    />
+                  ) : (
+                    <Button
+                      label="Change distance"
+                      variant="secondary"
+                      onPress={() => router.back()}
+                    />
+                  )}
                 </View>
               ) : null}
             </View>
