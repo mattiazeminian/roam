@@ -2,7 +2,7 @@
  * Tests for the local identity half of Sign in with Apple (#20).
  *
  * The system sign-in sheet cannot be exercised without a device, but the part
- * that decides what ROAM keeps — mapping Apple's credential, storing it, and
+ * that decides what Roam keeps — mapping Apple's credential, storing it, and
  * reading Apple's credential state honestly — is covered here.
  */
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';

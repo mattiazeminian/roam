@@ -120,7 +120,7 @@ describe('toGpxDocument (#45)', () => {
     expect(result.exported).toBe(1);
     expect(result.skipped).toBe(1);
     expect(result.xml.startsWith('<?xml version="1.0" encoding="UTF-8"?>')).toBe(true);
-    expect(result.xml).toContain('<gpx version="1.1" creator="ROAM"');
+    expect(result.xml).toContain('<gpx version="1.1" creator="Roam"');
     expect(result.xml.trimEnd().endsWith('</gpx>')).toBe(true);
     expect(result.xml.match(/<trk>/g)?.length).toBe(1);
   });

@@ -425,7 +425,7 @@ export type RouteQualityMetrics = {
 /**
  * Every Tier-1 geometry metric for one route.
  *
- * Tier 1 is the set that needs no provider beyond the polyline ROAM already
+ * Tier 1 is the set that needs no provider beyond the polyline Roam already
  * has (see `docs/route-data-sources.md`), so this runs offline and costs
  * nothing. It reports; it does not yet rank — combining these into a score is
  * the quality-score work, and the harness exists so that score can be measured.

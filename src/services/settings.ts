@@ -1,7 +1,7 @@
 /**
  * User preferences.
  *
- * Only settings that change something ROAM actually does. Nothing here is
+ * Only settings that change something Roam actually does. Nothing here is
  * decorative, and nothing is stored that the app does not read back.
  */
 
@@ -20,7 +20,7 @@ export type Settings = {
   /** Distance Home opens with. */
   defaultDistanceKm: number;
   /**
-   * Whether the one-time introduction has been seen. Until it has, ROAM does
+   * Whether the one-time introduction has been seen. Until it has, Roam does
    * not ask for location, so the system dialog is never the first thing a new
    * runner meets (#19).
    */

@@ -99,7 +99,7 @@ export default function RecordScreen() {
         <View style={styles.panelIntro}>
           <Text variant="title">Ready when you are</Text>
           <Text variant="caption" color="textSecondary">
-            Choose a target or just head out. ROAM will record from your current location.
+            Choose a target or just head out. Roam will record from your current location.
           </Text>
         </View>
 

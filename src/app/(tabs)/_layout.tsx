@@ -6,7 +6,7 @@ import { useTheme } from '@/theme';
  * The four destinations: Home, Maps, Record, Profile.
  *
  * This is the platform's own tab bar, not a reimplementation — `NativeTabs`
- * renders a real `UITabBar`, so ROAM inherits Apple's behaviour, materials,
+ * renders a real `UITabBar`, so Roam inherits Apple's behaviour, materials,
  * accessibility and Liquid Glass treatment rather than imitating them. The tint
  * is the brand's dark green rather than the lime accent, because the lime is a
  * fill colour and fails contrast as a foreground on a light tab bar.

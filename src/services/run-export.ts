@@ -2,8 +2,8 @@
  * Exporting saved runs (#45).
  *
  * GPX is the portable format runners already expect, and it is the honest one
- * here: it carries exactly what ROAM recorded — position and time — and nothing
- * ROAM did not (no heart rate, no cadence, no elevation it never measured).
+ * here: it carries exactly what Roam recorded — position and time — and nothing
+ * Roam did not (no heart rate, no cadence, no elevation it never measured).
  *
  * Points without a known time are written without a `<time>` element rather
  * than with a guessed one, so an imported file never claims more precision than
@@ -70,7 +70,7 @@ export function toGpxDocument(runs: SavedRun[]): GpxDocument {
 
   const xml = [
     '<?xml version="1.0" encoding="UTF-8"?>',
-    '<gpx version="1.1" creator="ROAM" xmlns="http://www.topografix.com/GPX/1/1">',
+    '<gpx version="1.1" creator="Roam" xmlns="http://www.topografix.com/GPX/1/1">',
     ...tracks,
     '</gpx>',
     '',

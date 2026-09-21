@@ -6,7 +6,7 @@
  * account.
  *
  * Profile data is intentionally small: identity only. Training does not need
- * body measurements, so ROAM does not ask for or retain height or weight.
+ * body measurements, so Roam does not ask for or retain height or weight.
  */
 
 import { Directory, File, Paths } from 'expo-file-system';

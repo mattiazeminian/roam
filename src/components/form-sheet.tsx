@@ -39,7 +39,7 @@ export type FormSheetProps = {
 /**
  * A small sheet for entering one or a few short facts.
  *
- * Deliberately ROAM's own control rather than `Alert.prompt`: the system prompt
+ * Deliberately Roam's own control rather than `Alert.prompt`: the system prompt
  * cannot be styled, cannot show more than one field, and looks nothing like the
  * rest of the app. The parent mounts this only while it is open, so the fields
  * always start from their defaults and there is no stale state to clear.

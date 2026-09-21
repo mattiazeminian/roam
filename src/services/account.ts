@@ -41,7 +41,7 @@ export async function isSupported(): Promise<boolean> {
 }
 
 /**
- * Pure mapping from Apple's credential to what ROAM keeps.
+ * Pure mapping from Apple's credential to what Roam keeps.
  *
  * The name is assembled from its parts rather than via Apple's locale-aware
  * formatter so this stays a pure function; the name is a display convenience,

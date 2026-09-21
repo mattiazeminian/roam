@@ -89,7 +89,7 @@ export default function ProfileScreen() {
     setProfile(await loadProfile());
   }, []);
 
-  // Editing opens ROAM's own sheet rather than the system prompt: the system
+  // Editing opens Roam's own sheet rather than the system prompt: the system
   // prompt cannot be styled, cannot show more than one field, and looks nothing
   // like the rest of the app. The sheet is mounted only while open, so its
   // fields always start from the current values.
@@ -319,7 +319,7 @@ export default function ProfileScreen() {
         <Text variant="body" color="textSecondary">
           {account
             ? `Signed in with Apple${account.email ? ` as ${account.email}` : ''}.`
-            : 'ROAM works without an account. Sign in with Apple to keep one identity for your runs.'}
+            : 'Roam works without an account. Sign in with Apple to keep one identity for your runs.'}
         </Text>
         <Button
           label={account ? 'Manage account' : 'Sign in with Apple'}

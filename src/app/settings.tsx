@@ -25,7 +25,7 @@ import { layout, radii, spacing, useTheme } from '@/theme';
 const PACE_STEP = 0.1;
 
 /**
- * Settings — only things that change what ROAM does.
+ * Settings — only things that change what Roam does.
  *
  * No notifications and no toggles that lead nowhere; each row changes a number
  * the app actually uses, acts on data it actually stores, or opens the one

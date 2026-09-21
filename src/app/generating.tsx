@@ -116,7 +116,7 @@ export default function GeneratingScreen() {
         </Text>
         <Text variant="body" color="textSecondary" accessibilityLiveRegion="polite">
           {failed
-            ? (errorMessage ?? 'ROAM could not find a route near you.')
+            ? (errorMessage ?? 'Roam could not find a route near you.')
             : 'Finding a route with fewer turns and useful paths.'}
         </Text>
 

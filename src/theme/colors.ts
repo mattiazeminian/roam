@@ -1,5 +1,5 @@
 /**
- * ROAM color system — adapted from docs/design.md (Wise).
+ * Roam color system — adapted from docs/design.md (Wise).
  *
  * The governing rule, taken from design.md and confirmed by measurement: the
  * green is a *fill*, never a foreground. `#9fe870` on the off-white canvas is

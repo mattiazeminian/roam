@@ -104,7 +104,7 @@ export function LocationProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Held back until the introduction has been seen, so the system location
-    // dialog never arrives before ROAM has explained why it wants location
+    // dialog never arrives before Roam has explained why it wants location
     // (#19). Once onboarding is done this is the same start-on-mount it always
     // was — and the requirement it replaced (asking on launch) is exactly what
     // made the dialog the first thing a new runner saw.

@@ -2,7 +2,7 @@
  * Tests for the parts of settings that other features depend on.
  *
  * Onboarding (#19) is gated on `hasCompletedOnboarding`, and that flag decides
- * whether ROAM asks for location — so its persistence, and its behaviour for a
+ * whether Roam asks for location — so its persistence, and its behaviour for a
  * settings file written before it existed, are worth pinning down.
  */
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';

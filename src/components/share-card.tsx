@@ -21,7 +21,7 @@ export type ShareCardProps = {
  *
  * Fixed size and rendered off-screen — see `run-detail.tsx`/`run-summary.tsx`
  * for how it is mounted and captured with `react-native-view-shot`. Shows
- * only what ROAM actually recorded: the route, distance, duration, pace and
+ * only what Roam actually recorded: the route, distance, duration, pace and
  * date. No badges, streaks or calories, matching the restraint of the rest
  * of the app.
  *
@@ -67,7 +67,7 @@ export const ShareCard = forwardRef<View, ShareCardProps>(function ShareCard({ r
         </MetricRow>
 
         <Text variant="micro" color="textSecondary" style={styles.wordmark}>
-          ROAM
+          Roam
         </Text>
       </View>
     </View>

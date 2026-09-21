@@ -60,7 +60,7 @@ export default function GenerateRouteScreen() {
         <View style={styles.intro}>
           <Text variant="large">Generate a route</Text>
           <Text variant="body" color="textSecondary">
-            ROAM builds a loop from where you start, at the distance you choose.
+            Roam builds a loop from where you start, at the distance you choose.
           </Text>
         </View>
 

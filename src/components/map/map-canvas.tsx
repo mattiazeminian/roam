@@ -124,7 +124,7 @@ function MapUnavailable() {
   return (
     <View style={[styles.unavailable, { backgroundColor: theme.background }]}>
       <Text variant="caption" color="textSecondary" style={styles.unavailableText}>
-        Map unavailable. ROAM needs a Mapbox token and a development build.
+        Map unavailable. Roam needs a Mapbox token and a development build.
       </Text>
     </View>
   );

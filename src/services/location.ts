@@ -35,7 +35,7 @@ export type LocationSubscription = {
  *
  * A planned route's ascent (`RouteCandidate.ascentMeters`, from the routing
  * provider's elevation data, not device GPS) remains the trustworthy source
- * ROAM already shows — this decision only rules out computing a *second*,
+ * Roam already shows — this decision only rules out computing a *second*,
  * unreliable ascent figure from a recorded run's own track. If altitude
  * ever gets a real accuracy signal to filter against, this is the file to
  * revisit.

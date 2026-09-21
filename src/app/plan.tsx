@@ -205,7 +205,7 @@ export default function PlanScreen() {
         ) : null}
 
         {/* The block length. For a race it also fixes the race date; for every
-            goal it is how far ahead ROAM schedules. */}
+            goal it is how far ahead Roam schedules. */}
         <Field label={goalKind === 'race' ? 'When is the race?' : 'How long a plan?'}>
           <View style={styles.chipRow}>
             {RACE_WEEKS.map((weeks) => (
@@ -285,7 +285,7 @@ export default function PlanScreen() {
         ) : null}
 
         <Text variant="caption" color="textSecondary" style={styles.note}>
-          ROAM builds the week from what you choose here — the days you pick, that many sessions, one
+          Roam builds the week from what you choose here — the days you pick, that many sessions, one
           long run. It never prescribes heart-rate zones, calorie targets or times it cannot know.
         </Text>
       </ScrollView>

@@ -20,7 +20,7 @@ export type RouteOptionsProps = {
 /**
  * Route selection.
  *
- * This replaced a swipeable carousel. ROAM returns two or three candidates,
+ * This replaced a swipeable carousel. Roam returns two or three candidates,
  * and they all fit across the sheet at once — so a carousel was hiding options
  * behind a gesture for no reason, and forced a "1 / 3" counter to explain
  * itself. Showing every option removes both.

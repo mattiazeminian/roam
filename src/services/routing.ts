@@ -1,7 +1,7 @@
 /**
  * Routing service.
  *
- * The seam between ROAM and route generation. Screens depend only on the
+ * The seam between Roam and route generation. Screens depend only on the
  * `RouteCandidate` shape and `findRoutes`; nothing above this module knows that
  * OpenRouteService exists.
  *
@@ -157,7 +157,7 @@ const REFINEMENT_ATTEMPTS = 2;
  *
  * This used to be a fixed constant (`seed: 1, 7, 13`), which meant the same
  * origin and distance always returned the exact same three loops — directly
- * against ROAM's "run somewhere new" promise (see issue #7). Randomising the
+ * against Roam's "run somewhere new" promise (see issue #7). Randomising the
  * seed and point count per call fixes that, while keeping point counts
  * bounded and distinct within the one request so the resulting candidates
  * stay comparable in quality to each other.
@@ -528,7 +528,7 @@ async function sendDirections(
 }
 
 /**
- * The per-segment dimensions ROAM requests. Only these two: `steepness` would
+ * The per-segment dimensions Roam requests. Only these two: `steepness` would
  * duplicate the climb figure already shown, and `suitability` is a 0–10 score,
  * i.e. exactly the composite verdict this app must not surface (#14).
  */
@@ -773,7 +773,7 @@ function percentForCodes(
   return readable ? Math.round(percent) : null;
 }
 
-/** Reads ORS `extra_info` into the attributes ROAM presents. Never infers. */
+/** Reads ORS `extra_info` into the attributes Roam presents. Never infers. */
 export function pathAttributesFromExtras(extras: unknown): RouteAttributes {
   const parsed = (typeof extras === 'object' && extras !== null ? extras : {}) as OrsExtras;
   return {
@@ -964,7 +964,7 @@ export async function findRoutes({
     if (safe.length === 0) {
       throw new RoutingError(
         'no-close-route',
-        `ROAM couldn't find a route close to ${targetKm.toFixed(1)} km near you. Try a different distance.`,
+        `Roam couldn't find a route close to ${targetKm.toFixed(1)} km near you. Try a different distance.`,
       );
     }
   } else if (!safe.some((candidate) => isWithinTolerance(candidate.distanceM, targetM))) {

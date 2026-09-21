@@ -4,7 +4,7 @@
  * Deliberately small: a shoe is something the runner owns, and its one useful
  * fact is how far it has been run in. Mileage is derived from runs attributed
  * to it — never estimated, and no wear or lifespan prediction is offered,
- * because ROAM has no basis for one.
+ * because Roam has no basis for one.
  */
 
 import { Directory, File, Paths } from 'expo-file-system';

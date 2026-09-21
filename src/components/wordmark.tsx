@@ -10,7 +10,7 @@ export type WordmarkProps = {
 };
 
 /**
- * The ROAM wordmark (#141).
+ * The Roam wordmark (#141).
  *
  * Uppercase with wide tracking, in the app's own sans — no custom font, and
  * deliberately no icon lock-up: the mark and the wordmark travel separately so
@@ -23,9 +23,9 @@ export function Wordmark({ size = 'title', color = 'text' }: WordmarkProps) {
       variant={size}
       color={color}
       accessibilityRole="header"
-      accessibilityLabel="ROAM"
+      accessibilityLabel="Roam"
       style={styles.wordmark}>
-      ROAM
+      Roam
     </Text>
   );
 }

@@ -1,7 +1,7 @@
 /**
  * Sharing a completed run (#24).
  *
- * The message contains only the numbers ROAM actually recorded, formatted with
+ * The message contains only the numbers Roam actually recorded, formatted with
  * the runner's own unit setting. There is no badge, no streak, no encouragement
  * and no implied comparison — the same restraint the summary screen keeps.
  *

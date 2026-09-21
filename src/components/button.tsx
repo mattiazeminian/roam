@@ -103,12 +103,14 @@ export function Button({
         {...rest}>
         {/* The label stays mounted while loading so the button cannot change
             width mid-press; the spinner sits on top of it. */}
-        <Text
-          variant="heading"
-          color={colors.textColor}
-          style={[styles.label, loading && styles.labelHidden]}>
-          {label}
-        </Text>
+        <View style={styles.content}>
+          <Text
+            variant="heading"
+            color={colors.textColor}
+            style={[styles.label, loading && styles.labelHidden]}>
+            {label}
+          </Text>
+        </View>
         {loading ? (
           <View style={styles.spinner} pointerEvents="none">
             <ActivityIndicator color={theme[colors.textColor]} />
@@ -125,11 +127,18 @@ const styles = StyleSheet.create({
     // deliberate action rather than a generic rounded rectangle.
     borderRadius: radii.pill,
     borderCurve: 'continuous',
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: layout.controlHeight,
+  },
+  // Padding lives on an inner row, so a gradient fill can cover the whole pill
+  // rather than sitting inset from its edge.
+  content: {
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.xl,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: layout.controlHeight,
   },
   // Sentence case, semibold — the native iOS button convention. Uppercasing
   // every label reads as web UI and hurts legibility at a glance.

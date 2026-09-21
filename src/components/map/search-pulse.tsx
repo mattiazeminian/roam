@@ -55,7 +55,7 @@ function Ring({
 
 /**
  * A restrained expanding search radius around the current location, shown only
- * while ROAM is looking for routes. Not a decorative pulse.
+ * while Roam is looking for routes. Not a decorative pulse.
  */
 export function SearchPulse({ x, y }: { x: number; y: number }) {
   const theme = useTheme();

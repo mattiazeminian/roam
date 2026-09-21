@@ -112,7 +112,7 @@ export default function RouteSelectionScreen() {
     }
     const link = routeShareLink(selectedRoute);
     try {
-      await Share.share({ message: `A running route from ROAM:\n${link}` });
+      await Share.share({ message: `A running route from Roam:\n${link}` });
     } catch {
       // Dismissed, or sharing unavailable — nothing to tell the runner.
     }
@@ -203,7 +203,7 @@ export default function RouteSelectionScreen() {
                 {isFinding
                   ? 'Looking for loops that start and end where you are.'
                   : (errorMessage ??
-                    'ROAM could not find a running loop near you at this distance.')}
+                    'Roam could not find a running loop near you at this distance.')}
               </Text>
               {!isFinding ? (
                 <View style={styles.noticeActions}>

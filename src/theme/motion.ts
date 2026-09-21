@@ -1,5 +1,5 @@
 /**
- * ROAM's motion language.
+ * Roam's motion language.
  *
  * Four roles, not ten styles. Every animation in the app should be able to say
  * which of these it is; if it cannot, it is decoration and should be removed.

@@ -1,215 +1,723 @@
 import { router } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { Image, StyleSheet, TextInput, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
 
 import { Button } from '@/components/button';
+import { OnboardingShell, SelectionRow } from '@/components/onboarding-shell';
+import { SymbolView } from 'expo-symbols';
 import { Text } from '@/components/text';
 import { Wordmark } from '@/components/wordmark';
-import { impactLight } from '@/lib/haptics';
-import { loadProfile, saveProfile } from '@/services/profile';
+import { impactLight, selectionFeedback, successFeedback } from '@/lib/haptics';
+import { loadProfile, pickAvatar, saveProfile } from '@/services/profile';
 import { useSettings } from '@/services/settings-context';
-import { brand, layout, spacing } from '@/theme';
+import {
+  DEFAULT_RUNS_PER_WEEK,
+  TRAINING_LEVELS,
+  addDays,
+  toDateKey,
+  weekStartFor,
+  workoutsFrom,
+  workoutsOnDate,
+  WORKOUT_LABELS,
+  type TrainingGoalKind,
+  type TrainingLevel,
+} from '@/services/training';
+import { useTraining } from '@/services/training-context';
+import { layout, radii, spacing, useTheme } from '@/theme';
 
-const MARK = require('../../assets/images/mark-lime.png');
-const GRADIENT = require('../../assets/images/onboarding-gradient.png');
+type Step =
+  | 'welcome'
+  | 'name'
+  | 'experience'
+  | 'frequency'
+  | 'goal'
+  | 'plan'
+  | 'availability'
+  | 'preview'
+  | 'location';
 
-const STEPS = [
-  {
-    title: 'Set a goal',
-    body: 'Tell ROAM what you are training for and the days you can run.',
-  },
-  {
-    title: 'Get your week',
-    body: 'ROAM builds a week of easy, long and hard sessions around those days.',
-  },
-  {
-    title: 'Run, and it adapts',
-    body: 'Every run moves the plan on. Move or skip a session whenever life happens.',
-  },
+const MARK = require('../../assets/images/mark-green.png');
+
+const LEVEL_COPY: Record<TrainingLevel, { title: string; detail: string }> = {
+  new: { title: 'I’m getting started', detail: 'New to running, or coming back to it.' },
+  occasional: { title: 'I run now and then', detail: 'A couple of runs most weeks.' },
+  regular: { title: 'I run regularly', detail: 'Most weeks, without thinking about it.' },
+  experienced: { title: 'I’ve run for years', detail: 'Training is part of my routine.' },
+};
+
+const GOALS: { id: TrainingGoalKind; title: string; detail: string }[] = [
+  { id: 'fitness', title: 'Run consistently', detail: 'Build the habit and keep it.' },
+  { id: 'distance', title: 'Train for a distance', detail: 'Work up to a set distance.' },
+  { id: 'race', title: 'Train for a race', detail: 'A date to work toward.' },
+];
+
+const DISTANCE_OPTIONS = [5, 10, 21.1, 42.2];
+const FREQUENCY_OPTIONS = [2, 3, 4, 5];
+const WEEK_OPTIONS = [4, 8, 12];
+const DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+const DAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
 ];
 
 /**
- * The one-time introduction (#19).
+ * The runner setup (#142).
  *
- * One screen, not a carousel. Its job is to say what ROAM will do before it
- * asks for anything: set a goal, get a week, and adjust it as you go. It
- * deliberately asks for no data here — the goal and days belong in the plan
- * flow, where the answers actually do something.
+ * One question a screen, in the order a person actually decides: who they are,
+ * how they run, what they want, and whether they want help getting there. Every
+ * answer configures something the app already uses — the profile, or the same
+ * training plan Home and Schedule show. Nothing is asked for show, and nothing
+ * is invented.
  */
 export default function OnboardingScreen() {
-  const insets = useSafeAreaInsets();
+  const theme = useTheme();
   const { update } = useSettings();
-  const [name, setName] = useState('');
+  const { state: training, createPlanFor } = useTraining();
 
-  // The profile is created here, not left for the Profile tab: once a runner
-  // has been asked for a name, the name is theirs. It is optional — the app
-  // works without one, and a blank field is simply ignored.
-  const finish = useCallback(
-    async (next: '/plan' | '/') => {
-      impactLight();
-      const trimmed = name.trim();
-      if (trimmed.length > 0) {
-        try {
-          const current = await loadProfile();
-          await saveProfile({ ...current, name: trimmed });
-        } catch {
-          // A profile that cannot be written must not block starting.
-        }
-      }
-      update({ hasCompletedOnboarding: true });
-      router.replace(next);
-    },
-    [name, update],
+  const [step, setStep] = useState<Step>('welcome');
+  const [history, setHistory] = useState<Step[]>([]);
+
+  const [name, setName] = useState('');
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [level, setLevel] = useState<TrainingLevel>('occasional');
+  const [runsPerWeek, setRunsPerWeek] = useState(DEFAULT_RUNS_PER_WEEK);
+  const [goalKind, setGoalKind] = useState<TrainingGoalKind>('fitness');
+  const [targetKm, setTargetKm] = useState(10);
+  const [weeks, setWeeks] = useState(8);
+  const [days, setDays] = useState<number[]>([]);
+  const [wantsPlan, setWantsPlan] = useState<boolean | null>(null);
+  const [building, setBuilding] = useState(false);
+
+  // The route through setup depends on one answer: whether a plan was wanted.
+  const flow = useMemo<Step[]>(
+    () => [
+      'welcome',
+      'name',
+      'experience',
+      'frequency',
+      'goal',
+      'plan',
+      ...(wantsPlan ? (['availability', 'preview'] as Step[]) : []),
+      'location',
+    ],
+    [wantsPlan],
   );
+  const stepIndex = Math.max(0, flow.indexOf(step));
+  const go = useCallback(
+    (next: Step) => {
+      setHistory((previous) => [...previous, step]);
+      setStep(next);
+    },
+    [step],
+  );
+  const back = useCallback(() => {
+    if (history.length === 0) {
+      return;
+    }
+    setStep(history[history.length - 1]);
+    setHistory((previous) => previous.slice(0, -1));
+  }, [history]);
+  const restartAt = useCallback((next: Step) => {
+    setStep(next);
+    setHistory([]);
+  }, []);
+
+  // The plan is generated when the preview is reached, and regenerated if the
+  // runner backs up and changes an answer — so the preview is never stale.
+  const builtFor = useRef('');
+  const signature = `${goalKind}|${targetKm}|${level}|${runsPerWeek}|${days.join(',')}|${weeks}`;
+  useEffect(() => {
+    if (step !== 'preview' || builtFor.current === signature) {
+      return;
+    }
+    builtFor.current = signature;
+    setBuilding(true);
+    void createPlanFor({
+      goalKind,
+      targetKm: goalKind === 'fitness' ? null : targetKm,
+      raceDate:
+        goalKind === 'race'
+          ? toDateKey(new Date(Date.now() + weeks * 7 * 86_400_000))
+          : null,
+      runsPerWeek,
+      weeks,
+      preferredDays: days,
+      level,
+    })
+      .catch(() => {})
+      .finally(() => setBuilding(false));
+  }, [step, signature, createPlanFor, goalKind, targetKm, runsPerWeek, weeks, days, level]);
+
+  const finish = useCallback(() => {
+    successFeedback();
+    update({ hasCompletedOnboarding: true });
+    router.replace('/');
+  }, [update]);
 
   return (
-    <View style={[styles.root, { backgroundColor: brand.ground }]}>
-      {/* A real gradient — lime bleeding into black, painted once as an image
-          so there is no banding and no gradient dependency. */}
-      <Image source={GRADIENT} style={StyleSheet.absoluteFill} resizeMode="cover" accessibilityIgnoresInvertColors />
+    <KeyboardAvoidingView
+      style={styles.root}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <OnboardingShell
+        step={stepIndex}
+        total={flow.length}
+        onBack={step === 'welcome' ? undefined : back}
+        footer={renderFooter()}>
+        {renderStep()}
+      </OnboardingShell>
+    </KeyboardAvoidingView>
+  );
 
-      <View style={[styles.content, { paddingTop: insets.top + spacing.xxl, paddingBottom: insets.bottom + spacing.lg }]}>
-        <View style={styles.brand}>
-          <Image source={MARK} style={styles.mark} accessibilityIgnoresInvertColors />
-          <Wordmark size="large" color="inverse" />
-        </View>
+  function renderStep() {
+    switch (step) {
+      case 'welcome':
+        return (
+          <View style={styles.centered}>
+            <View style={styles.brandRow}>
+              <Image source={MARK} style={styles.mark} accessibilityIgnoresInvertColors />
+              <Wordmark size="large" color="text" />
+            </View>
+            <Text variant="display" color="text">
+              Run somewhere new
+            </Text>
+            <Text variant="body" style={styles.lede}>
+              A few questions, then Roam is yours — routes, running and a plan if
+              you want one.
+            </Text>
+          </View>
+        );
 
-        <View style={styles.copy}>
-          <Text variant="display" color="inverse" accessibilityRole="header">
-            Run somewhere new
-          </Text>
-          <Text variant="body" style={styles.lede}>
-            ROAM turns a goal into a week of running you can keep up with. No
-            history needed — just a goal and the days you can run.
-          </Text>
-        </View>
-
-        <View style={styles.steps}>
-          {STEPS.map((step, index) => (
-            <View key={step.title} style={styles.step}>
-              <View style={styles.stepNumber}>
-                <Text variant="label" color="accentForeground" tabular>
-                  {index + 1}
+      case 'name':
+        return (
+          <View style={styles.block}>
+            <Text variant="large" color="text">
+              What should Roam call you?
+            </Text>
+            <View style={styles.identityRow}>
+              <Pressable
+                onPress={() => void choosePhoto()}
+                accessibilityRole="button"
+                accessibilityLabel={avatarUri ? 'Change photo' : 'Add a photo, optional'}
+                style={({ pressed }) => [styles.avatar, pressed && styles.pressed]}>
+                {avatarUri ? (
+                  <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+                ) : (
+                  <SymbolView name="camera" size={22} tintColor={theme.textSecondary} />
+                )}
+              </Pressable>
+              <View style={styles.identityText}>
+                <Text variant="body" color="text">
+                  Add a photo
                 </Text>
-              </View>
-              <View style={styles.stepText}>
-                <Text variant="title" color="inverse">
-                  {step.title}
-                </Text>
-                <Text variant="body" style={styles.stepBody}>
-                  {step.body}
+                <Text variant="caption" style={styles.lede}>
+                  Optional. You can change it later.
                 </Text>
               </View>
             </View>
-          ))}
-        </View>
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              placeholder="Your name"
+              placeholderTextColor="rgba(14, 15, 12, 0.35)"
+              autoFocus
+              returnKeyType="done"
+              maxLength={40}
+              accessibilityLabel="Your name"
+              style={styles.input}
+            />
+          </View>
+        );
 
-        <View style={styles.nameField}>
-          <Text variant="micro" color="inverse" style={styles.nameLabel}>
-            YOUR NAME (OPTIONAL)
-          </Text>
-          <TextInput
-            value={name}
-            onChangeText={setName}
-            placeholder="What should ROAM call you?"
-            placeholderTextColor="rgba(255, 255, 255, 0.45)"
-            style={styles.input}
-            returnKeyType="done"
-            maxLength={40}
-            accessibilityLabel="Your name"
+      case 'experience':
+        return (
+          <View style={styles.block}>
+            <Text variant="large" color="text">
+              How would you describe your running?
+            </Text>
+            <View>
+              {TRAINING_LEVELS.map((option) => (
+                <SelectionRow
+                  key={option}
+                  label={LEVEL_COPY[option].title}
+                  detail={LEVEL_COPY[option].detail}
+                  selected={level === option}
+                  onPress={() => {
+                    selectionFeedback();
+                    setLevel(option);
+                    go('frequency');
+                  }}
+                />
+              ))}
+            </View>
+          </View>
+        );
+
+      case 'frequency':
+        return (
+          <View style={styles.block}>
+            <Text variant="large" color="text">
+              How often do you want to run?
+            </Text>
+            <View>
+              {FREQUENCY_OPTIONS.map((option) => (
+                <SelectionRow
+                  key={option}
+                  label={`${option} ${option === 1 ? 'run' : 'runs'} a week`}
+                  selected={runsPerWeek === option}
+                  onPress={() => {
+                    selectionFeedback();
+                    setRunsPerWeek(option);
+                    go('goal');
+                  }}
+                />
+              ))}
+            </View>
+          </View>
+        );
+
+      case 'goal':
+        return (
+          <View style={styles.block}>
+            <Text variant="large" color="text">
+              What do you want to achieve?
+            </Text>
+            <View>
+              {GOALS.map((goal) => (
+                <SelectionRow
+                  key={goal.id}
+                  label={goal.title}
+                  detail={goal.detail}
+                  selected={goalKind === goal.id}
+                  onPress={() => {
+                    selectionFeedback();
+                    setGoalKind(goal.id);
+                    if (goal.id === 'fitness') {
+                      go('plan');
+                    }
+                  }}
+                />
+              ))}
+            </View>
+            {goalKind !== 'fitness' ? (
+              <View style={styles.chips}>
+                {DISTANCE_OPTIONS.map((option) => (
+                  <Chip
+                    key={option}
+                    label={`${option} km`}
+                    selected={targetKm === option}
+                    onPress={() => {
+                      selectionFeedback();
+                      setTargetKm(option);
+                    }}
+                  />
+                ))}
+              </View>
+            ) : null}
+          </View>
+        );
+
+      case 'plan':
+        return (
+          <View style={styles.centered}>
+            <Text variant="display" color="text">
+              Want a plan built around you?
+            </Text>
+            <Text variant="body" style={styles.lede}>
+              Roam can turn your goal, your experience and your days into a week
+              you can actually keep up with.
+            </Text>
+          </View>
+        );
+
+      case 'availability':
+        return (
+          <View style={styles.block}>
+            <Text variant="large" color="text">
+              Which days can you run?
+            </Text>
+            <View style={styles.chips}>
+              {DAY_LETTERS.map((letter, day) => (
+                <Chip
+                  key={day}
+                  label={letter}
+                  selected={days.includes(day)}
+                  accessibilityLabel={DAY_NAMES[day]}
+                  onPress={() => {
+                    selectionFeedback();
+                    setDays((current) =>
+                      current.includes(day)
+                        ? current.filter((value) => value !== day)
+                        : [...current, day].sort((a, b) => a - b),
+                    );
+                  }}
+                />
+              ))}
+            </View>
+            <Text variant="micro" color="text" style={styles.lede}>
+              HOW LONG A PLAN?
+            </Text>
+            <View style={styles.chips}>
+              {WEEK_OPTIONS.map((option) => (
+                <Chip
+                  key={option}
+                  label={`${option} weeks`}
+                  selected={weeks === option}
+                  onPress={() => {
+                    selectionFeedback();
+                    setWeeks(option);
+                  }}
+                />
+              ))}
+            </View>
+          </View>
+        );
+
+      case 'preview': {
+        const today = toDateKey(new Date());
+        const next = workoutsFrom(training, today)[0] ?? null;
+        const week = weekStartFor(today);
+        const weekDays = Array.from({ length: 7 }, (_, index) => {
+          const date = addDays(week, index);
+          return { date, workout: workoutsOnDate(training, date)[0] ?? null };
+        });
+        return (
+          <View style={styles.block}>
+            <Text variant="large" color="text">
+              {building ? 'Building your plan…' : 'Here’s your first week'}
+            </Text>
+            <Text variant="body" style={styles.lede}>
+              {`${goalLabel()}. ${runsPerWeek} runs a week, ${weeks} weeks.`}
+            </Text>
+            <View style={styles.weekRow}>
+              {weekDays.map((day, index) => (
+                <View key={day.date} style={styles.weekDay}>
+                  <Text variant="caption" color="text">
+                    {DAY_LETTERS[index]}
+                  </Text>
+                  <View
+                    style={[
+                      styles.weekMark,
+                      { backgroundColor: day.workout ? theme.accent : theme.borderSubtle },
+                    ]}
+                  />
+                </View>
+              ))}
+            </View>
+            {next ? (
+              <Text variant="body" color="text">
+                {`Next up: ${WORKOUT_LABELS[next.type]} · ${next.targetKm} km`}
+              </Text>
+            ) : null}
+          </View>
+        );
+      }
+
+      case 'location':
+        return (
+          <View style={styles.centered}>
+            <Text variant="display" color="text">
+              Roam needs your location
+            </Text>
+            <Text variant="body" style={styles.lede}>
+              To record your runs, measure GPS distance and find routes that start
+              where you are. Nothing leaves your phone.
+            </Text>
+          </View>
+        );
+    }
+  }
+
+  function renderFooter() {
+    switch (step) {
+      case 'welcome':
+        return (
+          <Button
+            label="Get started"
+            variant="accent"
+            onPress={() => {
+              impactLight();
+              go('name');
+            }}
           />
-        </View>
+        );
 
-        <View style={styles.actions}>
-          <Button label="Create my plan" variant="accent" onPress={() => void finish('/plan')} />
-          <Text
-            variant="label"
-            color="inverse"
-            accessibilityRole="button"
-            accessibilityLabel="Start running without a plan"
-            onPress={() => void finish('/')}
-            style={styles.skip}>
-            I’ll just run
-          </Text>
-        </View>
-      </View>
-    </View>
+      case 'name':
+        return (
+          <Button
+            label="Continue"
+            variant="accent"
+            onPress={() => void saveIdentity()}
+          />
+        );
+
+      case 'experience':
+      case 'frequency':
+        // Answered by choosing; nothing to confirm.
+        return null;
+
+      case 'goal':
+        return goalKind === 'fitness' ? null : (
+          <Button label="Continue" variant="accent" onPress={() => go('plan')} />
+        );
+
+      case 'plan':
+        return (
+          <>
+            <Button
+              label="Create my plan"
+              variant="accent"
+              onPress={() => {
+                impactLight();
+                setWantsPlan(true);
+                // The flow gains the availability and preview steps; start them.
+                restartAt('availability');
+              }}
+            />
+            <Pressable
+              onPress={() => {
+                impactLight();
+                setWantsPlan(false);
+                restartAt('location');
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Not now, skip the plan"
+              style={({ pressed }) => [styles.skip, pressed && styles.pressed]}>
+              <Text variant="label" color="text">
+                Not now
+              </Text>
+            </Pressable>
+          </>
+        );
+
+      case 'availability':
+        return (
+          <Button
+            label="Continue"
+            variant="accent"
+            disabled={days.length === 0}
+            onPress={() => {
+              impactLight();
+              go('preview');
+            }}
+          />
+        );
+
+      case 'preview':
+        return (
+          <>
+            <Button
+              label="Start training"
+              variant="accent"
+              loading={building}
+              onPress={() => {
+                impactLight();
+                go('location');
+              }}
+            />
+            <Pressable
+              onPress={back}
+              accessibilityRole="button"
+              accessibilityLabel="Change your answers"
+              style={({ pressed }) => [styles.skip, pressed && styles.pressed]}>
+              <Text variant="label" color="text">
+                Change something
+              </Text>
+            </Pressable>
+          </>
+        );
+
+      case 'location':
+        return (
+          <>
+            <Button label="Allow location" variant="accent" onPress={finish} />
+            <Pressable
+              onPress={finish}
+              accessibilityRole="button"
+              accessibilityLabel="Continue without location"
+              style={({ pressed }) => [styles.skip, pressed && styles.pressed]}>
+              <Text variant="label" color="text">
+                Not now
+              </Text>
+            </Pressable>
+          </>
+        );
+    }
+  }
+
+  function goalLabel(): string {
+    if (goalKind === 'fitness') {
+      return 'Running consistently';
+    }
+    if (goalKind === 'race') {
+      return `Racing ${targetKm} km`;
+    }
+    return `Training for ${targetKm} km`;
+  }
+
+  async function saveIdentity() {
+    impactLight();
+    try {
+      const current = await loadProfile();
+      await saveProfile({ ...current, name: name.trim() || current.name, avatarUri });
+    } catch {
+      // A profile that cannot be written must not block setup.
+    }
+    go('experience');
+  }
+
+  async function choosePhoto() {
+    const uri = await pickAvatar();
+    if (uri) {
+      setAvatarUri(uri);
+      selectionFeedback();
+    }
+  }
+}
+
+function Chip({
+  label,
+  selected,
+  onPress,
+  accessibilityLabel,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+  accessibilityLabel?: string;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={accessibilityLabel ?? label}
+      style={({ pressed }) => [
+        styles.chip,
+        selected && styles.chipOn,
+        pressed && styles.pressed,
+      ]}>
+      <Text variant="label" color={selected ? 'accentForeground' : 'inverse'}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    overflow: 'hidden',
   },
-  content: {
+  centered: {
     flex: 1,
-    paddingHorizontal: layout.screenMargin,
-    justifyContent: 'space-between',
-    gap: spacing.xl,
+    justifyContent: 'center',
+    gap: spacing.md,
   },
-  brand: {
+  block: {
+    flex: 1,
+    gap: spacing.lg,
+  },
+  brandRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+    marginBottom: spacing.md,
   },
   mark: {
     width: 34,
     height: 34,
   },
-  copy: {
-    gap: spacing.md,
-  },
   lede: {
-    color: 'rgba(255, 255, 255, 0.72)',
+    color: 'rgba(14, 15, 12, 0.62)',
   },
-  steps: {
-    gap: spacing.lg,
-  },
-  step: {
+  identityRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: spacing.md,
   },
-  stepNumber: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: brand.primary,
+  avatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(22, 51, 0, 0.08)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(14, 15, 12, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: 64,
+    height: 64,
+  },
+  identityText: {
+    flex: 1,
+    gap: 2,
+  },
+  input: {
+    minHeight: 56,
+    borderRadius: radii.small,
+    borderCurve: 'continuous',
+    paddingHorizontal: spacing.md,
+    fontSize: 20,
+    color: 'rgba(14, 15, 12, 1)',
+    backgroundColor: 'rgba(22, 51, 0, 0.06)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(14, 15, 12, 0.12)',
+  },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  chip: {
+    minHeight: layout.minTouchTarget,
+    minWidth: 56,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.pill,
+    borderCurve: 'continuous',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(22, 51, 0, 0.08)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(14, 15, 12, 0.10)',
+  },
+  chipOn: {
+    backgroundColor: '#CDF24B',
+    borderColor: '#CDF24B',
+  },
+  weekRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.xs,
+  },
+  weekDay: {
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  weekMark: {
+    width: 32,
+    height: 6,
+    borderRadius: 3,
+  },
+  skip: {
+    minHeight: layout.minTouchTarget,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepText: {
-    flex: 1,
-    gap: spacing.xxs,
-  },
-  stepBody: {
-    color: 'rgba(255, 255, 255, 0.72)',
-  },
-  nameField: {
-    gap: spacing.xs,
-  },
-  nameLabel: {
-    opacity: 0.7,
-  },
-  input: {
-    minHeight: 52,
-    borderRadius: 12,
-    borderCurve: 'continuous',
-    paddingHorizontal: spacing.md,
-    fontSize: 17,
-    color: '#FFFFFF',
-    backgroundColor: 'rgba(255, 255, 255, 0.10)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255, 255, 255, 0.18)',
-  },
-  actions: {
-    gap: spacing.md,
-    alignItems: 'center',
-  },
-  skip: {
-    paddingVertical: spacing.xs,
-    color: 'rgba(255, 255, 255, 0.86)',
+  pressed: {
+    opacity: 0.6,
   },
 });

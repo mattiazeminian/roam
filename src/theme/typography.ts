@@ -1,7 +1,7 @@
 import { Platform, type TextStyle } from 'react-native';
 
 /**
- * ROAM uses the native system typeface. No custom font dependency.
+ * Roam uses the native system typeface. No custom font dependency.
  */
 export const fontFamilies = {
   sans: Platform.select({ ios: 'system-ui', default: undefined }),
@@ -21,7 +21,7 @@ type TypeToken = Pick<
 /**
  * A deliberately small scale.
  *
- * ROAM is a product about numbers — distance, time, pace — so the scale is
+ * Roam is a product about numbers — distance, time, pace — so the scale is
  * built around them: a display tier for the value the runner reads at a
  * glance, and a quiet `micro` label that names it. Everything else stays out
  * of the way. Large sizes carry negative tracking so they read as one shape
