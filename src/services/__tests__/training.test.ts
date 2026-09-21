@@ -17,6 +17,7 @@ import {
   buildPlan,
   generateBlock,
   generateWeek,
+  goalProgress,
   recommendNextWorkout,
   weekdayOf,
   createPlan,
@@ -32,6 +33,7 @@ import {
   workoutsFrom,
   workoutsOnDate,
   type PlannedWorkout,
+  type TrainingGoal,
   type TrainingPlan,
   type TrainingState,
 } from '../training';
@@ -601,5 +603,38 @@ describe('recommendNextWorkout (Rule 5)', () => {
       kind: 'none',
       workout: null,
     });
+  });
+});
+
+describe('goal progress (#75)', () => {
+  const run = (km: number) => ({ distanceKm: km });
+  const fitness: TrainingGoal = { kind: 'fitness', targetKm: null, raceDate: null };
+  const distance: TrainingGoal = { kind: 'distance', targetKm: 10, raceDate: null };
+  const race: TrainingGoal = { kind: 'race', targetKm: 21.1, raceDate: '2026-06-01' };
+
+  test('reports the longest run, total and count from recorded runs', () => {
+    const progress = goalProgress(distance, [run(5), run(8), run(3)], '2026-01-01');
+    expect(progress.longestRunKm).toBe(8);
+    expect(progress.totalKm).toBeCloseTo(16, 5);
+    expect(progress.runCount).toBe(3);
+    expect(progress.longestShare).toBeCloseTo(0.8, 5);
+  });
+
+  test('a fitness goal has no target and no share', () => {
+    const progress = goalProgress(fitness, [run(5)], '2026-01-01');
+    expect(progress.targetKm).toBeNull();
+    expect(progress.longestShare).toBeNull();
+  });
+
+  test('a race goal reports days to the race, floored at zero', () => {
+    expect(goalProgress(race, [], '2026-05-01').daysUntilRace).toBe(31);
+    expect(goalProgress(race, [], '2026-06-10').daysUntilRace).toBe(0);
+  });
+
+  test('no runs means no longest run, not a zero', () => {
+    const progress = goalProgress(distance, [], '2026-01-01');
+    expect(progress.longestRunKm).toBeNull();
+    expect(progress.longestShare).toBeNull();
+    expect(progress.totalKm).toBe(0);
   });
 });

@@ -554,6 +554,60 @@ export function baselineKmFromRuns(
     : distances[middle];
 }
 
+/** Whole days from one `yyyy-mm-dd` to another (to − from). */
+function daysBetween(fromKey: string, toKey: string): number {
+  const from = parseDateKey(fromKey);
+  const to = parseDateKey(toKey);
+  return Math.round((to.getTime() - from.getTime()) / 86_400_000);
+}
+
+export type GoalProgress = {
+  kind: TrainingGoalKind;
+  /** Target distance in kilometres, for a distance or race goal. */
+  targetKm: number | null;
+  /** The runner's longest recorded run, in kilometres, or null with no runs. */
+  longestRunKm: number | null;
+  /** Total recorded distance, in kilometres. */
+  totalKm: number;
+  runCount: number;
+  /** Longest run as a share of the target, or null. */
+  longestShare: number | null;
+  /** Days from `today` to the race date, floored at zero, or null. */
+  daysUntilRace: number | null;
+};
+
+/**
+ * Factual progress toward a goal (#75).
+ *
+ * Plain arithmetic over recorded runs and the target — a longest run, a total,
+ * days to the race. No predicted finish time, no percentage "readiness", and
+ * nothing derived from data ROAM does not have.
+ */
+export function goalProgress(
+  goal: TrainingGoal,
+  runs: readonly { distanceKm: number }[],
+  today: string,
+): GoalProgress {
+  const distances = runs.map((run) => run.distanceKm).filter((km) => Number.isFinite(km) && km > 0);
+  const longestRunKm = distances.length > 0 ? Math.max(...distances) : null;
+  const totalKm = distances.reduce((sum, km) => sum + km, 0);
+  const targetKm = goal.kind === 'fitness' ? null : goal.targetKm;
+
+  return {
+    kind: goal.kind,
+    targetKm,
+    longestRunKm,
+    totalKm,
+    runCount: distances.length,
+    longestShare:
+      targetKm !== null && targetKm > 0 && longestRunKm !== null ? longestRunKm / targetKm : null,
+    daysUntilRace:
+      goal.kind === 'race' && goal.raceDate !== null
+        ? Math.max(0, daysBetween(today, goal.raceDate))
+        : null,
+  };
+}
+
 /** What today's suggestion is, and why. See Rule 5. */
 export type WorkoutSuggestionKind = 'today' | 'upcoming' | 'catch-up' | 'none';
 

@@ -9,11 +9,14 @@ import { DEFAULT_DISTANCE_KM, DistanceControl } from '@/components/distance-cont
 import { Text } from '@/components/text';
 import { WorkoutIcon } from '@/components/workout-icon';
 import { impactMedium, selectionFeedback, successFeedback } from '@/lib/haptics';
-import { useSettings } from '@/services/settings-context';
+import { listRuns } from '@/services/run-storage';
+import type { SavedRun } from '@/services/run-session';
+import { useFormatters, useSettings } from '@/services/settings-context';
 import {
   DEFAULT_PREFERRED_DAYS,
   DEFAULT_RUNS_PER_WEEK,
   addDays,
+  goalProgress,
   summarizeProgress,
   toDateKey,
   weekStartFor,
@@ -317,13 +320,44 @@ export default function PlanScreen() {
 function PlanOverview({ onEdit }: { onEdit: () => void }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const fmt = useFormatters();
   const { state } = useTraining();
+  const [runs, setRuns] = useState<SavedRun[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    void listRuns()
+      .then((stored) => active && setRuns(stored))
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const plan = state.plan;
   if (!plan) return null;
   const today = toDateKey(new Date());
   const weekStart = weekStartFor(today);
   const progress = summarizeProgress(state, weekStart, addDays(weekStart, 6));
+  const goal = goalProgress(plan.goal, runs, today);
   const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
+
+  // Plain arithmetic over recorded runs — a longest run toward the target and,
+  // for a race, days remaining. No predicted finish, no "readiness" (#75).
+  const goalLine =
+    goal.longestRunKm === null
+      ? null
+      : goal.targetKm !== null
+        ? `Longest run ${fmt.distance(goal.longestRunKm * 1000)} ${fmt.unitLabel} of ${
+            goal.targetKm
+          } ${fmt.unitLabel}`
+        : `Longest run ${fmt.distance(goal.longestRunKm * 1000)} ${fmt.unitLabel}`;
+  const raceLine =
+    goal.daysUntilRace === null
+      ? null
+      : goal.daysUntilRace === 0
+        ? 'Race day is today'
+        : `${goal.daysUntilRace} ${goal.daysUntilRace === 1 ? 'day' : 'days'} to race day`;
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -335,6 +369,11 @@ function PlanOverview({ onEdit }: { onEdit: () => void }) {
         <Text variant="micro" color="textSecondary">YOUR DIRECTION</Text>
         <Text variant="hero">{planGoalLabel(plan)}</Text>
         <Text variant="body" color="textSecondary">{`${plan.runsPerWeek} runs each week · ${plan.level} starting point`}</Text>
+        {goalLine || raceLine ? (
+          <Text variant="caption" color="textSecondary">
+            {[goalLine, raceLine].filter(Boolean).join(' · ')}
+          </Text>
+        ) : null}
         <View style={[styles.overviewRule, { backgroundColor: theme.track }]} />
         <View style={styles.overviewHeading}><Text variant="title">This week</Text><Text variant="caption" color="textSecondary" tabular>{`${progress.completed} of ${progress.planned} complete`}</Text></View>
         <View style={styles.overviewTimeline}>
