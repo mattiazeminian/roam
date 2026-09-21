@@ -151,6 +151,7 @@ export default function RunSummaryScreen() {
               selectedRouteId={completedRun.route?.id}
               track={completedRun.coordinates}
               cameraMode="fit"
+              interactive={false}
               padding={{ top: 32, bottom: 32, left: 32, right: 32 }}
             />
           </View>

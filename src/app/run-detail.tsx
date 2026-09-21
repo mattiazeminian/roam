@@ -260,6 +260,7 @@ export default function RunDetailScreen() {
                   selectedRouteId={run.route?.id}
                   track={run.coordinates}
                   cameraMode="fit"
+                  interactive={false}
                   padding={{ top: 32, bottom: 32, left: 32, right: 32 }}
                 />
               </View>

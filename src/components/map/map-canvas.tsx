@@ -68,6 +68,11 @@ export type MapCanvasProps = {
    * `follow` keeps the runner centered during an active run.
    */
   cameraMode?: 'center' | 'fit' | 'follow';
+  /**
+   * Whether the map answers gestures. A recorded run's map is a still picture
+   * of where it went, not a surface to explore, so previews turn this off.
+   */
+  interactive?: boolean;
   /** The runner's recorded GPS path, drawn during an active run. */
   track?: Coordinate[];
   /** The portion of the planned route already covered, drawn in the accent. */
@@ -134,6 +139,7 @@ function MapboxCanvas({
   recenterSignal = 0,
   padding,
   cameraMode = 'center',
+  interactive = true,
   track,
   completedGeometry,
   onFollowBroken,
@@ -260,9 +266,9 @@ function MapboxCanvas({
             }
           : undefined
       }
-      rotateEnabled
-      scrollEnabled
-      zoomEnabled>
+      rotateEnabled={interactive}
+      scrollEnabled={interactive}
+      zoomEnabled={interactive}>
       <mapbox.Camera ref={cameraRef} />
 
       {/* Unselected routes first, so the selected one always draws on top

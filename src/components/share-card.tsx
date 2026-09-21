@@ -43,6 +43,7 @@ export const ShareCard = forwardRef<View, ShareCardProps>(function ShareCard({ r
             selectedRouteId={run.route?.id}
             track={run.coordinates}
             cameraMode="fit"
+            interactive={false}
             padding={{ top: 24, bottom: 24, left: 24, right: 24 }}
           />
         ) : null}
