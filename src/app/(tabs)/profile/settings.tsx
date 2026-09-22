@@ -2,10 +2,11 @@ import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
+import { Image, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Card } from '@/components/card';
+import { ActionSheet } from '@/components/action-sheet';
 import { Divider } from '@/components/divider';
 import { MapControl } from '@/components/map-control';
 import { Row } from '@/components/row';
@@ -27,6 +28,8 @@ import { layout, radii, spacing, useTheme } from '@/theme';
 
 const PACE_STEP = 0.1;
 
+const APPEARANCE_LABELS = { system: 'System', light: 'Light', dark: 'Dark' } as const;
+
 /**
  * Settings — only things that change what Roam does.
  *
@@ -41,6 +44,8 @@ export default function SettingsScreen() {
   const { account } = useAccount();
   const [runCount, setRunCount] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -79,25 +84,7 @@ export default function SettingsScreen() {
     if (!runCount) {
       return;
     }
-    Alert.alert(
-      'Delete all runs?',
-      `${runCount === 1 ? 'Your saved run' : `All ${runCount} saved runs`} will be removed from this device. This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            void listRuns()
-              .then((runs) => Promise.all(runs.map((run) => deleteRun(run.id))))
-              .then(() => setRunCount(0))
-              .catch(() => {
-                Alert.alert('Could not delete', 'The saved runs could not be removed.');
-              });
-          },
-        },
-      ],
-    );
+    setDeleteConfirm(true);
   }, [runCount]);
 
   // Export is honest about what it can carry: a run recorded without GPS has no
@@ -110,32 +97,27 @@ export default function SettingsScreen() {
     try {
       const runs = await listRuns();
       if (runs.length === 0) {
-        Alert.alert('Nothing to export', 'There are no saved runs on this device.');
+        setNotice('There are no saved runs on this device.');
         return;
       }
 
       const { uri, exported, skipped } = await writeRunsGpx(runs);
       if (exported === 0) {
-        Alert.alert(
-          'Nothing to export',
-          'None of your saved runs have a recorded track to export.',
-        );
+        setNotice('None of your saved runs have a recorded track to export.');
         return;
       }
 
       await Share.share({ url: uri });
 
       if (skipped > 0) {
-        Alert.alert(
-          'Exported',
-          `${exported} ${exported === 1 ? 'run' : 'runs'} exported. ${
+        setNotice(`${exported} ${exported === 1 ? 'run' : 'runs'} exported. ${
             skipped === 1 ? '1 run' : `${skipped} runs`
           } without a recorded track ${skipped === 1 ? 'was' : 'were'} skipped.`,
         );
       }
     } catch {
       errorFeedback();
-      Alert.alert('Could not export', 'The export file could not be created.');
+      setNotice('The export file could not be created.');
     } finally {
       setExporting(false);
     }
@@ -146,7 +128,15 @@ export default function SettingsScreen() {
   const paceSeconds = Math.round((paceDisplay - paceMinutes) * 60);
 
   return (
-    <View style={[styles.root, { backgroundColor: theme.background }]}>
+    <View style={[styles.root, { backgroundColor: theme.background }]}> 
+      <ActionSheet
+        visible={deleteConfirm}
+        title="Delete all runs?"
+        message={`${runCount === 1 ? 'Your saved run' : `All ${runCount ?? 0} saved runs`} will be removed from this device. This cannot be undone.`}
+        actions={[{ label: 'Delete', destructive: true, onPress: () => { void listRuns().then((runs) => Promise.all(runs.map((run) => deleteRun(run.id)))).then(() => setRunCount(0)).catch(() => setNotice('The saved runs could not be removed.')); } }]}
+        onClose={() => setDeleteConfirm(false)}
+      />
+      {notice ? <Text variant="body" color="danger">{notice}</Text> : null}
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -170,6 +160,35 @@ export default function SettingsScreen() {
                 : 'Sign in with Apple'
             }
           />
+        </Section>
+
+        <Section
+          title="Appearance"
+          footer="System follows your iPhone. Light and Dark stay put regardless of the system setting.">
+          <View style={styles.segment}>
+            {(['system', 'light', 'dark'] as const).map((option) => {
+              const selected = settings.appearance === option;
+              return (
+                <Pressable
+                  key={option}
+                  onPress={() => {
+                    selectionFeedback();
+                    update({ appearance: option });
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={APPEARANCE_LABELS[option]}
+                  style={[
+                    styles.segmentItem,
+                    { backgroundColor: selected ? theme.accent : theme.fill },
+                  ]}>
+                  <Text variant="label" color={selected ? 'accentForeground' : 'textTertiary'}>
+                    {APPEARANCE_LABELS[option]}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </Section>
 
         <Section

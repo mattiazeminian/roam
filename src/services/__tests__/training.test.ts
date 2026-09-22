@@ -28,6 +28,7 @@ import {
   loadTraining,
   normalizePreferredDays,
   removeWorkout,
+  moveWorkout,
   replacePlannedWorkouts,
   saveTraining,
   setWorkoutStatus,
@@ -785,5 +786,12 @@ describe('progression (#74)', () => {
     expect(longDistanceFor(5, 'occasional', null, 1.2)).toBe(8);
     // A 7 km ceiling is never exceeded.
     expect(longDistanceFor(5, 'occasional', 7, 2)).toBe(7);
+  });
+
+  test('moveWorkout preserves identity, status, and run link', () => {
+    const workout = createWorkout({ id: 'move-me', date: '2026-01-01', type: 'easy', targetKm: 5 });
+    const state = setWorkoutStatus({ plan: null, workouts: [workout] }, 'move-me', 'partial', 'run-1');
+    const moved = moveWorkout(state, 'move-me', '2026-01-03').workouts[0];
+    expect(moved).toMatchObject({ id: 'move-me', date: '2026-01-03', status: 'partial', runId: 'run-1' });
   });
 });

@@ -26,7 +26,14 @@ import {
 } from './run-session';
 import { checkpointRun, clearInProgressRun, getInProgressRun, saveRun } from './run-storage';
 import { canTransition, type RunSessionStatus } from './run-state';
-import type { WorkoutType } from './training';
+import type { WorkoutStep, WorkoutType } from './training';
+import {
+  advanceWorkoutExecution,
+  createWorkoutExecutionState,
+  currentWorkoutStep,
+  workoutStepProgress,
+  workoutStepRemaining,
+} from './workout-execution';
 
 export type { RunSessionStatus } from './run-state';
 
@@ -49,6 +56,16 @@ export type RunSnapshot = {
   degradedSignal: boolean;
   /** True while the runner has stopped long enough that the clock is held (#38). */
   autoPaused: boolean;
+  /** The structured step being run, or null for an unstructured run (#148). */
+  workoutStep: WorkoutStep | null;
+  /** Persisted/derived steps for the current workout. */
+  workoutSteps: WorkoutStep[];
+  /** How far through the current step, 0–1. */
+  workoutStepProgress: number;
+  /** Seconds or meters left in the current step. */
+  workoutStepRemaining: number;
+  /** True once every step of a structured workout has been passed. */
+  workoutStepsComplete: boolean;
   /** Latest accepted position, for the map marker. */
   position: Coordinate | null;
   /** True once the runner has covered most of the route and returned to the start. */
@@ -65,6 +82,7 @@ export type RunContextValue = RunSnapshot & {
   status: RunSessionStatus;
   route: RouteCandidate | null;
   targetKm: number;
+  targetDurationSeconds: number;
   /** The planned workout this run was started from, when there was one. */
   plannedWorkoutId: string | null;
   /** The kind of run the runner chose on Record, when they chose one. */
@@ -80,6 +98,8 @@ export type RunContextValue = RunSnapshot & {
     targetKm: number,
     plannedWorkoutId?: string | null,
     workoutType?: WorkoutType | null,
+    targetDurationSeconds?: number,
+    steps?: readonly WorkoutStep[],
   ) => void;
   pause: () => void;
   resume: () => void;
@@ -120,6 +140,11 @@ const EMPTY_SNAPSHOT: RunSnapshot = {
   progressMeters: 0,
   degradedSignal: false,
   autoPaused: false,
+  workoutStep: null,
+  workoutSteps: [],
+  workoutStepProgress: 0,
+  workoutStepRemaining: 0,
+  workoutStepsComplete: false,
   position: null,
   completionSuggested: false,
   offRoute: false,
@@ -131,8 +156,10 @@ export function RunProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<RunSessionStatus>('idle');
   const [route, setRoute] = useState<RouteCandidate | null>(null);
   const [targetKm, setTargetKm] = useState(0);
+  const [targetDurationSeconds, setTargetDurationSeconds] = useState(0);
   const [plannedWorkoutId, setPlannedWorkoutId] = useState<string | null>(null);
   const [workoutType, setWorkoutType] = useState<WorkoutType | null>(null);
+  const [workoutSteps, setWorkoutSteps] = useState<WorkoutStep[]>([]);
   const [snapshot, setSnapshot] = useState<RunSnapshot>(EMPTY_SNAPSHOT);
   const [completedRun, setCompletedRun] = useState<SavedRun | null>(null);
   const [recoverable, setRecoverable] = useState<SavedRun | null>(null);
@@ -163,6 +190,8 @@ export function RunProvider({ children }: { children: ReactNode }) {
   const trackingError = useRef(false);
   /** Counts publish ticks so checkpointing runs every Nth tick, not every one. */
   const checkpointTick = useRef(0);
+  /** Phase execution for a structured workout (#148). Mutated by publish, not renders. */
+  const workoutExecution = useRef(createWorkoutExecutionState());
 
   const stopWatching = useCallback(() => {
     trackingEpoch.current += 1;
@@ -234,7 +263,27 @@ export function RunProvider({ children }: { children: ReactNode }) {
       autoPausedAt.current = null;
     }
     const seconds = activeSecondsNow();
+    // Advance the workout phase from the same monotonic totals, so it pauses
+    // with the clock and needs no timer of its own (#148).
+    if (workoutSteps.length > 0) {
+      workoutExecution.current = advanceWorkoutExecution(
+        workoutSteps,
+        workoutExecution.current,
+        seconds,
+        state.distanceMeters,
+      );
+    }
+    const step = currentWorkoutStep(workoutSteps, workoutExecution.current);
     setSnapshot({
+      workoutStep: step,
+      workoutSteps,
+      workoutStepProgress: step
+        ? workoutStepProgress(step, workoutExecution.current, seconds, state.distanceMeters)
+        : 0,
+      workoutStepRemaining: step
+        ? workoutStepRemaining(step, workoutExecution.current, seconds, state.distanceMeters)
+        : 0,
+      workoutStepsComplete: workoutExecution.current.completed,
       distanceMeters: state.distanceMeters,
       activeSeconds: seconds,
       paceMinPerKm: paceMinPerKm(state.distanceMeters, seconds),
@@ -249,7 +298,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       distanceToRouteMeters: state.distanceToRouteMeters,
       directionToRouteDegrees: state.directionToRouteDegrees,
     });
-  }, [activeSecondsNow]);
+  }, [activeSecondsNow, workoutSteps]);
 
   /** Persists the in-progress run so it survives a process kill. */
   const checkpoint = useCallback(() => {
@@ -264,6 +313,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       endedAt: Date.now(),
       route,
       targetDistanceKm: targetKm,
+      targetDurationSeconds: targetDurationSeconds || undefined,
       distanceKm: state.distanceMeters / 1000,
       durationSeconds: seconds,
       averagePaceMinPerKm: paceMinPerKm(state.distanceMeters, seconds),
@@ -273,7 +323,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       plannedWorkoutId: plannedWorkoutId ?? undefined,
       workoutType: workoutType ?? undefined,
     });
-  }, [activeSecondsNow, plannedWorkoutId, route, targetKm, workoutType]);
+  }, [activeSecondsNow, plannedWorkoutId, route, targetDurationSeconds, targetKm, workoutType]);
 
   // One timer drives the clock, flushes any accumulated GPS movement, and
   // periodically checkpoints — not on every tick; see CHECKPOINT_EVERY_N_PUBLISHES.
@@ -314,6 +364,8 @@ export function RunProvider({ children }: { children: ReactNode }) {
       nextTargetKm: number,
       nextPlannedWorkoutId: string | null = null,
       nextWorkoutType: WorkoutType | null = null,
+      nextTargetDurationSeconds = 0,
+      nextSteps: readonly WorkoutStep[] = [],
     ) => {
       if (!canTransition(status, 'start')) {
         // Unreachable today — `start` is legal from every state — but kept
@@ -332,8 +384,11 @@ export function RunProvider({ children }: { children: ReactNode }) {
       checkpointTick.current = 0;
       setRoute(nextRoute);
       setTargetKm(nextTargetKm);
+      setTargetDurationSeconds(nextTargetDurationSeconds);
       setPlannedWorkoutId(nextPlannedWorkoutId);
       setWorkoutType(nextWorkoutType);
+      setWorkoutSteps([...nextSteps]);
+      workoutExecution.current = createWorkoutExecutionState();
       setCompletedRun(null);
       setRecoverable(null);
       setSnapshot(EMPTY_SNAPSHOT);
@@ -406,6 +461,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       endedAt,
       route,
       targetDistanceKm: targetKm,
+      targetDurationSeconds: targetDurationSeconds || undefined,
       distanceKm: state.distanceMeters / 1000,
       durationSeconds: seconds,
       averagePaceMinPerKm: paceMinPerKm(state.distanceMeters, seconds),
@@ -415,7 +471,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
       plannedWorkoutId: plannedWorkoutId ?? undefined,
       workoutType: workoutType ?? undefined,
     });
-  }, [activeSecondsNow, plannedWorkoutId, publish, route, status, stopWatching, targetKm, workoutType]);
+  }, [activeSecondsNow, plannedWorkoutId, publish, route, status, stopWatching, targetDurationSeconds, targetKm, workoutType]);
 
   const reset = useCallback(() => {
     tracker.current = createTrackerState();
@@ -428,8 +484,11 @@ export function RunProvider({ children }: { children: ReactNode }) {
     setSnapshot(EMPTY_SNAPSHOT);
     setRoute(null);
     setTargetKm(0);
+    setTargetDurationSeconds(0);
     setPlannedWorkoutId(null);
     setWorkoutType(null);
+    setWorkoutSteps([]);
+    workoutExecution.current = createWorkoutExecutionState();
     setCompletedRun(null);
     setRerouting(false);
     setRerouteError(null);
@@ -473,8 +532,13 @@ export function RunProvider({ children }: { children: ReactNode }) {
 
     setRoute(run.route);
     setTargetKm(run.targetDistanceKm);
+    setTargetDurationSeconds(run.targetDurationSeconds ?? 0);
     setPlannedWorkoutId(run.plannedWorkoutId ?? null);
     setWorkoutType(run.workoutType ?? null);
+    // Steps are not persisted, so a recovered run continues without phases
+    // rather than inventing a position within a structure it cannot recall.
+    setWorkoutSteps([]);
+    workoutExecution.current = createWorkoutExecutionState();
     setCompletedRun(null);
     setSnapshot({
       distanceMeters: tracker.current.distanceMeters,
@@ -483,6 +547,11 @@ export function RunProvider({ children }: { children: ReactNode }) {
       currentPaceMinPerKm: null,
       track: tracker.current.coordinates,
       progressMeters: 0,
+      workoutStep: null,
+      workoutSteps: [],
+      workoutStepProgress: 0,
+      workoutStepRemaining: 0,
+      workoutStepsComplete: false,
       degradedSignal: false,
       autoPaused: false,
       position: tracker.current.coordinates.at(-1) ?? null,
@@ -578,8 +647,10 @@ export function RunProvider({ children }: { children: ReactNode }) {
       status,
       route,
       targetKm,
+      targetDurationSeconds,
       plannedWorkoutId,
       workoutType,
+      workoutSteps,
       rerouting,
       rerouteError,
       completedRun,
@@ -600,8 +671,10 @@ export function RunProvider({ children }: { children: ReactNode }) {
       status,
       route,
       targetKm,
+      targetDurationSeconds,
       plannedWorkoutId,
       workoutType,
+      workoutSteps,
       rerouting,
       rerouteError,
       completedRun,

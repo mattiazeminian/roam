@@ -22,6 +22,8 @@ export type SavedRun = {
   /** The planned route, kept so History can redraw it. */
   route: RouteCandidate | null;
   targetDistanceKm: number;
+  /** Explicit time target in seconds, when the runner chose a timed run. */
+  targetDurationSeconds?: number;
   /** Distance actually covered, from the GPS track. */
   distanceKm: number;
   /** Active seconds, excluding time spent paused. */

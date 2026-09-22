@@ -1,11 +1,12 @@
 import { router } from 'expo-router';
 import { useKeepAwake } from 'expo-keep-awake';
 import { SymbolView } from 'expo-symbols';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { GlassSurface } from '@/components/glass-surface';
+import { ActionSheet } from '@/components/action-sheet';
 import { HoldButton } from '@/components/hold-button';
 import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
@@ -14,12 +15,15 @@ import { ControlPanel } from '@/components/control-panel';
 import { SlideToConfirm } from '@/components/slide-to-confirm';
 import { Text } from '@/components/text';
 import { WorkoutIcon } from '@/components/workout-icon';
+import { selectionFeedback } from '@/lib/haptics';
 import { cumulativeDistances, sliceAlongPath } from '@/services/geo';
 import { useRun } from '@/services/run-context';
 import { compassDirection, formatDuration } from '@/services/run-session';
 import { useFormatters } from '@/services/settings-context';
 import { WORKOUT_LABELS } from '@/services/training';
+import { remainingDurationSeconds, runExecutionMode } from '@/services/run-execution';
 import { useTraining } from '@/services/training-context';
+import { WORKOUT_STEP_LABELS } from '@/services/workout-execution';
 import { layout, radii, spacing, useTheme } from '@/theme';
 
 /**
@@ -37,6 +41,13 @@ export default function ActiveRunScreen() {
     route,
     plannedWorkoutId,
     workoutType,
+    targetKm,
+    targetDurationSeconds,
+    workoutSteps,
+    workoutStep,
+    workoutStepProgress,
+    workoutStepRemaining,
+    workoutStepsComplete,
     distanceMeters,
     activeSeconds,
     paceMinPerKm,
@@ -86,17 +97,18 @@ export default function ActiveRunScreen() {
     }
   }, [status]);
 
-  // Suggest finishing once the runner has covered the loop and returned to
-  // the start; hold-to-finish keeps working regardless of this prompt.
+  // The run engine owns phase state (#148), so this screen only reacts to it.
+  // A phase change is a real state change, so it gets a selection haptic; the
+  // step objects are stable while the phase holds, so the id only changes on a
+  // transition.
+  const lastStepId = useRef<string | null>(null);
   useEffect(() => {
-    if (!completionSuggested) {
-      return;
+    const id = workoutStep?.id ?? null;
+    if (id !== null && lastStepId.current !== null && id !== lastStepId.current) {
+      selectionFeedback();
     }
-    Alert.alert('Finish run?', "Looks like you're back at the start.", [
-      { text: 'Keep going', style: 'cancel', onPress: dismissCompletionSuggestion },
-      { text: 'Finish', onPress: finish },
-    ]);
-  }, [completionSuggested, dismissCompletionSuggestion, finish]);
+    lastStepId.current = id;
+  }, [workoutStep?.id]);
 
   const completedGeometry = useMemo(() => {
     if (!route || route.geometry.length < 2 || progressMeters <= 0) {
@@ -112,9 +124,29 @@ export default function ActiveRunScreen() {
   }, []);
 
   const isPaused = status === 'paused';
+  // The run's own target, which is what a distance run from Record sets —
+  // the planned workout's target is only a fallback.
+  const targetProgressKm = targetKm > 0 ? targetKm : (plannedWorkout?.targetKm ?? 0);
+  const executionMode = runExecutionMode(workoutType, targetDurationSeconds, targetProgressKm);
+  const remainingSeconds = remainingDurationSeconds(targetDurationSeconds, activeSeconds);
+  const workoutProgress =
+    targetProgressKm > 0 ? Math.min(1, distanceMeters / 1000 / targetProgressKm) : 0;
+  const workoutComplete =
+    executionMode === 'time'
+      ? remainingSeconds === 0
+      : (targetProgressKm > 0 && workoutProgress >= 1) || workoutStepsComplete;
 
   return (
-    <View style={[styles.root, { backgroundColor: theme.background }]}>
+    <View style={[styles.root, { backgroundColor: theme.background }]}> 
+      <ActionSheet
+        visible={completionSuggested}
+        title="Finish run?"
+        message="Looks like you're back at the start."
+        actions={[{ label: 'Finish', onPress: finish }]}
+        onClose={() => {
+          dismissCompletionSuggestion();
+        }}
+      />
       <MapCanvas
         origin={position}
         routes={route ? [route] : []}
@@ -261,13 +293,71 @@ export default function ActiveRunScreen() {
 
       <View style={styles.sheetAnchor}>
         <ControlPanel style={styles.sheet}>
-          <Metric
-            label="Distance"
-            value={fmt.distance(distanceMeters)}
-            unit={fmt.unitLabel}
-            emphasis="hero"
-            accessibilityLabel={`Distance ${fmt.distance(distanceMeters)} ${fmt.unitSpoken}`}
-          />
+          {executionMode === 'time' ? (
+            <Metric
+              label="Remaining"
+              value={formatDuration(remainingSeconds)}
+              emphasis="hero"
+              accessibilityLabel={`Remaining ${formatDuration(remainingSeconds)}`}
+            />
+          ) : (
+            <Metric
+              label={plannedWorkout?.type === 'long' ? 'Distance progress' : 'Distance'}
+              value={fmt.distance(distanceMeters)}
+              unit={fmt.unitLabel}
+              emphasis="hero"
+              accessibilityLabel={`Distance ${fmt.distance(distanceMeters)} ${fmt.unitSpoken}`}
+            />
+          )}
+
+          {/* A structured workout shows the phase being run and how far into it
+              the runner is; a plain target shows overall progress (#148). */}
+          {workoutStep && workoutSteps.length > 1 ? (
+            <>
+              <View style={styles.phaseRow}>
+                <Text variant="micro" color="accentText" accessibilityLiveRegion="polite">
+                  {WORKOUT_STEP_LABELS[workoutStep.kind]}
+                </Text>
+                <Text variant="caption" color="textSecondary" tabular>
+                  {workoutStep.target.kind === 'duration'
+                    ? `${formatDuration(workoutStepRemaining)} left`
+                    : `${fmt.distance(workoutStepRemaining)} ${fmt.unitLabel} left`}
+                </Text>
+              </View>
+              <View
+                style={[styles.workoutProgress, { backgroundColor: theme.track }]}
+                accessibilityLabel={`${WORKOUT_STEP_LABELS[workoutStep.kind]}, ${Math.round(
+                  workoutStepProgress * 100,
+                )} percent`}>
+                <View
+                  style={[
+                    styles.workoutProgressFill,
+                    {
+                      width: `${Math.round(workoutStepProgress * 100)}%`,
+                      backgroundColor: theme.accent,
+                    },
+                  ]}
+                />
+              </View>
+            </>
+          ) : executionMode !== 'time' && targetProgressKm > 0 ? (
+            <View
+              style={[styles.workoutProgress, { backgroundColor: theme.track }]}
+              accessibilityLabel={`${Math.round(workoutProgress * 100)} percent of target`}>
+              <View
+                style={[
+                  styles.workoutProgressFill,
+                  { width: `${Math.round(workoutProgress * 100)}%`, backgroundColor: theme.accent },
+                ]}
+              />
+            </View>
+          ) : null}
+
+          {workoutComplete ? (
+            <Text variant="body" color="textSecondary" accessibilityLiveRegion="polite">
+              Workout complete · continue running or finish
+            </Text>
+          ) : null}
 
           {/* Current pace gets its own line: it is the number a runner checks
               mid-run, so it sits above the totals rather than sharing a row
@@ -286,6 +376,9 @@ export default function ActiveRunScreen() {
               value={formatDuration(activeSeconds)}
               accessibilityLabel={`Time ${formatDuration(activeSeconds)}`}
             />
+            {executionMode === 'time' ? (
+              <Metric fill label="Distance" value={fmt.distance(distanceMeters)} unit={fmt.unitLabel} />
+            ) : null}
             <Metric
               fill
               label="Avg pace"
@@ -370,5 +463,18 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.6,
+  },
+  phaseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  workoutProgress: {
+    height: 4,
+    borderRadius: radii.pill,
+    overflow: 'hidden',
+  },
+  workoutProgressFill: {
+    height: '100%',
   },
 });

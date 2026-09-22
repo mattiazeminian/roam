@@ -11,6 +11,7 @@ import {
   activeShoes,
   addShoe,
   createShoe,
+  setDefaultShoe,
   loadShoes,
   removeShoe,
   saveShoes,
@@ -77,6 +78,9 @@ function shoe(overrides: Partial<Shoe> = {}): Shoe {
     id: 'shoe-1',
     brand: 'Hoka',
     model: 'Clifton 9',
+    type: 'road',
+    brandKey: null,
+    isDefault: false,
     nickname: null,
     addedAt: 1_700_000_000_000,
     retired: false,
@@ -91,6 +95,9 @@ describe('createShoe (#112)', () => {
       id: 'fixed',
       brand: 'Hoka',
       model: 'Clifton 9',
+      type: 'road',
+      brandKey: null,
+      isDefault: false,
       nickname: null,
       addedAt: expect.any(Number),
       retired: false,
@@ -147,6 +154,12 @@ describe('shoe list operations', () => {
     const next = setShoeRetired(shoes, 'b', true);
     expect(next.find((entry) => entry.id === 'a')?.retired).toBe(false);
     expect(next.find((entry) => entry.id === 'b')?.retired).toBe(true);
+  });
+
+  test('setDefaultShoe keeps one explicit default and supports clearing', () => {
+    const shoes = [shoe({ id: 'a', isDefault: true }), shoe({ id: 'b' })];
+    expect(setDefaultShoe(shoes, 'b').map((entry) => entry.isDefault)).toEqual([false, true]);
+    expect(setDefaultShoe(shoes, null).some((entry) => entry.isDefault)).toBe(false);
   });
 });
 

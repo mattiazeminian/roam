@@ -1,10 +1,11 @@
 import { router, useFocusEffect } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Appear } from '@/components/appear';
+import { ActionSheet } from '@/components/action-sheet';
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
 import { DEFAULT_DISTANCE_KM } from '@/components/distance-control';
@@ -36,6 +37,7 @@ import {
 } from '@/services/training';
 import { planGoalLabel } from '@/services/training-presentation';
 import { useTraining } from '@/services/training-context';
+import { stepsForWorkout } from '@/services/workout-execution';
 import { layout, radii, spacing, useTheme } from '@/theme';
 
 /**
@@ -63,6 +65,7 @@ export default function HomeScreen() {
   const [allRuns, setAllRuns] = useState<SavedRun[]>([]);
   const [routeCount, setRouteCount] = useState(0);
   const [today, setToday] = useState(() => toDateKey(new Date()));
+  const [showDiscardSheet, setShowDiscardSheet] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -112,7 +115,7 @@ export default function HomeScreen() {
     // A workout already done or skipped today is not startable again.
     if (workout && workout.status !== 'completed' && workout.status !== 'skipped') {
       impactMedium();
-      start(null, workout.targetKm, workout.id);
+      start(null, workout.targetKm, workout.id, workout.type, 0, stepsForWorkout(workout));
       router.push('/run');
     }
   }, [start, workout]);
@@ -123,14 +126,7 @@ export default function HomeScreen() {
     router.push('/run');
   }, [resumeRecovered]);
 
-  const discard = useCallback(
-    () =>
-      Alert.alert('Discard unfinished run?', 'The recorded progress will be removed from this device.', [
-        { text: 'Keep run', style: 'cancel' },
-        { text: 'Discard', style: 'destructive', onPress: discardRecovered },
-      ]),
-    [discardRecovered],
-  );
+  const discard = useCallback(() => setShowDiscardSheet(true), []);
 
   const findRoute = useCallback(() => {
     impactLight();
@@ -145,7 +141,14 @@ export default function HomeScreen() {
   }, [find, origin, rememberedKm]);
 
   return (
-    <View style={[styles.root, { backgroundColor: theme.background }]}>
+    <View style={[styles.root, { backgroundColor: theme.background }]}> 
+      <ActionSheet
+        visible={showDiscardSheet}
+        title="Discard unfinished run?"
+        message="The recorded progress will be removed from this device."
+        actions={[{ label: 'Discard', destructive: true, onPress: discardRecovered }]}
+        onClose={() => setShowDiscardSheet(false)}
+      />
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -269,11 +272,18 @@ function Today({
           </Text>
         </View>
         <View style={styles.metric}>
-          <Text variant="metric" color="accentText" tabular>
+          <Text
+            variant="metric"
+            color="accentText"
+            tabular
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.58}
+            style={styles.todayMetricValue}>
             {fmt.distance(workout.targetKm * 1000)}
-          </Text>
-          <Text variant="caption" color="textSecondary">
-            {fmt.unitLabel}
+            {/* Nested so the unit keeps the number's baseline and is never
+                dropped to a second line or cropped. */}
+            <Text variant="title" color="textSecondary">{` ${fmt.unitLabel}`}</Text>
           </Text>
         </View>
       </View>
@@ -586,12 +596,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: spacing.md,
+    minWidth: 0,
   },
   flex: {
     flex: 1,
+    minWidth: 0,
   },
   metric: {
     alignItems: 'flex-end',
+    flex: 1,
+    minWidth: 0,
+    maxWidth: '48%',
+  },
+  todayMetricValue: {
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: 44,
+    lineHeight: 48,
+    letterSpacing: -1.5,
+    textAlign: 'right',
   },
   heading: {
     flexDirection: 'row',

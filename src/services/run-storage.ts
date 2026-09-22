@@ -113,6 +113,10 @@ function parseRun(value: unknown): SavedRun | null {
     endedAt: Number.isFinite(run.endedAt) ? (run.endedAt as number) : (run.startedAt as number),
     route: parseRoute(run.route),
     targetDistanceKm: Number.isFinite(run.targetDistanceKm) ? (run.targetDistanceKm as number) : 0,
+    targetDurationSeconds:
+      Number.isFinite(run.targetDurationSeconds) && (run.targetDurationSeconds as number) > 0
+        ? (run.targetDurationSeconds as number)
+        : undefined,
     distanceKm: Number.isFinite(run.distanceKm) ? (run.distanceKm as number) : 0,
     durationSeconds: Number.isFinite(run.durationSeconds) ? (run.durationSeconds as number) : 0,
     averagePaceMinPerKm: Number.isFinite(run.averagePaceMinPerKm)

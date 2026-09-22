@@ -20,6 +20,7 @@ import {
   generateWeek,
   loadTraining,
   removeWorkout as removeWorkoutFrom,
+  moveWorkout as moveWorkoutTo,
   replacePlannedWorkouts,
   saveTraining,
   setWorkoutStatus,
@@ -48,6 +49,7 @@ export type TrainingContextValue = {
   /** Move a workout's status; completing it links the run that did it. */
   markWorkout: (id: string, status: WorkoutStatus, runId?: string | null) => Promise<void>;
   removeWorkout: (id: string) => Promise<void>;
+  moveWorkout: (id: string, date: string) => Promise<void>;
   /**
    * Evaluate the last completed week and adjust the plan (#74). Does nothing
    * while the runner has an override set. Returns the evaluation so the caller
@@ -166,6 +168,17 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
     [state],
   );
 
+  const moveWorkout = useCallback(
+    async (id: string, date: string) => {
+      const workout = state.workouts.find((entry) => entry.id === id);
+      if (!workout || workout.status === 'completed') return;
+      const next = moveWorkoutTo(state, id, date);
+      setState(next);
+      await saveTraining(next);
+    },
+    [state],
+  );
+
   /**
    * Re-schedule the block from today, keeping the past and anything the runner
    * has acted on, so a long-run change actually reaches the days ahead.
@@ -226,6 +239,7 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
       scheduleWorkouts,
       markWorkout,
       removeWorkout,
+      moveWorkout,
       applyProgression,
       setPlanOverride,
     }),
@@ -238,6 +252,7 @@ export function TrainingProvider({ children }: { children: ReactNode }) {
       scheduleWorkouts,
       markWorkout,
       removeWorkout,
+      moveWorkout,
       applyProgression,
       setPlanOverride,
     ],

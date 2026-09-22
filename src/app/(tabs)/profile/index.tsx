@@ -1,10 +1,10 @@
 import { router, useFocusEffect } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
 import { useCallback, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Appear } from '@/components/appear';
+import { ActionSheet } from '@/components/action-sheet';
 import { Badge } from '@/components/badge';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
@@ -18,12 +18,17 @@ import { useAccount } from '@/services/account-context';
 import { loadProfile, pickAvatar, saveProfile, type Profile } from '@/services/profile';
 import {
   addShoe,
+  catalogBrandKey,
   createShoe,
   loadShoes,
   removeShoe,
   saveShoes,
+  setDefaultShoe,
   setShoeRetired,
+  SHOE_CATALOG,
+  shoeBrandInitials,
   shoeName,
+  SHOE_TYPES,
   type Shoe,
 } from '@/services/shoes';
 import {
@@ -72,6 +77,9 @@ export default function ProfileScreen() {
   const [savedRoutes, setSavedRoutes] = useState<SavedRoute[]>([]);
   const [todayKey, setTodayKey] = useState('');
   const [editor, setEditor] = useState<Editor>(null);
+  const [shoeTarget, setShoeTarget] = useState<Shoe | null>(null);
+  const [shoeBrandPicker, setShoeBrandPicker] = useState(false);
+  const [selectedShoeBrand, setSelectedShoeBrand] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -110,23 +118,9 @@ export default function ProfileScreen() {
     await saveShoes(next);
   }, []);
 
-  const editShoe = useCallback(
-    (shoe: Shoe) => {
-      Alert.alert(shoeName(shoe), `${shoe.brand} ${shoe.model}`, [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: shoe.retired ? 'Bring back' : 'Retire',
-          onPress: () => void persistShoes(setShoeRetired(shoes, shoe.id, !shoe.retired)),
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => void persistShoes(removeShoe(shoes, shoe.id)),
-        },
-      ]);
-    },
-    [shoes, persistShoes],
-  );
+  const editShoe = useCallback((shoe: Shoe) => {
+    setShoeTarget(shoe);
+  }, []);
 
   const changeAvatar = useCallback(async () => {
     if (!profile) {
@@ -148,7 +142,42 @@ export default function ProfileScreen() {
   const initial = (profile?.name?.trim()?.[0] ?? account?.name?.trim()?.[0] ?? '·').toUpperCase();
 
   return (
-    <View style={[styles.root, { backgroundColor: theme.background }]}>
+    <View style={[styles.root, { backgroundColor: theme.background }]}> 
+      <ActionSheet
+        visible={shoeTarget !== null}
+        title={shoeTarget ? shoeName(shoeTarget) : 'Shoe'}
+        message={shoeTarget ? `${shoeTarget.brand} ${shoeTarget.model}` : undefined}
+        actions={shoeTarget ? [
+          { label: shoeTarget.isDefault ? 'Remove default' : 'Set as default', onPress: () => void persistShoes(setDefaultShoe(shoes, shoeTarget.isDefault ? null : shoeTarget.id)) },
+          { label: shoeTarget.retired ? 'Bring back' : 'Retire', onPress: () => void persistShoes(setShoeRetired(shoes, shoeTarget.id, !shoeTarget.retired)) },
+          { label: 'Delete', destructive: true, onPress: () => void persistShoes(removeShoe(shoes, shoeTarget.id)) },
+        ] : []}
+        onClose={() => setShoeTarget(null)}
+      />
+      <ActionSheet
+        visible={shoeBrandPicker}
+        title="Choose a brand"
+        message="Pick a known brand or add your shoe manually."
+        actions={[
+          ...SHOE_CATALOG.map((brand) => ({
+            label: `${brand.name} · ${brand.models.slice(0, 2).join(', ')}`,
+            onPress: () => {
+              setSelectedShoeBrand(brand.name);
+              setShoeBrandPicker(false);
+              setEditor('shoe');
+            },
+          })),
+          {
+            label: "Can't find my brand — add manually",
+            onPress: () => {
+              setSelectedShoeBrand(null);
+              setShoeBrandPicker(false);
+              setEditor('shoe');
+            },
+          },
+        ]}
+        onClose={() => setShoeBrandPicker(false)}
+      />
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -276,7 +305,7 @@ export default function ProfileScreen() {
           action={{
             label: 'Add',
             accessibilityLabel: 'Add a shoe',
-            onPress: () => setEditor('shoe'),
+            onPress: () => setShoeBrandPicker(true),
           }}
         />
 
@@ -408,9 +437,11 @@ export default function ProfileScreen() {
       {editor === 'shoe' ? (
         <FormSheet
           title="Add a shoe"
+          message={selectedShoeBrand ? `Popular ${selectedShoeBrand} models are shown as a guide. You can still enter any model.` : 'Add any brand and model — custom shoes stay supported.'}
           fields={[
-            { key: 'brand', label: 'Brand', placeholder: 'e.g. Hoka', autoFocus: true },
+            { key: 'brand', label: 'Brand', placeholder: 'e.g. Hoka', defaultValue: selectedShoeBrand ?? '', autoFocus: selectedShoeBrand === null },
             { key: 'model', label: 'Model', placeholder: 'e.g. Clifton 9' },
+            { key: 'type', label: 'Type', placeholder: 'Road, trail, race day, gym, or other', optional: true },
             { key: 'nickname', label: 'Nickname', placeholder: 'Optional', optional: true },
           ]}
           submitLabel="Add"
@@ -420,7 +451,9 @@ export default function ProfileScreen() {
                 shoes,
                 createShoe({
                   brand: values.brand,
+                  brandKey: catalogBrandKey(values.brand),
                   model: values.model,
+                  type: SHOE_TYPES.find((entry) => entry.label.toLowerCase() === values.type.trim().toLowerCase())?.key,
                   nickname: values.nickname,
                 }),
               ),
@@ -630,7 +663,9 @@ function ShoeCard({
       style={({ pressed }) => [pressed && styles.pressed]}>
       <Card padded={false} style={styles.shoeCard}>
         <View style={[styles.shoeTile, { backgroundColor: theme.fill }]}>
-          <SymbolView name="shoeprints.fill" size={layout.iconSize} tintColor={theme.textSecondary} />
+          <Text variant="body" color="textSecondary" accessibilityLabel={`${shoe.brand} brand mark`}>
+            {shoeBrandInitials(shoe)}
+          </Text>
         </View>
         <View style={styles.shoeText}>
           <View style={styles.shoeNameRow}>
@@ -638,9 +673,10 @@ function ShoeCard({
               {shoeName(shoe)}
             </Text>
             {shoe.retired ? <Badge>RETIRED</Badge> : null}
+            {shoe.isDefault ? <Badge>DEFAULT</Badge> : null}
           </View>
           <Text variant="caption" color="textSecondary" numberOfLines={1}>
-            {`${shoe.brand} ${shoe.model}`}
+            {`${shoe.brand} ${shoe.model} · ${SHOE_TYPES.find((entry) => entry.key === shoe.type)?.label ?? 'Road'}`}
           </Text>
         </View>
         <View style={styles.shoeMileage}>

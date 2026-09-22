@@ -37,28 +37,26 @@ export function Metric({
       <Text variant="micro" color="textSecondary">
         {label}
       </Text>
-      <View style={styles.valueRow}>
-        <Text
-          variant={isHero ? 'metric' : 'display'}
-          // The value a screen is about is the one thing that carries the
-          // accent; the supporting metrics stay white so the accent keeps meaning.
-          color={isHero ? 'accentText' : 'text'}
-          tabular
-          // Shrink rather than clip: a value as long as `1:07:00` beside another
-          // metric can exceed its column on a narrow screen, and a truncated
-          // number is worse than a slightly smaller one.
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.6}
-          accessibilityLabel={accessibilityLabel ?? `${label} ${value}`}>
-          {value}
-        </Text>
-        {unit ? (
-          <Text variant="title" color="textSecondary" style={styles.unit}>
-            {unit}
-          </Text>
-        ) : null}
-      </View>
+      <Text
+        variant={isHero ? 'metric' : 'display'}
+        // The value a screen is about is the one thing that carries the
+        // accent; the supporting metrics stay white so the accent keeps meaning.
+        color={isHero ? 'accentText' : 'text'}
+        tabular
+        // Shrink rather than clip: a value as long as `1:07:00` beside another
+        // metric can exceed its column on a narrow screen, and a truncated
+        // number is worse than a slightly smaller one.
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.6}
+        style={styles.value}
+        accessibilityLabel={accessibilityLabel ?? `${label} ${value}${unit ? ` ${unit}` : ''}`}>
+        {value}
+        {/* The unit is nested, not a sibling: a sibling baseline-aligned against
+            a value that shrinks with `adjustsFontSizeToFit` drifts below the
+            number and can be cropped. Nested, it always shares the baseline. */}
+        {unit ? <Text variant="title" color="textSecondary">{` ${unit}`}</Text> : null}
+      </Text>
     </View>
   );
 }
@@ -71,18 +69,14 @@ export function MetricRow({ children }: { children: React.ReactNode }) {
 const styles = StyleSheet.create({
   root: {
     gap: spacing.xs,
+    minWidth: 0,
   },
   fill: {
     flex: 1,
   },
-  valueRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: spacing.xs,
+  value: {
     flexShrink: 1,
-  },
-  unit: {
-    paddingBottom: spacing.xxs,
+    minWidth: 0,
   },
   row: {
     flexDirection: 'row',

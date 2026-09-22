@@ -1,9 +1,10 @@
 import { router } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
+import { ActionSheet, type ActionSheetAction } from '@/components/action-sheet';
 import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
 import { WorkoutIcon } from '@/components/workout-icon';
@@ -41,7 +42,7 @@ export default function ScheduleScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const { settings } = useSettings();
-  const { state, loaded, markWorkout, removeWorkout, scheduleWorkouts } = useTraining();
+  const { state, loaded, markWorkout, moveWorkout, removeWorkout, scheduleWorkouts } = useTraining();
 
   const [weekOffset, setWeekOffset] = useState(0);
   const [todayKey] = useState(() => toDateKey(new Date()));
@@ -54,24 +55,7 @@ export default function ScheduleScreen() {
     return { date, workout: workoutsOnDate(state, date)[0] ?? null };
   });
 
-  const moveWorkout = useCallback(
-    async (workout: PlannedWorkout, daysToMove: number) => {
-      const nextDate = addDays(workout.date, daysToMove);
-      // Move by replacing: the old day is removed and the session is written to
-      // the new one, keeping its kind and distance.
-      await removeWorkout(workout.id);
-      await scheduleWorkouts([
-        createWorkout({
-          id: `moved-${workout.id}-${nextDate}`,
-          date: nextDate,
-          type: workout.type,
-          targetKm: workout.targetKm,
-        }),
-      ]);
-      successFeedback();
-    },
-    [removeWorkout, scheduleWorkouts],
-  );
+  const [sheet, setSheet] = useState<{ title: string; message?: string; actions: ActionSheetAction[] } | null>(null);
 
   const addWorkout = useCallback(
     async (date: string, type: WorkoutType) => {
@@ -89,32 +73,28 @@ export default function ScheduleScreen() {
       const where = `${DAY_NAMES[weekday]} ${date}`;
 
       if (!workout) {
-        Alert.alert(where, 'Nothing planned. Add a run?', [
-          { text: 'Cancel', style: 'cancel' },
-          ...ADDABLE.map((type) => ({
-            text: WORKOUT_LABELS[type],
-            onPress: () => void addWorkout(date, type),
-          })),
-        ]);
+        setSheet({
+          title: where,
+          message: 'Nothing planned. Add a run?',
+          actions: ADDABLE.map((type) => ({ label: WORKOUT_LABELS[type], onPress: () => void addWorkout(date, type) })),
+        });
         return;
       }
 
-      Alert.alert(where, `${WORKOUT_LABELS[workout.type]} · ${workout.targetKm} km`, [
-        { text: 'Cancel', style: 'cancel' },
-        ...(workout.status === 'completed'
-          ? []
-          : [{ text: 'Mark completed', onPress: () => void markWorkout(workout.id, 'completed') }]),
-        ...(workout.status === 'skipped'
-          ? []
-          : [{ text: 'Mark skipped', onPress: () => void markWorkout(workout.id, 'skipped') }]),
-        { text: 'Move to next day', onPress: () => void moveWorkout(workout, 1) },
-        { text: 'Move to previous day', onPress: () => void moveWorkout(workout, -1) },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => void removeWorkout(workout.id),
-        },
-      ]);
+      const editable = workout.status !== 'completed';
+      setSheet({
+        title: where,
+        message: `${WORKOUT_LABELS[workout.type]} · ${workout.targetKm} km · ${workout.status}`,
+        actions: [
+          ...(workout.status === 'completed' ? [] : [{ label: 'Mark completed', onPress: () => void markWorkout(workout.id, 'completed') }]),
+          ...(workout.status === 'skipped' ? [] : [{ label: 'Mark skipped', onPress: () => void markWorkout(workout.id, 'skipped') }]),
+          ...(editable ? [
+            { label: 'Move to next day', onPress: () => void moveWorkout(workout.id, addDays(workout.date, 1)) },
+            { label: 'Move to previous day', onPress: () => void moveWorkout(workout.id, addDays(workout.date, -1)) },
+            { label: 'Remove', destructive: true, onPress: () => void removeWorkout(workout.id) },
+          ] : []),
+        ],
+      });
     },
     [addWorkout, markWorkout, moveWorkout, removeWorkout],
   );
@@ -234,6 +214,13 @@ export default function ScheduleScreen() {
           onPress={() => router.push('/plan')}
         />
       </ScrollView>
+      <ActionSheet
+        visible={sheet !== null}
+        title={sheet?.title ?? ''}
+        message={sheet?.message}
+        actions={sheet?.actions ?? []}
+        onClose={() => setSheet(null)}
+      />
     </View>
   );
 }

@@ -1,10 +1,11 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Badge } from '@/components/badge';
+import { ActionSheet } from '@/components/action-sheet';
 import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
 import { Metric, MetricRow } from '@/components/metric';
@@ -57,6 +58,8 @@ export default function RunDetailScreen() {
   const cardRef = useRef<View>(null);
   const [trackIsSaved, setTrackIsSaved] = useState(false);
   const [shoes, setShoes] = useState<Shoe[]>([]);
+  const [shoeSheet, setShoeSheet] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -94,15 +97,8 @@ export default function RunDetailScreen() {
     if (!run) {
       return;
     }
-    Alert.alert('Shoe', 'Which shoe did you run in?', [
-      ...shoes.map((shoe) => ({
-        text: shoeName(shoe),
-        onPress: () => attributeShoe(shoe.id),
-      })),
-      { text: 'No shoe', onPress: () => attributeShoe(null) },
-      { text: 'Cancel', style: 'cancel' as const },
-    ]);
-  }, [run, shoes, attributeShoe]);
+    setShoeSheet(true);
+  }, [run]);
 
 
   // Whether this track is already kept as a route, so the control reflects
@@ -144,7 +140,7 @@ export default function RunDetailScreen() {
       setTrackIsSaved(true);
     } catch {
       errorFeedback();
-      Alert.alert('Could not save route', 'The route could not be written to this device.');
+      setError('The route could not be written to this device.');
     }
   }, [run, routeSaved]);
 
@@ -168,7 +164,15 @@ export default function RunDetailScreen() {
   }, [run, fmt]);
 
   return (
-    <View style={[styles.root, { backgroundColor: theme.background }]}>
+    <View style={[styles.root, { backgroundColor: theme.background }]}> 
+      <ActionSheet
+        visible={shoeSheet}
+        title="Shoe"
+        message="Which shoe did you run in?"
+        actions={[...shoes.map((shoe) => ({ label: shoeName(shoe), onPress: () => attributeShoe(shoe.id) })), { label: 'No shoe', onPress: () => attributeShoe(null) }]}
+        onClose={() => setShoeSheet(false)}
+      />
+      {error ? <Text variant="body" color="danger">{error}</Text> : null}
       {run ? (
         // Rendered off-screen, not display:none — the map needs to actually
         // lay out and draw tiles to be captured when Share is tapped.

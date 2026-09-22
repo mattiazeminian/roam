@@ -1,9 +1,10 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Divider } from '@/components/divider';
+import { ActionSheet } from '@/components/action-sheet';
 import { EmptyState } from '@/components/empty-state';
 import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
@@ -46,6 +47,8 @@ export default function HistoryScreen() {
   // in render is impure, and the period boundary only needs to be stable for
   // as long as the list on screen is.
   const [loadedAt, setLoadedAt] = useState(0);
+  const [deleteTarget, setDeleteTarget] = useState<SavedRun | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   // Reload on focus so a run saved moments ago is already here.
   const load = useCallback(() => {
@@ -80,26 +83,19 @@ export default function HistoryScreen() {
   // Deleting a single run is a long-press here, so a normal tap keeps opening
   // it. Confirmed, because this is the runner's record and there is no undo.
   const handleDelete = useCallback((run: SavedRun) => {
-    Alert.alert('Delete this run?', 'It will be removed from this device. This cannot be undone.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => {
-          void deleteRun(run.id)
-            .then(() =>
-              setRuns((current) => current?.filter((entry) => entry.id !== run.id) ?? null),
-            )
-            .catch(() => {
-              Alert.alert('Could not delete', 'The run could not be removed.');
-            });
-        },
-      },
-    ]);
+    setDeleteTarget(run);
   }, []);
 
   return (
-    <View style={[styles.root, { backgroundColor: theme.background }]}>
+    <View style={[styles.root, { backgroundColor: theme.background }]}> 
+      <ActionSheet
+        visible={deleteTarget !== null}
+        title="Delete this run?"
+        message="It will be removed from this device. This cannot be undone."
+        actions={[{ label: 'Delete', destructive: true, onPress: () => { if (!deleteTarget) return; void deleteRun(deleteTarget.id).then(() => setRuns((current) => current?.filter((entry) => entry.id !== deleteTarget.id) ?? null)).catch(() => setError('The run could not be removed.')); } }]}
+        onClose={() => setDeleteTarget(null)}
+      />
+      {error ? <Text variant="body" color="danger">{error}</Text> : null}
       <FlatList
         data={visibleRuns}
         keyExtractor={(run) => run.id}

@@ -21,14 +21,29 @@ export type ButtonProps = Omit<PressableProps, 'children' | 'style'> & {
   style?: StyleProp<ViewStyle>;
   /** Shows a spinner in place of the label and blocks presses. */
   loading?: boolean;
+  /** A destructive action, marked in the danger ink rather than the brand. */
+  destructive?: boolean;
 };
 
-function resolveColors(theme: ThemeColors, variant: ButtonVariant, disabled: boolean) {
+function resolveColors(
+  theme: ThemeColors,
+  variant: ButtonVariant,
+  disabled: boolean,
+  destructive: boolean,
+) {
   if (disabled) {
     return {
       backgroundColor: theme.disabled,
       pressedBackground: theme.disabled,
       textColor: 'textDisabled' as ColorToken,
+    };
+  }
+
+  if (destructive) {
+    return {
+      backgroundColor: theme.fill,
+      pressedBackground: theme.fillPressed,
+      textColor: 'danger' as ColorToken,
     };
   }
 
@@ -64,6 +79,7 @@ export function Button({
   variant = 'primary',
   disabled,
   loading = false,
+  destructive = false,
   style,
   onPress,
   onPressIn,
@@ -74,7 +90,7 @@ export function Button({
   const theme = useTheme();
   const press = usePressScale();
   const isInert = !!disabled || loading;
-  const colors = resolveColors(theme, variant, !!disabled);
+  const colors = resolveColors(theme, variant, !!disabled, destructive);
 
   return (
     <Animated.View style={[press.animatedStyle, style]}>

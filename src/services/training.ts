@@ -138,6 +138,19 @@ export const WORKOUT_COMPLETE_FRACTION = 0.8;
 
 export type WorkoutOutcome = 'completed' | 'partial';
 
+export type WorkoutStepKind = 'warmup' | 'work' | 'recovery' | 'cooldown';
+export type WorkoutStepTarget =
+  | { kind: 'duration'; seconds: number }
+  | { kind: 'distance'; meters: number };
+
+/** Optional structured execution data. Older workouts simply have no steps. */
+export type WorkoutStep = {
+  id: string;
+  kind: WorkoutStepKind;
+  label: string;
+  target: WorkoutStepTarget;
+};
+
 /**
  * Whether a recorded run fulfilled a planned workout (#72).
  *
@@ -169,6 +182,7 @@ export type PlannedWorkout = {
   /** The recorded run that completed this workout, when there is one. */
   runId: string | null;
   note: string | null;
+  steps?: WorkoutStep[];
 };
 
 export type TrainingState = {
@@ -219,6 +233,7 @@ export function createWorkout(input: {
   type: WorkoutType;
   targetKm: number;
   id?: string;
+  steps?: WorkoutStep[];
 }): PlannedWorkout {
   return {
     id: input.id ?? nextId('workout'),
@@ -228,6 +243,7 @@ export function createWorkout(input: {
     status: 'planned',
     runId: null,
     note: null,
+    steps: input.steps?.map((step) => ({ ...step, target: { ...step.target } })),
   };
 }
 
@@ -874,6 +890,19 @@ export function removeWorkout(state: TrainingState, id: string): TrainingState {
   return { ...state, workouts: state.workouts.filter((workout) => workout.id !== id) };
 }
 
+export function moveWorkout(
+  state: TrainingState,
+  id: string,
+  date: string,
+): TrainingState {
+  return {
+    ...state,
+    workouts: state.workouts.map((workout) =>
+      workout.id === id ? { ...workout, date } : workout,
+    ),
+  };
+}
+
 /**
  * Apply a regenerated schedule without rewriting history.
  *
@@ -999,7 +1028,30 @@ function parseWorkout(value: unknown): PlannedWorkout | null {
     status: isWorkoutStatus(raw.status) ? raw.status : 'planned',
     runId: typeof raw.runId === 'string' ? raw.runId : null,
     note: typeof raw.note === 'string' ? raw.note : null,
+    steps: parseWorkoutSteps(raw.steps),
   };
+}
+
+function parseWorkoutSteps(value: unknown): WorkoutStep[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const steps = value.flatMap((entry, index) => {
+    if (typeof entry !== 'object' || entry === null) return [];
+    const raw = entry as Record<string, unknown>;
+    const target = raw.target;
+    if (
+      (raw.kind !== 'warmup' && raw.kind !== 'work' && raw.kind !== 'recovery' && raw.kind !== 'cooldown') ||
+      typeof raw.label !== 'string' || typeof target !== 'object' || target === null
+    ) return [];
+    const targetRaw = target as Record<string, unknown>;
+    if (targetRaw.kind === 'duration' && Number.isFinite(targetRaw.seconds) && (targetRaw.seconds as number) > 0) {
+      return [{ id: typeof raw.id === 'string' ? raw.id : `step-${index}`, kind: raw.kind, label: raw.label, target: { kind: 'duration', seconds: targetRaw.seconds as number } } as WorkoutStep];
+    }
+    if (targetRaw.kind === 'distance' && Number.isFinite(targetRaw.meters) && (targetRaw.meters as number) > 0) {
+      return [{ id: typeof raw.id === 'string' ? raw.id : `step-${index}`, kind: raw.kind, label: raw.label, target: { kind: 'distance', meters: targetRaw.meters as number } } as WorkoutStep];
+    }
+    return [];
+  });
+  return steps.length > 0 ? steps : undefined;
 }
 
 function parseTraining(value: unknown): TrainingState {

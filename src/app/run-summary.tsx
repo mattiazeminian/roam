@@ -1,10 +1,11 @@
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, ScrollView, Share, StyleSheet, View } from 'react-native';
+import { ScrollView, Share, StyleSheet, View } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
+import { ActionSheet } from '@/components/action-sheet';
 import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
 import { Metric, MetricRow } from '@/components/metric';
@@ -16,7 +17,7 @@ import { runShareMessage } from '@/services/run-share';
 import { formatDuration, formatRunDate } from '@/services/run-session';
 import { listRuns } from '@/services/run-storage';
 import { useFormatters } from '@/services/settings-context';
-import { deriveWorkoutOutcome } from '@/services/training';
+import { deriveWorkoutOutcome, WORKOUT_LABELS } from '@/services/training';
 import { useTraining } from '@/services/training-context';
 import { layout, radii, spacing, useTheme } from '@/theme';
 
@@ -34,6 +35,8 @@ export default function RunSummaryScreen() {
   const fmt = useFormatters();
   const [saving, setSaving] = useState(false);
   const [comparison, setComparison] = useState<RecentComparison | null>(null);
+  const [showDiscardSheet, setShowDiscardSheet] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const cardRef = useRef<View>(null);
 
   // A light comparison against the runner's own recent, similar runs (#42).
@@ -87,23 +90,13 @@ export default function RunSummaryScreen() {
       router.replace('/profile/history');
     } catch {
       setSaving(false);
-      Alert.alert('Could not save run', 'The run could not be written to this device.');
+      setError('The run could not be written to this device.');
     }
   }, [completedRun, markWorkout, saveCompleted, saving, training.workouts]);
 
   const handleDiscard = useCallback(() => {
-    Alert.alert('Discard this run?', 'The recorded run will not be saved.', [
-      { text: 'Keep', style: 'cancel' },
-      {
-        text: 'Discard',
-        style: 'destructive',
-        onPress: () => {
-          discardCompleted();
-          router.replace('/');
-        },
-      },
-    ]);
-  }, [discardCompleted]);
+    setShowDiscardSheet(true);
+  }, []);
 
   // Sharing needs no save first — the runner can send the result and still
   // decide whether to keep it. Dismissing the sheet is not an error.
@@ -136,7 +129,15 @@ export default function RunSummaryScreen() {
   const hasTrack = completedRun.coordinates.length >= 2;
 
   return (
-    <View style={[styles.root, { backgroundColor: theme.background }]}>
+    <View style={[styles.root, { backgroundColor: theme.background }]}> 
+      <ActionSheet
+        visible={showDiscardSheet}
+        title="Discard this run?"
+        message="The recorded run will not be saved."
+        actions={[{ label: 'Discard', destructive: true, onPress: () => { discardCompleted(); router.replace('/'); } }]}
+        onClose={() => setShowDiscardSheet(false)}
+      />
+      {error ? <Text variant="body" color="danger">{error}</Text> : null}
       <View style={styles.hiddenCard} pointerEvents="none">
         <ShareCard ref={cardRef} run={completedRun} fmt={fmt} />
       </View>
@@ -158,6 +159,14 @@ export default function RunSummaryScreen() {
           <Text variant="micro" color="textSecondary">
             {formatRunDate(completedRun.startedAt)}
           </Text>
+          {completedRun.workoutType ? (
+            <Text variant="body" color="textSecondary">
+              {WORKOUT_LABELS[completedRun.workoutType]}
+              {completedRun.targetDurationSeconds
+                ? ` · ${formatDuration(completedRun.targetDurationSeconds)} target`
+                : ''}
+            </Text>
+          ) : null}
 
           <Metric
             label="Distance"

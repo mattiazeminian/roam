@@ -16,7 +16,13 @@ import { useRun } from '@/services/run-context';
 import { listRoutes } from '@/services/route-storage';
 import { distancePresets } from '@/services/settings';
 import { useFormatters, useSettings } from '@/services/settings-context';
-import { WORKOUT_LABELS, WORKOUT_TYPES, type WorkoutType } from '@/services/training';
+import { stepsForWorkout } from '@/services/workout-execution';
+import {
+  WORKOUT_DESCRIPTIONS,
+  WORKOUT_LABELS,
+  WORKOUT_TYPES,
+  type WorkoutType,
+} from '@/services/training';
 import { layout, radii, spacing, useTheme } from '@/theme';
 
 const TIME_PRESETS = [15, 30, 45, 60];
@@ -38,7 +44,7 @@ export default function RecordScreen() {
   const { start } = useRun();
   const { settings } = useSettings();
 
-  const [mode, setMode] = useState<'distance' | 'time'>('distance');
+  const [mode, setMode] = useState<'free' | 'distance' | 'time'>('free');
   const [distanceKm, setDistanceKm] = useState(settings.defaultDistanceKm ?? DEFAULT_DISTANCE_KM);
   const [minutes, setMinutes] = useState(30);
   const [type, setType] = useState<WorkoutType | null>(null);
@@ -64,7 +70,7 @@ export default function RecordScreen() {
   // as a target they did not set.
   const estimatedKm = minutes / settings.typicalPaceMinPerKm;
   const roundedEstimate = Math.max(0.5, Math.round(estimatedKm * 10) / 10);
-  const targetKm = mode === 'distance' ? distanceKm : roundedEstimate;
+  const targetKm = mode === 'distance' ? distanceKm : mode === 'time' ? roundedEstimate : 0;
 
   const handleStart = useCallback(() => {
     if (!coordinate) {
@@ -72,10 +78,27 @@ export default function RecordScreen() {
     }
     impactMedium();
     // Carry the chosen workout type into the run, so the chip the runner
-    // picked is recorded rather than discarded (#116).
-    start(null, targetKm, null, type);
+    // picked is recorded rather than discarded (#116), and build its phases
+    // when there is a target to run them against (#148).
+    const durationSeconds = mode === 'time' ? minutes * 60 : 0;
+    const steps =
+      targetKm > 0 || durationSeconds > 0
+        ? stepsForWorkout(
+            {
+              id: 'adhoc',
+              date: '',
+              type: type ?? 'easy',
+              targetKm: Math.max(targetKm, 0.1),
+              status: 'planned',
+              runId: null,
+              note: null,
+            },
+            durationSeconds,
+          )
+        : [];
+    start(null, targetKm, null, type, durationSeconds, steps);
     router.push('/run');
-  }, [coordinate, start, targetKm, type]);
+  }, [coordinate, minutes, mode, start, targetKm, type]);
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -148,8 +171,26 @@ export default function RecordScreen() {
           ))}
         </ScrollView>
 
+        <Text
+          variant="caption"
+          color="textSecondary"
+          numberOfLines={2}
+          accessibilityLabel={
+            type ? `${WORKOUT_LABELS[type]}: ${WORKOUT_DESCRIPTIONS[type]}` : 'Free run: run without a workout target.'
+          }>
+          {type ? WORKOUT_DESCRIPTIONS[type] : 'Run without a workout target. Finish whenever you want.'}
+        </Text>
+
         {/* Distance or time — the two ways a runner thinks about a run. */}
         <View style={styles.modeRow}>
+          <ModeToggle
+            label="Free run"
+            selected={mode === 'free'}
+            onPress={() => {
+              selectionFeedback();
+              setMode('free');
+            }}
+          />
           <ModeToggle
             label="Distance"
             selected={mode === 'distance'}
@@ -170,10 +211,10 @@ export default function RecordScreen() {
 
         <View style={styles.valueRow}>
           <Text variant="display" tabular>
-            {mode === 'distance' ? fmt.distance(distanceKm * 1000) : String(minutes)}
-          </Text>
-          <Text variant="body" color="textSecondary">
-            {mode === 'distance' ? fmt.unitLabel : 'min'}
+            {mode === 'free' ? '—' : mode === 'distance' ? fmt.distance(distanceKm * 1000) : String(minutes)}
+            <Text variant="body" color="textSecondary">
+              {` ${mode === 'free' ? 'no target' : mode === 'distance' ? fmt.unitLabel : 'min'}`}
+            </Text>
           </Text>
         </View>
 
@@ -181,7 +222,7 @@ export default function RecordScreen() {
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.chips}>
-          {(mode === 'distance'
+          {mode !== 'free' && (mode === 'distance'
             ? distancePresets(settings.unit).map((km) => ({ key: `d${km}`, label: `${km}`, value: km }))
             : TIME_PRESETS.map((value) => ({ key: `t${value}`, label: `${value}`, value }))
           ).map((option) => {
@@ -219,7 +260,9 @@ export default function RecordScreen() {
         </ScrollView>
 
         <Text variant="caption" color="textSecondary" tabular>
-          {mode === 'time'
+          {mode === 'free'
+            ? 'Free run · finish whenever you want'
+            : mode === 'time'
             ? `${minutes} min · about ${fmt.distance(roundedEstimate * 1000)} ${fmt.unitLabel} at your pace`
             : coordinate
               ? `Starting from your current location · ${originLabel}`
@@ -376,6 +419,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'baseline',
     gap: spacing.xxs,
+    minWidth: 0,
+    flexShrink: 1,
   },
   valueChip: {
     minWidth: 56,

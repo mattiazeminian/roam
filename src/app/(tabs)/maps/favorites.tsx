@@ -1,10 +1,11 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Divider } from '@/components/divider';
+import { ActionSheet } from '@/components/action-sheet';
 import { EmptyState } from '@/components/empty-state';
 import { MapControl } from '@/components/map-control';
 import { Text } from '@/components/text';
@@ -35,6 +36,7 @@ export default function FavoritesScreen() {
   const runMode = mode === 'run';
   const [routes, setRoutes] = useState<SavedRoute[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<SavedRoute | null>(null);
 
   // Reload on focus so a route saved moments ago is already here.
   const load = useCallback(() => {
@@ -73,28 +75,20 @@ export default function FavoritesScreen() {
 
   const handleRemove = useCallback((saved: SavedRoute) => {
     impactLight();
-    Alert.alert(
-      'Remove route?',
-      'This removes the saved route. Runs you have already done are not affected.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => {
-            void deleteRoute(saved.id).then(() =>
-              setRoutes((current) => current?.filter((entry) => entry.id !== saved.id) ?? null),
-            );
-          },
-        },
-      ],
-    );
+    setRemoveTarget(saved);
   }, []);
 
   const isEmpty = routes !== null && routes.length === 0;
 
   return (
-    <View style={[styles.root, { backgroundColor: theme.background }]}>
+    <View style={[styles.root, { backgroundColor: theme.background }]}> 
+      <ActionSheet
+        visible={removeTarget !== null}
+        title="Remove route?"
+        message="This removes the saved route. Runs you have already done are not affected."
+        actions={[{ label: 'Remove', destructive: true, onPress: () => { if (!removeTarget) return; void deleteRoute(removeTarget.id).then(() => setRoutes((current) => current?.filter((entry) => entry.id !== removeTarget.id) ?? null)); } }]}
+        onClose={() => setRemoveTarget(null)}
+      />
       <FlatList
         data={routes ?? []}
         keyExtractor={(entry) => entry.id}
