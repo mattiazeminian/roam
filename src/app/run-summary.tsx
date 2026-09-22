@@ -16,7 +16,9 @@ import { useRun } from '@/services/run-context';
 import { runShareMessage } from '@/services/run-share';
 import { formatDuration, formatRunDate } from '@/services/run-session';
 import { listRuns } from '@/services/run-storage';
+import { metersToDisplay } from '@/services/settings';
 import { useFormatters } from '@/services/settings-context';
+import type { Formatters } from '@/services/settings-context';
 import { deriveWorkoutOutcome, WORKOUT_LABELS } from '@/services/training';
 import { useTraining } from '@/services/training-context';
 import { layout, radii, spacing, useTheme } from '@/theme';
@@ -191,9 +193,9 @@ export default function RunSummaryScreen() {
             />
           </MetricRow>
 
-          {comparisonSentence(comparison) ? (
+          {comparisonSentence(comparison, fmt) ? (
             <Text variant="caption" color="textSecondary">
-              {comparisonSentence(comparison)}
+              {comparisonSentence(comparison, fmt)}
             </Text>
           ) : null}
         </View>
@@ -239,7 +241,7 @@ export default function RunSummaryScreen() {
  * performance or health claim: it states a difference against the runner's own
  * runs and stops there (#42).
  */
-function comparisonSentence(comparison: RecentComparison | null): string | null {
+function comparisonSentence(comparison: RecentComparison | null, fmt: Formatters): string | null {
   if (!comparison) {
     return null;
   }
@@ -248,14 +250,16 @@ function comparisonSentence(comparison: RecentComparison | null): string | null 
   }`;
 
   if (comparison.paceDeltaMinPerKm !== null) {
-    const seconds = Math.round(Math.abs(comparison.paceDeltaMinPerKm) * 60);
+    const secondsPerKm = Math.round(Math.abs(comparison.paceDeltaMinPerKm) * 60);
+    const seconds = fmt.unit === 'mi' ? Math.round(secondsPerKm * 1.609344) : secondsPerKm;
     if (seconds >= 5) {
-      return `${seconds}s/km ${comparison.paceDeltaMinPerKm < 0 ? 'faster' : 'slower'} than ${baseline}`;
+      return `${seconds}s/${fmt.unitLabel} ${comparison.paceDeltaMinPerKm < 0 ? 'faster' : 'slower'} than ${baseline}`;
     }
   }
 
   if (Math.abs(comparison.distanceDeltaKm) >= 0.1) {
-    return `${Math.abs(comparison.distanceDeltaKm).toFixed(1)} km ${
+    const delta = metersToDisplay(Math.abs(comparison.distanceDeltaKm) * 1000, fmt.unit).toFixed(1);
+    return `${delta} ${fmt.unitLabel} ${
       comparison.distanceDeltaKm > 0 ? 'longer' : 'shorter'
     } than ${baseline}`;
   }

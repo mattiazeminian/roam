@@ -184,7 +184,7 @@ export default function HistoryScreen() {
             <EmptyState
               title="No runs yet"
               body="Runs you save will appear here, with the route you actually took."
-              action={{ label: 'Find a route', onPress: () => router.back() }}
+              action={{ label: 'Start a run', onPress: () => router.push('/record') }}
             />
           ) : null
         }

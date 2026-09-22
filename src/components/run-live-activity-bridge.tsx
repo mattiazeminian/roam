@@ -60,6 +60,7 @@ export function RunLiveActivityBridge() {
   const { state: training } = useTraining();
   const activityId = useRef<string | null>(null);
   const lastUpdate = useRef(0);
+  const lastState = useRef<string | null>(null);
 
   const workout = run.plannedWorkoutId
     ? (training.workouts.find((entry) => entry.id === run.plannedWorkoutId) ?? null)
@@ -107,6 +108,7 @@ export function RunLiveActivityBridge() {
           if (!cancelled) {
             activityId.current = id;
             lastUpdate.current = Date.now();
+            lastState.current = content.state;
           }
         }
       } else if (activityId.current !== null) {
@@ -128,7 +130,8 @@ export function RunLiveActivityBridge() {
       return;
     }
     const now = Date.now();
-    const isStateChange = content.state === 'paused';
+    const isStateChange = lastState.current !== content.state;
+    lastState.current = content.state;
     if (!isStateChange && now - lastUpdate.current < UPDATE_INTERVAL_MS) {
       return;
     }
