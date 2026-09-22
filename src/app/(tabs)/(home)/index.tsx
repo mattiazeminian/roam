@@ -12,6 +12,7 @@ import { DEFAULT_DISTANCE_KM } from '@/components/distance-control';
 import { EmptyState } from '@/components/empty-state';
 import { MapCanvas } from '@/components/map/map-canvas';
 import { SectionHeader } from '@/components/section-header';
+import { StartCountdown, useStartCountdown } from '@/components/start-countdown';
 import { Text } from '@/components/text';
 import { WorkoutIcon } from '@/components/workout-icon';
 import { impactLight, impactMedium } from '@/lib/haptics';
@@ -66,6 +67,7 @@ export default function HomeScreen() {
   const [routeCount, setRouteCount] = useState(0);
   const [today, setToday] = useState(() => toDateKey(new Date()));
   const [showDiscardSheet, setShowDiscardSheet] = useState(false);
+  const { counting, begin, complete } = useStartCountdown();
 
   useFocusEffect(
     useCallback(() => {
@@ -114,7 +116,6 @@ export default function HomeScreen() {
   const startWorkout = useCallback(() => {
     // A workout already done or skipped today is not startable again.
     if (workout && workout.status !== 'completed' && workout.status !== 'skipped') {
-      impactMedium();
       start(null, workout.targetKm, workout.id, workout.type, 0, stepsForWorkout(workout));
       router.push('/run');
     }
@@ -178,7 +179,7 @@ export default function HomeScreen() {
         ) : null}
 
         {workout ? (
-          <Today workout={workout} fmt={fmt} onStart={startWorkout} onFreeRun={startRun} />
+          <Today workout={workout} fmt={fmt} onStart={() => begin(startWorkout)} onFreeRun={startRun} />
         ) : (
           <FreeRun onStart={startRun} />
         )}
@@ -238,6 +239,8 @@ export default function HomeScreen() {
           <SymbolView name="chevron.right" size={18} tintColor={theme.textSecondary} />
         </Pressable>
       </ScrollView>
+
+      {counting ? <StartCountdown onComplete={complete} /> : null}
     </View>
   );
 }

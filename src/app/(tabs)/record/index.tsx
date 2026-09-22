@@ -8,9 +8,10 @@ import { Button } from '@/components/button';
 import { DEFAULT_DISTANCE_KM } from '@/components/distance-control';
 import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
+import { StartCountdown, useStartCountdown } from '@/components/start-countdown';
 import { Text } from '@/components/text';
 import { WorkoutIcon } from '@/components/workout-icon';
-import { impactMedium, selectionFeedback } from '@/lib/haptics';
+import { selectionFeedback } from '@/lib/haptics';
 import { useLocation } from '@/services/location-context';
 import { useRun } from '@/services/run-context';
 import { listRoutes } from '@/services/route-storage';
@@ -43,6 +44,7 @@ export default function RecordScreen() {
   const { coordinate, originLabel, status: locationStatus } = useLocation();
   const { start } = useRun();
   const { settings } = useSettings();
+  const { counting, begin, complete } = useStartCountdown();
 
   const [mode, setMode] = useState<'free' | 'distance' | 'time'>('free');
   const [distanceKm, setDistanceKm] = useState(settings.defaultDistanceKm ?? DEFAULT_DISTANCE_KM);
@@ -76,7 +78,6 @@ export default function RecordScreen() {
     if (!coordinate) {
       return;
     }
-    impactMedium();
     // Carry the chosen workout type into the run, so the chip the runner
     // picked is recorded rather than discarded (#116), and build its phases
     // when there is a target to run them against (#148).
@@ -274,7 +275,7 @@ export default function RecordScreen() {
         <Button
           label="Start run"
           variant="accent"
-          onPress={handleStart}
+          onPress={() => begin(handleStart)}
           disabled={locationStatus !== 'available' || !coordinate}
         />
 
@@ -289,6 +290,8 @@ export default function RecordScreen() {
           />
         ) : null}
       </View>
+
+      {counting ? <StartCountdown onComplete={complete} /> : null}
     </View>
   );
 }

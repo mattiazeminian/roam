@@ -7,9 +7,10 @@ import { Button } from '@/components/button';
 import { MapCanvas } from '@/components/map/map-canvas';
 import { MapControl } from '@/components/map-control';
 import { RouteOptions } from '@/components/route-options';
+import { StartCountdown, useStartCountdown } from '@/components/start-countdown';
 import { ControlPanel } from '@/components/control-panel';
 import { Text } from '@/components/text';
-import { impactMedium, selectionFeedback, successFeedback } from '@/lib/haptics';
+import { selectionFeedback, successFeedback } from '@/lib/haptics';
 import { useLocation } from '@/services/location-context';
 import { routeIdentity } from '@/services/route-identity';
 import { loadRoutePopularity, type RoutePopularity } from '@/services/route-popularity';
@@ -56,6 +57,7 @@ export default function RouteSelectionScreen() {
     resetEdit,
   } = useRoutes();
   const { start } = useRun();
+  const { counting, begin, complete } = useStartCountdown();
   const [editing, setEditing] = useState(false);
   const [savedIds, setSavedIds] = useState<ReadonlySet<string>>(new Set());
   const [popularity, setPopularity] = useState<RoutePopularity>(new Map());
@@ -134,7 +136,6 @@ export default function RouteSelectionScreen() {
     if (!selectedRoute) {
       return;
     }
-    impactMedium();
     start(selectedRoute, targetKm ?? selectedRoute.distanceKm);
     router.replace('/run');
   }, [selectedRoute, start, targetKm]);
@@ -328,7 +329,7 @@ export default function RouteSelectionScreen() {
                 <Button
                   label="Start run"
                   variant="accent"
-                  onPress={handleStart}
+                  onPress={() => begin(handleStart)}
                   style={styles.startButton}
                 />
               </View>
@@ -336,6 +337,8 @@ export default function RouteSelectionScreen() {
           )}
         </ControlPanel>
       </View>
+
+      {counting ? <StartCountdown onComplete={complete} /> : null}
     </View>
   );
 }
