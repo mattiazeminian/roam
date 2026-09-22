@@ -150,7 +150,6 @@ function MapboxCanvas({
   onWaypointMoved,
   autoFit = true,
 }: MapCanvasProps & { mapbox: MapboxModule }) {
-  const theme = useTheme();
   const map = useMapPalette();
   const scheme = useAppearance();
   const cameraRef = useRef<MapboxCamera | null>(null);
@@ -285,8 +284,8 @@ function MapboxCanvas({
             route={route}
             selected={false}
             casingColor={map.routeCasing}
-            selectedColor={theme.accent}
-            neutralColor={theme.textSecondary}
+            selectedColor={map.routeActive}
+            neutralColor={map.routeSecondary}
           />
         ))}
       {routes
@@ -298,8 +297,8 @@ function MapboxCanvas({
             route={route}
             selected
             casingColor={map.routeCasing}
-            selectedColor={theme.accent}
-            neutralColor={theme.textSecondary}
+            selectedColor={map.routeActive}
+            neutralColor={map.routeSecondary}
           />
         ))}
 
@@ -333,9 +332,10 @@ function MapboxCanvas({
           mapbox={mapbox}
           id="roam-run-track"
           points={track}
-          color={theme.text}
+          color={map.track}
+          casingColor={map.routeCasing}
           width={4}
-          opacity={0.55}
+          opacity={0.92}
         />
       ) : null}
 
@@ -345,8 +345,9 @@ function MapboxCanvas({
           mapbox={mapbox}
           id="roam-run-progress"
           points={completedGeometry}
-          color={theme.accent}
-          width={6}
+          color={map.completed}
+          casingColor={map.routeCasing}
+          width={5}
           opacity={1}
         />
       ) : null}
@@ -381,14 +382,14 @@ function MapboxCanvas({
               onOriginMoved({ latitude, longitude });
             }
           }}>
-          <LocationDot draggable />
+          <LocationDot draggable ringColor={map.locationRing} />
         </mapbox.PointAnnotation>
       ) : origin ? (
         <mapbox.MarkerView
           coordinate={[origin.longitude, origin.latitude]}
           anchor={{ x: 0.5, y: 0.5 }}
           allowOverlap>
-          <LocationDot />
+          <LocationDot ringColor={map.locationRing} />
         </mapbox.MarkerView>
       ) : null}
     </mapbox.MapView>
@@ -462,6 +463,7 @@ function MapLine({
   id,
   points,
   color,
+  casingColor,
   width,
   opacity,
 }: {
@@ -469,6 +471,7 @@ function MapLine({
   id: string;
   points: Coordinate[];
   color: string;
+  casingColor?: string;
   width: number;
   opacity: number;
 }) {
@@ -486,21 +489,35 @@ function MapLine({
 
   return (
     <mapbox.ShapeSource id={`${id}-source`} shape={shape}>
-      <mapbox.LineLayer
-        id={id}
-        style={{
-          lineColor: color,
-          lineWidth: width,
-          lineOpacity: opacity,
-          lineCap: 'round',
-          lineJoin: 'round',
-        }}
-      />
+      <>
+        {casingColor ? (
+          <mapbox.LineLayer
+            id={`${id}-casing`}
+            style={{
+              lineColor: casingColor,
+              lineWidth: width + 3,
+              lineOpacity: opacity * 0.75,
+              lineCap: 'round',
+              lineJoin: 'round',
+            }}
+          />
+        ) : null}
+        <mapbox.LineLayer
+          id={id}
+          style={{
+            lineColor: color,
+            lineWidth: width,
+            lineOpacity: opacity,
+            lineCap: 'round',
+            lineJoin: 'round',
+          }}
+        />
+      </>
     </mapbox.ShapeSource>
   );
 }
 
-function LocationDot({ draggable = false }: { draggable?: boolean }) {
+function LocationDot({ draggable = false, ringColor }: { draggable?: boolean; ringColor?: string }) {
   const theme = useTheme();
   return (
     <View
@@ -513,7 +530,7 @@ function LocationDot({ draggable = false }: { draggable?: boolean }) {
       <View
         style={[
           draggable ? styles.markerRingDraggable : styles.markerRing,
-          { borderColor: draggable ? theme.accent : theme.textSecondary },
+          { borderColor: draggable ? theme.accent : ringColor ?? theme.textSecondary },
         ]}
       />
       <View style={[styles.markerDot, { backgroundColor: theme.accent, borderColor: theme.text }]} />
