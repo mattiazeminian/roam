@@ -1,16 +1,19 @@
 /**
- * Map-specific neutrals.
+ * Map-specific neutrals, per appearance (#145).
  *
  * The map is intentionally exempt from the UI color tokens (see
  * docs/map-style.md): it needs its own land, subtle roads and restrained labels
  * so the route stays visually dominant. This is the only place raw map colors
  * live. Route and marker colors still come from the theme.
  *
- * Land sits a touch above the page ground so the map reads as a surface rather
- * than as a hole in the screen, and roads stay quiet enough that an accented route
- * drawn over them is never in competition.
+ * The dark set is not the light one darkened by an overlay: land sits below
+ * the UI ground so the map reads as a surface, roads lift gently above it, and
+ * labels stay legible without competing with the route.
  */
-export const mapPalette = {
+
+import { useAppearance } from '@/theme';
+
+export const lightMapPalette = {
   /** Sits a touch below the canvas so the map reads as a distinct surface. */
   land: '#F1F1EE',
   building: '#E6E7E3',
@@ -25,8 +28,18 @@ export const mapPalette = {
   routeCasing: '#163300',
 } as const;
 
-export type MapColors = typeof mapPalette;
+export const darkMapPalette = {
+  land: '#141612',
+  building: '#1D201A',
+  minorRoad: '#2A2E26',
+  majorRoad: '#3A3F35',
+  label: '#9AA094',
+  /** On dark land the lime already separates; a light casing adds the edge. */
+  routeCasing: '#0A0B08',
+} as const;
+
+export type MapColors = { [K in keyof typeof lightMapPalette]: string };
 
 export function useMapPalette(): MapColors {
-  return mapPalette;
+  return useAppearance() === 'dark' ? darkMapPalette : lightMapPalette;
 }

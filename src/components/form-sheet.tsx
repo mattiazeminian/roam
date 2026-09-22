@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
 import { Text } from '@/components/text';
-import { radii, spacing, useTheme } from '@/theme';
+import { radii, spacing, useAppearance, useTheme } from '@/theme';
 
 export type FormField = {
   key: string;
@@ -53,6 +53,7 @@ export function FormSheet({
   onClose,
 }: FormSheetProps) {
   const theme = useTheme();
+  const scheme = useAppearance();
   const insets = useSafeAreaInsets();
   const [values, setValues] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {};
@@ -110,6 +111,7 @@ export function FormSheet({
                     }
                     placeholder={field.placeholder}
                     placeholderTextColor={theme.textDisabled}
+                    keyboardAppearance={scheme === 'dark' ? 'dark' : 'light'}
                     keyboardType={field.keyboardType}
                     maxLength={field.maxLength}
                     autoFocus={field.autoFocus}

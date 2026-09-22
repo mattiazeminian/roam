@@ -9,7 +9,7 @@ import { Text } from '@/components/text';
 import { selectionFeedback } from '@/lib/haptics';
 import { GeocodingError, searchPlaces, type Place } from '@/services/geocoding';
 import { useLocation } from '@/services/location-context';
-import { layout, radii, spacing, useTheme } from '@/theme';
+import { layout, radii, spacing, useAppearance, useTheme } from '@/theme';
 
 /** Wait this long after the last keystroke before searching. */
 const DEBOUNCE_MS = 320;
@@ -25,6 +25,7 @@ const DEBOUNCE_MS = 320;
  */
 export default function LocationSearchScreen() {
   const theme = useTheme();
+  const scheme = useAppearance();
   const insets = useSafeAreaInsets();
   const { mode } = useLocalSearchParams<{ mode?: string }>();
   const isFinish = mode === 'finish';
@@ -134,6 +135,7 @@ export default function LocationSearchScreen() {
             onChangeText={handleQueryChange}
             placeholder="Search for a place"
             placeholderTextColor={theme.textSecondary}
+            keyboardAppearance={scheme === 'dark' ? 'dark' : 'light'}
             autoFocus
             autoCorrect={false}
             returnKeyType="search"

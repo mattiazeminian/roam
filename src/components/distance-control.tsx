@@ -14,7 +14,7 @@ import { usePressScale } from '@/hooks/use-press-scale';
 import { impactLight, selectionFeedback } from '@/lib/haptics';
 import { distancePresets, displayToKm, kmToDisplay } from '@/services/settings';
 import { useFormatters } from '@/services/settings-context';
-import { layout, motion, radii, spacing, typography, useTheme } from '@/theme';
+import { layout, motion, radii, spacing, typography, useAppearance, useTheme } from '@/theme';
 
 export const MIN_DISTANCE_KM = 1;
 export const MAX_DISTANCE_KM = 42;
@@ -55,6 +55,7 @@ function sanitizeDraft(text: string) {
  */
 export function DistanceControl({ valueKm, onChange, disabled = false }: DistanceControlProps) {
   const theme = useTheme();
+  const scheme = useAppearance();
   const fmt = useFormatters();
   // The stored value is always kilometers; only what is shown changes with the
   // unit, so switching units can never alter the route that gets requested.
@@ -190,6 +191,7 @@ export function DistanceControl({ valueKm, onChange, disabled = false }: Distanc
             onChangeText={handleDraftChange}
             onBlur={finishEdit}
             onSubmitEditing={finishEdit}
+            keyboardAppearance={scheme === 'dark' ? 'dark' : 'light'}
             keyboardType="decimal-pad"
             returnKeyType="done"
             autoFocus

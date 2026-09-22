@@ -13,7 +13,7 @@ import { useAccount } from '@/services/account-context';
 import { loadProfile, saveProfile, DEFAULT_PROFILE, type Profile } from '@/services/profile';
 import { listRuns } from '@/services/run-storage';
 import { useFormatters } from '@/services/settings-context';
-import { layout, radii, spacing, useTheme } from '@/theme';
+import { layout, radii, spacing, useAppearance, useTheme } from '@/theme';
 
 type Stats = { distanceKm: number; runCount: number };
 
@@ -27,6 +27,7 @@ type Stats = { distanceKm: number; runCount: number };
  */
 export default function AccountScreen() {
   const theme = useTheme();
+  const scheme = useAppearance();
   const insets = useSafeAreaInsets();
   const fmt = useFormatters();
   const { account, loaded, supported, signingIn, errorMessage, signIn, signOut } = useAccount();
@@ -90,6 +91,7 @@ export default function AccountScreen() {
           onBlur={handleNameBlur}
           placeholder="Add your name"
           placeholderTextColor={theme.textSecondary}
+          keyboardAppearance={scheme === 'dark' ? 'dark' : 'light'}
           autoCapitalize="words"
           autoCorrect={false}
           returnKeyType="done"

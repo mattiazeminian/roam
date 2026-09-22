@@ -94,4 +94,26 @@ describe('settings', () => {
     // The other stored values are still honoured.
     expect(loaded.typicalPaceMinPerKm).toBe(6);
   });
+
+  test('the appearance preference round-trips (#145)', async () => {
+    await saveSettings({ ...DEFAULT_SETTINGS, appearance: 'dark' });
+    expect((await loadSettings()).appearance).toBe('dark');
+  });
+
+  test('a settings file written before appearance existed defaults to system (#145)', async () => {
+    mockFiles.set(
+      'doc/settings.json',
+      JSON.stringify({ unit: 'km', typicalPaceMinPerKm: 6, defaultDistanceKm: 5 }),
+    );
+    expect((await loadSettings()).appearance).toBe('system');
+    expect(DEFAULT_SETTINGS.appearance).toBe('system');
+  });
+
+  test('an unknown appearance value falls back to system (#145)', async () => {
+    mockFiles.set(
+      'doc/settings.json',
+      JSON.stringify({ ...DEFAULT_SETTINGS, appearance: 'midnight' }),
+    );
+    expect((await loadSettings()).appearance).toBe('system');
+  });
 });

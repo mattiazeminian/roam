@@ -4,7 +4,7 @@ import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Text } from '@/components/text';
-import { layout, radii, setup, spacing, useTheme } from '@/theme';
+import { layout, radii, spacing, useAppearance, useTheme } from '@/theme';
 
 const GRADIENT = require('../../assets/images/onboarding-gradient.png');
 
@@ -26,15 +26,21 @@ export type OnboardingShellProps = {
 export function OnboardingShell({ step, total, onBack, children, footer }: OnboardingShellProps) {
   const insets = useSafeAreaInsets();
   const theme = useTheme();
+  const scheme = useAppearance();
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
-      <Image
-        source={GRADIENT}
-        style={styles.background}
-        resizeMode="stretch"
-        accessibilityIgnoresInvertColors
-      />
+      {/* The warm-to-lime ground is a light treatment; dark mode uses the
+          plain ground so the setup does not look like the light version on
+          black (#145). */}
+      {scheme === 'light' ? (
+        <Image
+          source={GRADIENT}
+          style={styles.background}
+          resizeMode="stretch"
+          accessibilityIgnoresInvertColors
+        />
+      ) : null}
       <View
         style={[
           styles.content,
@@ -65,7 +71,7 @@ export function OnboardingShell({ step, total, onBack, children, footer }: Onboa
                 style={[
                   styles.segment,
                   {
-                    backgroundColor: index <= step ? theme.accent : setup.track,
+                    backgroundColor: index <= step ? theme.accent : theme.track,
                   },
                 ]}
               />

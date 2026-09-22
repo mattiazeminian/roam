@@ -31,7 +31,7 @@ import {
   type TrainingLevel,
 } from '@/services/training';
 import { useTraining } from '@/services/training-context';
-import { layout, radii, setup, spacing, useTheme } from '@/theme';
+import { layout, radii, spacing, useAppearance, useTheme } from '@/theme';
 
 type Step =
   | 'welcome'
@@ -84,6 +84,7 @@ const DAY_NAMES = [
  */
 export default function OnboardingScreen() {
   const theme = useTheme();
+  const scheme = useAppearance();
   const { update } = useSettings();
   const { state: training, createPlanFor } = useTraining();
 
@@ -193,7 +194,7 @@ export default function OnboardingScreen() {
             <Text variant="display" color="text">
               Run somewhere new
             </Text>
-            <Text variant="body" style={styles.lede}>
+            <Text variant="body" color="textSecondary">
               A few questions, then Roam is yours — routes, running and a plan if
               you want one.
             </Text>
@@ -211,7 +212,11 @@ export default function OnboardingScreen() {
                 onPress={() => void choosePhoto()}
                 accessibilityRole="button"
                 accessibilityLabel={avatarUri ? 'Change photo' : 'Add a photo, optional'}
-                style={({ pressed }) => [styles.avatar, pressed && styles.pressed]}>
+                style={({ pressed }) => [
+                  styles.avatar,
+                  { backgroundColor: theme.fill, borderColor: theme.border },
+                  pressed && styles.pressed,
+                ]}>
                 {avatarUri ? (
                   <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
                 ) : (
@@ -222,7 +227,7 @@ export default function OnboardingScreen() {
                 <Text variant="body" color="text">
                   Add a photo
                 </Text>
-                <Text variant="caption" style={styles.lede}>
+                <Text variant="caption" color="textSecondary">
                   Optional. You can change it later.
                 </Text>
               </View>
@@ -231,12 +236,16 @@ export default function OnboardingScreen() {
               value={name}
               onChangeText={setName}
               placeholder="Your name"
-              placeholderTextColor={setup.placeholder}
+              placeholderTextColor={theme.textSecondary}
+              keyboardAppearance={scheme === 'dark' ? 'dark' : 'light'}
               autoFocus
               returnKeyType="done"
               maxLength={40}
               accessibilityLabel="Your name"
-              style={styles.input}
+              style={[
+                styles.input,
+                { color: theme.text, backgroundColor: theme.fill, borderColor: theme.border },
+              ]}
             />
           </View>
         );
@@ -335,7 +344,7 @@ export default function OnboardingScreen() {
             <Text variant="display" color="text">
               Want a plan built around you?
             </Text>
-            <Text variant="body" style={styles.lede}>
+            <Text variant="body" color="textSecondary">
               Roam can turn your goal, your experience and your days into a week
               you can actually keep up with.
             </Text>
@@ -366,7 +375,7 @@ export default function OnboardingScreen() {
                 />
               ))}
             </View>
-            <Text variant="micro" color="text" style={styles.lede}>
+            <Text variant="micro" color="textSecondary">
               HOW LONG A PLAN?
             </Text>
             <View style={styles.chips}>
@@ -398,7 +407,7 @@ export default function OnboardingScreen() {
             <Text variant="large" color="text">
               {building ? 'Building your plan…' : 'Here’s your first week'}
             </Text>
-            <Text variant="body" style={styles.lede}>
+            <Text variant="body" color="textSecondary">
               {`${goalLabel()}. ${runsPerWeek} runs a week, ${weeks} weeks.`}
             </Text>
             <View style={styles.weekRow}>
@@ -431,7 +440,7 @@ export default function OnboardingScreen() {
             <Text variant="display" color="text">
               Roam needs your location
             </Text>
-            <Text variant="body" style={styles.lede}>
+            <Text variant="body" color="textSecondary">
               To record your runs, measure GPS distance and find routes that start
               where you are. Nothing leaves your phone.
             </Text>
@@ -598,6 +607,7 @@ function Chip({
   onPress: () => void;
   accessibilityLabel?: string;
 }) {
+  const theme = useTheme();
   return (
     <Pressable
       onPress={onPress}
@@ -606,10 +616,13 @@ function Chip({
       accessibilityLabel={accessibilityLabel ?? label}
       style={({ pressed }) => [
         styles.chip,
-        selected && styles.chipOn,
+        {
+          backgroundColor: selected ? theme.accent : theme.fill,
+          borderColor: selected ? theme.accent : theme.borderSubtle,
+        },
         pressed && styles.pressed,
       ]}>
-      <Text variant="label" color={selected ? 'accentForeground' : 'inverse'}>
+      <Text variant="label" color={selected ? 'accentForeground' : 'text'}>
         {label}
       </Text>
     </Pressable>
@@ -639,9 +652,6 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
   },
-  lede: {
-    color: setup.textSecondary,
-  },
   identityRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -651,9 +661,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: radii.pill,
-    backgroundColor: setup.fillStrong,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: setup.border,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -672,10 +680,7 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     paddingHorizontal: spacing.md,
     fontSize: 20,
-    color: setup.text,
-    backgroundColor: setup.fill,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: setup.border,
   },
   chips: {
     flexDirection: 'row',
@@ -690,13 +695,7 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: setup.fillStrong,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: setup.borderSubtle,
-  },
-  chipOn: {
-    backgroundColor: setup.accent,
-    borderColor: setup.accent,
   },
   weekRow: {
     flexDirection: 'row',

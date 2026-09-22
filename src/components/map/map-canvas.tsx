@@ -5,7 +5,7 @@ import type { Camera as MapboxCamera } from '@rnmapbox/maps';
 
 import { Text } from '@/components/text';
 import type { Coordinate, RouteCandidate } from '@/services/routing';
-import { useTheme } from '@/theme';
+import { useAppearance, useTheme } from '@/theme';
 
 import { useMapPalette } from './map-palette';
 import { boundsOf, type MapInsets } from './projection';
@@ -21,8 +21,9 @@ const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
 /** Optional custom monochrome style, authored in Mapbox Studio. */
 const MAPBOX_STYLE_URL = process.env.EXPO_PUBLIC_MAPBOX_STYLE_URL ?? '';
 
-/** The map is quiet and light so the route and the UI carry the contrast. */
-const FALLBACK_STYLE = 'mapbox://styles/mapbox/light-v11';
+/** The map is quiet, and follows the appearance so the route carries contrast. */
+const FALLBACK_STYLE_LIGHT = 'mapbox://styles/mapbox/light-v11';
+const FALLBACK_STYLE_DARK = 'mapbox://styles/mapbox/dark-v11';
 
 /**
  * Mapbox is required lazily, and only when a token is configured. The native
@@ -151,6 +152,7 @@ function MapboxCanvas({
 }: MapCanvasProps & { mapbox: MapboxModule }) {
   const theme = useTheme();
   const map = useMapPalette();
+  const scheme = useAppearance();
   const cameraRef = useRef<MapboxCamera | null>(null);
   const didInitialCenter = useRef(false);
   const lastRecenterSignal = useRef(recenterSignal);
@@ -165,7 +167,8 @@ function MapboxCanvas({
   const [mapReady, setMapReady] = useState(false);
 
   const insets = useMemo<MapInsets>(() => ({ ...DEFAULT_INSETS, ...padding }), [padding]);
-  const styleURL = MAPBOX_STYLE_URL || FALLBACK_STYLE;
+  const styleURL =
+    MAPBOX_STYLE_URL || (scheme === 'dark' ? FALLBACK_STYLE_DARK : FALLBACK_STYLE_LIGHT);
 
   // Frame every route, plus the origin. Runs only when the route set changes,
   // so selecting a different route never moves the camera.

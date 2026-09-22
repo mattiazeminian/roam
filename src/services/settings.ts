@@ -7,10 +7,17 @@
 
 import { Directory, File, Paths } from 'expo-file-system';
 
+import type { AppearancePreference } from '@/theme';
+
 export type DistanceUnit = 'km' | 'mi';
 
 export type Settings = {
   unit: DistanceUnit;
+  /**
+   * Appearance preference (#145). `system` follows iOS; the other two are
+   * fixed. Optional in storage so existing users default to `system`.
+   */
+  appearance: AppearancePreference;
   /**
    * The runner's typical pace in minutes per kilometer. Route time estimates
    * are derived from it — the routing provider only returns a *walking*
@@ -29,6 +36,7 @@ export type Settings = {
 
 export const DEFAULT_SETTINGS: Settings = {
   unit: 'km',
+  appearance: 'system',
   typicalPaceMinPerKm: 6.6,
   defaultDistanceKm: 5,
   hasCompletedOnboarding: false,
@@ -57,6 +65,10 @@ function parseSettings(value: unknown): Settings {
   const raw = value as Partial<Settings>;
   return {
     unit: raw.unit === 'mi' ? 'mi' : 'km',
+    // An unknown or missing value falls back to `system`, so existing users
+    // (whose stored settings predate this field) follow iOS.
+    appearance:
+      raw.appearance === 'light' || raw.appearance === 'dark' ? raw.appearance : 'system',
     typicalPaceMinPerKm: Number.isFinite(raw.typicalPaceMinPerKm)
       ? clamp(raw.typicalPaceMinPerKm as number, MIN_PACE_MIN_PER_KM, MAX_PACE_MIN_PER_KM)
       : DEFAULT_SETTINGS.typicalPaceMinPerKm,

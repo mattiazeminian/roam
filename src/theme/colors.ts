@@ -44,7 +44,7 @@ export const palette = {
 
 export type PaletteToken = keyof typeof palette;
 
-export const colors = {
+export const lightColors = {
   background: palette.offWhite,
   /** Cards and grouped rows sit lighter than the canvas. */
   surface: palette.white,
@@ -111,38 +111,62 @@ export const colors = {
   scrim: 'rgba(14, 15, 12, 0.32)',
 } as const;
 
-export type ColorToken = keyof typeof colors;
+export type ColorToken = keyof typeof lightColors;
 export type ThemeColors = Record<ColorToken, string>;
 
-/**
- * The light setup theme (docs/design-system.md §2).
- *
- * First-run setup sits on a fixed light ground regardless of system
- * appearance, so it names its own values here rather than inlining them in
- * `onboarding.tsx` / `onboarding-shell.tsx`.
- */
-export const setup = {
-  /** Input text and primary copy. */
-  text: 'rgba(14, 15, 12, 1)',
-  /** Lede and supporting copy. */
-  textSecondary: 'rgba(14, 15, 12, 0.62)',
-  /** Placeholder text in a field. */
-  placeholder: 'rgba(14, 15, 12, 0.35)',
-  /** Quiet fill for inputs and identity tiles. */
-  fill: 'rgba(22, 51, 0, 0.06)',
-  /** Slightly stronger fill for chips and tiles. */
-  fillStrong: 'rgba(22, 51, 0, 0.08)',
-  /** Structural border. */
-  border: 'rgba(14, 15, 12, 0.12)',
-  /** Low-emphasis border. */
-  borderSubtle: 'rgba(14, 15, 12, 0.10)',
-  /** Inactive progress segment. */
-  track: 'rgba(14, 15, 12, 0.14)',
-  /** Selected chip fill and border. */
-  accent: palette.green,
-} as const;
+/** Retained for the share card, which is always the light brand treatment. */
+export const colors = lightColors;
 
-export type SetupColors = typeof setup;
+/**
+ * The dark appearance (#145).
+ *
+ * Same semantic keys as the light set, so every screen that reads a token
+ * adapts with no per-screen conditional. Deliberately not pure black and white:
+ * the ground is the brand near-black, surfaces lift a step above it for
+ * hierarchy, and text sits at a softer off-white. The lime accent is kept — it
+ * is high-contrast on the dark ground, so emphasis in type can use it directly.
+ */
+export const darkColors: ThemeColors = {
+  background: palette.nearBlack,
+  surface: '#191B16',
+  surfaceElevated: '#23261F',
+
+  border: 'rgba(255, 255, 255, 0.16)',
+  borderSubtle: 'rgba(255, 255, 255, 0.10)',
+  divider: 'rgba(255, 255, 255, 0.14)',
+
+  text: '#F2F3EF',
+  textSecondary: '#A9AEA4',
+  textTertiary: '#F2F3EF',
+  textDisabled: '#6B6F66',
+
+  danger: '#FF6B61',
+  disabled: 'rgba(255, 255, 255, 0.08)',
+  fillSubtle: 'rgba(255, 255, 255, 0.04)',
+  inverse: palette.nearBlack,
+  inverseBackground: '#F2F3EF',
+
+  accent: palette.green,
+  accentForeground: palette.nearBlack,
+  /** On the dark ground the lime itself is legible as emphasis in type. */
+  accentText: palette.green,
+  accentPressed: palette.greenDeep,
+  accentTrack: 'rgba(0, 0, 0, 0.28)',
+  accentMuted: 'rgba(205, 242, 75, 0.16)',
+  selected: palette.green,
+  active: palette.green,
+  pressed: palette.greenPastel,
+
+  fill: 'rgba(255, 255, 255, 0.08)',
+  fillPressed: 'rgba(255, 255, 255, 0.14)',
+
+  track: 'rgba(255, 255, 255, 0.12)',
+  glass: 'rgba(24, 26, 22, 0.72)',
+  glassBorder: 'rgba(255, 255, 255, 0.14)',
+  overlay: 'rgba(24, 26, 22, 0.92)',
+  shadow: 'rgba(0, 0, 0, 0.45)',
+  scrim: 'rgba(0, 0, 0, 0.55)',
+};
 
 /**
  * The brand palette, named by role (#141).

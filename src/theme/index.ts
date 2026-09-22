@@ -7,12 +7,12 @@ export {
 export {
   brand,
   colors,
+  darkColors,
+  lightColors,
   palette,
-  setup,
   type BrandToken,
   type ColorToken,
   type PaletteToken,
-  type SetupColors,
   type ThemeColors,
 } from './colors';
 export { layout } from './layout';
@@ -24,4 +24,10 @@ export {
   typography,
   type TypographyVariant,
 } from './typography';
-export { useTheme } from './use-theme';
+export {
+  AppearanceProvider,
+  useAppearance,
+  useTheme,
+  type AppearancePreference,
+  type ResolvedScheme,
+} from './use-theme';
