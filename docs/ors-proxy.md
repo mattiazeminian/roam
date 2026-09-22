@@ -41,6 +41,8 @@ If neither is set, the client throws `missing-key` without calling out.
 
 ## Reference implementation
 
+A deployable reference worker lives at `server/ors-proxy/worker.ts`.
+
 A minimal Cloudflare Worker (adapt freely to Vercel, Netlify, Lambda, …):
 
 ```js
