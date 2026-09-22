@@ -798,19 +798,19 @@ export type RunRecords = {
   /** The best average pace of any run of at least 5 km. */
   fastest5k: SavedRun | null;
   /** The best average pace of any run of at least 10 km. */
-  fastest10k: SavedRun | null;
-};
+  fastest10k: SavedRun | null;};
 
 /**
  * Records derived from saved runs.
  *
- * Only what the stored data actually supports. `SavedRun` keeps distance,
- * duration and average pace, but the track is bare coordinates with no
- * per-point timestamps — so a true "fastest 5 km" split (the time taken to
- * cover the first 5 km of a longer run) cannot be computed without inventing
- * data. The distance-scoped records are therefore *scoped* bests: the best
- * average pace of any run that was itself at least that long, which is a
- * weaker but honest claim. Documented so the label is not read as a split.
+ * Only what the stored data actually supports. Every run keeps distance and
+ * average pace; newer runs also keep a per-point time for the track, but older
+ * ones do not. The distance-scoped records are therefore deliberately *scoped*
+ * bests rather than splits: the best average pace of any run that was itself at
+ * least that long. A true "fastest 5 km" split would need the per-point times
+ * of every qualifying run, so mixing computed splits with whole-run averages
+ * would compare unlike things. History labels them "Best pace · 5 km+" so they
+ * are not read as splits.
  *
  * A record is null when no run qualifies — never a placeholder.
  */

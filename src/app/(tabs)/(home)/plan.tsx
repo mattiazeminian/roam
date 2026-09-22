@@ -12,6 +12,7 @@ import { impactMedium, selectionFeedback, successFeedback } from '@/lib/haptics'
 import { listRuns } from '@/services/run-storage';
 import type { SavedRun } from '@/services/run-session';
 import { useFormatters, useSettings } from '@/services/settings-context';
+import { kmToDisplay } from '@/services/settings';
 import {
   DEFAULT_PREFERRED_DAYS,
   DEFAULT_RUNS_PER_WEEK,
@@ -393,12 +394,12 @@ function PlanOverview({ onEdit }: { onEdit: () => void }) {
           {days.map((date) => {
             const workout = workoutsOnDate(state, date)[0] ?? null;
             const isToday = date === today;
-            return <View key={date} style={styles.overviewDay}><Text variant="caption" color={isToday ? 'accentText' : 'textSecondary'}>{new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'narrow' })}</Text><View style={[styles.overviewMark, { backgroundColor: workout?.status === 'completed' ? theme.accent : workout ? theme.fill : theme.background, borderColor: isToday ? theme.accent : theme.divider }]}>{workout ? <WorkoutIcon type={workout.type} size={16} tintColor={workout.status === 'completed' ? theme.accentForeground : theme.textSecondary} /> : null}</View>{workout ? <Text variant="micro" color="textSecondary">{workout.targetKm}</Text> : null}</View>;
+            return <View key={date} style={styles.overviewDay}><Text variant="caption" color={isToday ? 'accentText' : 'textSecondary'}>{new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'narrow' })}</Text><View style={[styles.overviewMark, { backgroundColor: workout?.status === 'completed' ? theme.accent : workout ? theme.fill : theme.background, borderColor: isToday ? theme.accent : theme.divider }]}>{workout ? <WorkoutIcon type={workout.type} size={16} tintColor={workout.status === 'completed' ? theme.accentForeground : theme.textSecondary} /> : null}</View>{workout ? <Text variant="micro" color="textSecondary">{Math.round(kmToDisplay(workout.targetKm, fmt.unit))}</Text> : null}</View>;
           })}
         </View>
         <View style={[styles.overviewRule, { backgroundColor: theme.track }]} />
         <Text variant="title">The week ahead</Text>
-        {state.workouts.filter((workout) => workout.date >= today).slice(0, 4).map((workout) => <View key={workout.id} style={[styles.overviewWorkout, { borderBottomColor: theme.track }]}><WorkoutIcon type={workout.type} size={20} tintColor={theme.textSecondary} /><View style={styles.overviewWorkoutCopy}><Text variant="body">{WORKOUT_LABELS[workout.type]}</Text><Text variant="caption" color="textSecondary">{workout.date} · {workout.targetKm} km</Text></View><Text variant="caption" color="textSecondary">{workout.status}</Text></View>)}
+        {state.workouts.filter((workout) => workout.date >= today).slice(0, 4).map((workout) => <View key={workout.id} style={[styles.overviewWorkout, { borderBottomColor: theme.track }]}><WorkoutIcon type={workout.type} size={20} tintColor={theme.textSecondary} /><View style={styles.overviewWorkoutCopy}><Text variant="body">{WORKOUT_LABELS[workout.type]}</Text><Text variant="caption" color="textSecondary">{workout.date} · {fmt.distance(workout.targetKm * 1000)} {fmt.unitLabel}</Text></View><Text variant="caption" color="textSecondary">{workout.status}</Text></View>)}
         <View style={[styles.overviewRule, { backgroundColor: theme.track }]} />
         <Text variant="title">Recent weeks</Text>
         {weeklyAdherence(state, today, 4).map((week) => (

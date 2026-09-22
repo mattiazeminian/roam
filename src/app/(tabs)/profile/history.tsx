@@ -228,7 +228,10 @@ function RecordList({ records, fmt }: { records: RunRecords; fmt: Formatters }) 
   if (records.fastest5k) {
     rows.push({
       key: 'fastest5k',
-      label: 'Best 5 km',
+      // Scoped, not a split: the best average pace of a run at least 5 km long.
+      // Labelled so it is not read as the runner's fastest 5 km (see
+      // `computeRecords`).
+      label: 'Best pace · 5 km+',
       value: fmt.paceWithUnit(records.fastest5k.averagePaceMinPerKm),
       run: records.fastest5k,
     });
@@ -236,7 +239,7 @@ function RecordList({ records, fmt }: { records: RunRecords; fmt: Formatters }) 
   if (records.fastest10k) {
     rows.push({
       key: 'fastest10k',
-      label: 'Best 10 km',
+      label: 'Best pace · 10 km+',
       value: fmt.paceWithUnit(records.fastest10k.averagePaceMinPerKm),
       run: records.fastest10k,
     });

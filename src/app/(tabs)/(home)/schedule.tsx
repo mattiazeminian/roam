@@ -21,7 +21,7 @@ import { Text } from '@/components/text';
 import { WorkoutIcon } from '@/components/workout-icon';
 import { impactLight, selectionFeedback, successFeedback } from '@/lib/haptics';
 import { DEFAULT_DISTANCE_KM } from '@/components/distance-control';
-import { useSettings } from '@/services/settings-context';
+import { useFormatters, useSettings } from '@/services/settings-context';
 import {
   addDays,
   createWorkout,
@@ -61,6 +61,7 @@ export default function ScheduleScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const { settings } = useSettings();
+  const fmt = useFormatters();
   const { state, loaded, markWorkout, moveWorkout, removeWorkout, scheduleWorkouts } = useTraining();
 
   const [weekOffset, setWeekOffset] = useState(0);
@@ -119,7 +120,7 @@ export default function ScheduleScreen() {
       const editable = workout.status !== 'completed';
       setSheet({
         title: where,
-        message: `${WORKOUT_LABELS[workout.type]} · ${workout.targetKm} km · ${workout.status}`,
+        message: `${WORKOUT_LABELS[workout.type]} · ${fmt.distance(workout.targetKm * 1000)} ${fmt.unitLabel} · ${workout.status}`,
         actions: [
           ...(workout.status === 'completed' ? [] : [{ label: 'Mark completed', onPress: () => void markWorkout(workout.id, 'completed') }]),
           ...(workout.status === 'skipped' ? [] : [{ label: 'Mark skipped', onPress: () => void markWorkout(workout.id, 'skipped') }]),
@@ -129,7 +130,7 @@ export default function ScheduleScreen() {
         ],
       });
     },
-    [addWorkout, markWorkout, removeWorkout],
+    [addWorkout, fmt, markWorkout, removeWorkout],
   );
 
   const weekLabel = `Week of ${
@@ -231,6 +232,7 @@ function DayRow({
 }) {
   'use no memo';
   const theme = useTheme();
+  const fmt = useFormatters();
   const { date, workout } = day;
   const [, month, dayOfMonth] = date.split('-');
   const weekday = weekdayOf(date);
@@ -314,7 +316,7 @@ function DayRow({
               </View>
               <Text variant="body">{WORKOUT_LABELS[workout.type]}</Text>
               <Text variant="caption" color="textSecondary" tabular>
-                {`${workout.targetKm} km`}
+                {`${fmt.distance(workout.targetKm * 1000)} ${fmt.unitLabel}`}
               </Text>
             </View>
           ) : (

@@ -16,6 +16,7 @@ import { Wordmark } from '@/components/wordmark';
 import { errorFeedback, impactLight, selectionFeedback } from '@/lib/haptics';
 import { useAccount } from '@/services/account-context';
 import { writeRunsGpx } from '@/services/run-export';
+import { formatPace } from '@/services/run-session';
 import { useSettings } from '@/services/settings-context';
 import {
   MAX_PACE_MIN_PER_KM,
@@ -124,8 +125,6 @@ export default function SettingsScreen() {
   }, [exporting]);
 
   const paceDisplay = paceToDisplay(settings.typicalPaceMinPerKm, settings.unit);
-  const paceMinutes = Math.floor(paceDisplay);
-  const paceSeconds = Math.round((paceDisplay - paceMinutes) * 60);
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}> 
@@ -217,7 +216,7 @@ export default function SettingsScreen() {
           </View>
           <Divider />
           <Row
-            accessibilityLabel={`Typical pace ${paceMinutes} minutes ${paceSeconds} seconds per ${settings.unit === 'mi' ? 'mile' : 'kilometer'}`}
+            accessibilityLabel={`Typical pace, ${formatters.paceSpoken(settings.typicalPaceMinPerKm)}`}
             trailing={
               <View style={styles.steppers}>
                 <Stepper
@@ -235,7 +234,7 @@ export default function SettingsScreen() {
               </View>
             }>
             <Text variant="display" color="accentText" tabular>
-              {`${paceMinutes}'${paceSeconds.toString().padStart(2, '0')}"`}
+              {formatPace(paceDisplay)}
             </Text>
             <Text variant="body" color="textSecondary" style={styles.rowUnit}>
               {`/${formatters.unitLabel}`}

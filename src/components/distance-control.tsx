@@ -213,9 +213,9 @@ export function DistanceControl({ valueKm, onChange, disabled = false }: Distanc
           accessibilityLabel="Running distance"
           accessibilityHint="Double tap to type an exact distance"
           accessibilityValue={{
-            min: MIN_DISTANCE_KM,
-            max: MAX_DISTANCE_KM,
-            now: valueKm,
+            min: kmToDisplay(MIN_DISTANCE_KM, fmt.unit),
+            max: kmToDisplay(MAX_DISTANCE_KM, fmt.unit),
+            now: shown,
             text: `${shown.toFixed(1)} ${fmt.unitSpoken}`,
           }}
           accessibilityActions={[

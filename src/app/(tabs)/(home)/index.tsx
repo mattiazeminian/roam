@@ -25,6 +25,7 @@ import { formatDuration, formatRunDate, type SavedRun } from '@/services/run-ses
 import { weeklyRunSummary } from '@/services/run-analytics';
 import { listRuns } from '@/services/run-storage';
 import { useFormatters, useSettings, type Formatters } from '@/services/settings-context';
+import { kmToDisplay } from '@/services/settings';
 import {
   addDays,
   recommendNextWorkout,
@@ -393,9 +394,9 @@ function Training({
               accessible
               accessibilityLabel={
                 item
-                  ? `${weekday}, ${WORKOUT_LABELS[item.type]}, ${item.targetKm} km${
-                      done ? ', completed' : ''
-                    }`
+                  ? `${weekday}, ${WORKOUT_LABELS[item.type]}, ${fmt.distance(
+                      item.targetKm * 1000,
+                    )} ${fmt.unitLabel}${done ? ', completed' : ''}`
                   : `${weekday}, rest day`
               }
               style={styles.day}>
@@ -420,7 +421,7 @@ function Training({
               </View>
               {item ? (
                 <Text variant="micro" color="textSecondary">
-                  {item.targetKm}
+                  {Math.round(kmToDisplay(item.targetKm, fmt.unit))}
                 </Text>
               ) : (
                 <View style={[styles.rest, { backgroundColor: theme.track }]} />
@@ -438,7 +439,9 @@ function Training({
         accessibilityRole="button"
         accessibilityLabel={
           next
-            ? `Next workout: ${WORKOUT_LABELS[next.type]}, ${next.targetKm} km. Open schedule.`
+            ? `Next workout: ${WORKOUT_LABELS[next.type]}, ${fmt.distance(
+                next.targetKm * 1000,
+              )} ${fmt.unitLabel}. Open schedule.`
             : 'Your week is clear. Open schedule.'
         }>
         <View
@@ -450,7 +453,9 @@ function Training({
             NEXT
           </Text>
           <Text variant="body">
-            {next ? `${WORKOUT_LABELS[next.type]} · ${next.targetKm} km` : 'Your week is clear'}
+            {next
+              ? `${WORKOUT_LABELS[next.type]} · ${fmt.distance(next.targetKm * 1000)} ${fmt.unitLabel}`
+              : 'Your week is clear'}
           </Text>
         </View>
         <SymbolView name="chevron.right" size={18} tintColor={theme.textSecondary} />
