@@ -18,7 +18,7 @@ import { WorkoutIcon } from '@/components/workout-icon';
 import { selectionFeedback } from '@/lib/haptics';
 import { cumulativeDistances, sliceAlongPath } from '@/services/geo';
 import { useRun } from '@/services/run-context';
-import { compassDirection, formatDuration } from '@/services/run-session';
+import { compassDirection, formatDuration, formatShortDistance } from '@/services/run-session';
 import { useFormatters } from '@/services/settings-context';
 import { WORKOUT_LABELS } from '@/services/training';
 import { remainingDurationSeconds, runExecutionMode } from '@/services/run-execution';
@@ -241,7 +241,7 @@ export default function ActiveRunScreen() {
                 tintColor={theme.textSecondary}
               />
               <Text variant="micro" color="textSecondary" accessibilityLiveRegion="polite">
-                {`Off route · ${Math.round(distanceToRouteMeters)}m${
+                {`Off route · ${formatShortDistance(distanceToRouteMeters, fmt.unit)}${
                   directionToRouteDegrees !== null
                     ? ` ${compassDirection(directionToRouteDegrees)}`
                     : ''

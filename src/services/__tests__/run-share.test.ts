@@ -7,6 +7,7 @@
 import { describe, expect, test } from '@jest/globals';
 
 import { runShareMessage } from '../run-share';
+import { routeShareLink } from '../route-share';
 import { formatDuration, formatRunDate, type SavedRun } from '../run-session';
 import type { Formatters } from '../settings-context';
 
@@ -69,5 +70,28 @@ describe('runShareMessage (#24)', () => {
     expect(message).toContain('mi');
     expect(message).toContain(`8'51"/mi`);
     expect(message).not.toContain('km');
+  });
+
+  test('carries the route link when the run had a planned route (#96)', () => {
+    const route = {
+      id: 'route-1',
+      distanceKm: 5,
+      estimatedMinutes: 28,
+      geometry: [
+        { latitude: 45.46, longitude: 9.19 },
+        { latitude: 45.47, longitude: 9.2 },
+        { latitude: 45.46, longitude: 9.19 },
+      ],
+      characteristics: ['loop'],
+    };
+    const message = runShareMessage(run({ route }), kmFormatters());
+    expect(message).toContain(routeShareLink(route));
+    expect(message).toContain('Run this route:');
+  });
+
+  test('sends no route link when the run had no planned route (#96)', () => {
+    const message = runShareMessage(run(), kmFormatters());
+    expect(message).not.toContain('Run this route:');
+    expect(message).not.toContain('roam://');
   });
 });

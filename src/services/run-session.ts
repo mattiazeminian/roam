@@ -579,6 +579,19 @@ export function compassDirection(degrees: number): string {
 }
 
 /**
+ * A short distance for a glance, in the runner's own unit: metres for
+ * kilometres, and feet (rounded to the nearest ten) for miles. Used where a
+ * `0.12 mi` reading would be useless, such as how far off route a runner is.
+ */
+export function formatShortDistance(meters: number, unit: 'km' | 'mi'): string {
+  if (unit === 'mi') {
+    const feet = Math.max(10, Math.round((meters * 3.28084) / 10) * 10);
+    return `${feet}ft`;
+  }
+  return `${Math.round(meters)}m`;
+}
+
+/**
  * A run must be at least this long to hold any pace record. `averagePaceMinPerKm`
  * is already null below `MIN_DISTANCE_FOR_PACE_METERS` (50 m), but 50 m is far
  * too short to call a "best": a 200 m jog would win on pace alone. 1 km is the

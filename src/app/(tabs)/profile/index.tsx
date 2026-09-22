@@ -512,12 +512,13 @@ function paceSentence(trend: ReturnType<typeof paceTrend>, fmt: Formatters): str
   if (trend.previousMinPerKm === null) {
     return base;
   }
-  const seconds = Math.round(Math.abs(trend.currentMinPerKm - trend.previousMinPerKm) * 60);
+  const secondsPerKm = Math.round(Math.abs(trend.currentMinPerKm - trend.previousMinPerKm) * 60);
+  const seconds = fmt.unit === 'mi' ? Math.round(secondsPerKm * 1.609344) : secondsPerKm;
   if (seconds < 5) {
     return base;
   }
   const direction = trend.currentMinPerKm < trend.previousMinPerKm ? 'faster' : 'slower';
-  return `${base} · ${seconds}s/km ${direction} than the ${trend.windowDays} days before`;
+  return `${base} · ${seconds}s/${fmt.unitLabel} ${direction} than the ${trend.windowDays} days before`;
 }
 
 function WeekChart({

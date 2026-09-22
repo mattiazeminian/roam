@@ -13,6 +13,7 @@ import {
   createTrackerState,
   currentPaceMinPerKm,
   fastestSplit,
+  formatShortDistance,
   preparePlannedRoute,
   splitsFor,
   trackerStateFromCheckpoint,
@@ -877,5 +878,18 @@ describe('auto-pause hysteresis (#38)', () => {
       sample({ coordinate: offset(0, 10), timestamp: BASE_TIME + 12_000 }),
     ]);
     expect(state.stationary).toBe(false);
+  });
+});
+
+describe('formatShortDistance', () => {
+  test('uses metres when the runner counts in kilometres', () => {
+    expect(formatShortDistance(0, 'km')).toBe('0m');
+    expect(formatShortDistance(143.4, 'km')).toBe('143m');
+  });
+
+  test('uses feet, rounded to ten, when the runner counts in miles', () => {
+    expect(formatShortDistance(100, 'mi')).toBe('330ft');
+    // A very small distance still reads as a distance, never `0ft`.
+    expect(formatShortDistance(1, 'mi')).toBe('10ft');
   });
 });
