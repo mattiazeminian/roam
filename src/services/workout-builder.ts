@@ -1,4 +1,5 @@
 import type { WorkoutStep, WorkoutStepKind, WorkoutType } from './training';
+import type { SavedRun } from './run-session';
 
 /**
  * Building a run before it starts (#151).
@@ -6,9 +7,10 @@ import type { WorkoutStep, WorkoutStepKind, WorkoutType } from './training';
  * The launcher offers a small vocabulary — free, distance, time, intervals,
  * fartlek, tempo — and every structured kind compiles to the same flat
  * `WorkoutStep[]` the execution engine already runs. Repeats are expanded here,
- * not in the engine: `6 × (400 m work + 90 sec recovery)` becomes twelve tagged
- * steps. That keeps one execution path for plan and custom workouts, and lets
- * the preview and the in-run UI read the grouping back.
+ * not in the engine: a set of `6 × (400 m work + 90 sec recovery)` becomes
+ * twelve tagged steps. A workout can hold several sets (4 × 400 m then 3 ×
+ * 800 m), each tagged with its own group so the preview and the in-run UI can
+ * say "rep 3 of 6" for the set being run.
  *
  * Pure and synchronous: no React, no storage, no formatting. Values are metric
  * (kilometres, metres, seconds) so the module has nothing to do with the
@@ -16,6 +18,7 @@ import type { WorkoutStep, WorkoutStepKind, WorkoutType } from './training';
  */
 
 export type RunKind = 'free' | 'distance' | 'time' | 'intervals' | 'fartlek' | 'tempo';
+export type StructuredKind = 'intervals' | 'fartlek' | 'tempo';
 
 export const RUN_KINDS: readonly RunKind[] = [
   'free',
@@ -71,14 +74,31 @@ export type StepTargetSpec =
   | { kind: 'duration'; minutes: number }
   | { kind: 'distance'; km: number };
 
-export type StructuredSpec = {
+/** One repeated block: `reps × (work + recovery)`. */
+export type SetSpec = {
+  reps: number;
+  work: StepTargetSpec;
+  recovery: StepTargetSpec;
+};
+
+/** The authoring model: a warm-up, one or more sets, and a cool-down. */
+export type WorkoutPlan = {
   /** 0 means no warm-up. */
+  warmupMinutes: number;
+  sets: SetSpec[];
+  /** 0 means no cool-down. */
+  cooldownMinutes: number;
+};
+
+/**
+ * A single-set spec, kept for the plan generator's simple case and for callers
+ * that predate multiple sets. Compiles to a one-set plan.
+ */
+export type StructuredSpec = {
   warmupMinutes: number;
   reps: number;
   work: StepTargetSpec;
-  /** Used only when reps > 1. */
   recovery: StepTargetSpec;
-  /** 0 means no cool-down. */
   cooldownMinutes: number;
 };
 
@@ -132,28 +152,24 @@ function toTarget(spec: StepTargetSpec): WorkoutStep['target'] {
     : { kind: 'distance', meters: Math.max(1, Math.round(spec.km * 1000)) };
 }
 
-const REPEAT_GROUP = 'main';
+function specFromTarget(target: WorkoutStep['target']): StepTargetSpec {
+  return target.kind === 'duration'
+    ? { kind: 'duration', minutes: target.seconds / 60 }
+    : { kind: 'distance', km: target.meters / 1000 };
+}
 
 function step(
   id: string,
   kind: WorkoutStepKind,
   label: string,
   target: WorkoutStep['target'],
-  grouping?: { repIndex: number; repCount: number },
+  grouping?: { repeatGroupId: string; repIndex: number; repCount: number },
 ): WorkoutStep {
-  return {
-    id,
-    kind,
-    label,
-    target,
-    ...(grouping
-      ? { repeatGroupId: REPEAT_GROUP, repIndex: grouping.repIndex, repCount: grouping.repCount }
-      : {}),
-  };
+  return { id, kind, label, target, ...(grouping ?? {}) };
 }
 
 /** The work/recovery labels for each structured kind, in runner language. */
-function labelsFor(kind: 'intervals' | 'fartlek' | 'tempo'): { work: string; recovery: string } {
+function labelsFor(kind: StructuredKind): { work: string; recovery: string } {
   switch (kind) {
     case 'fartlek':
       return { work: 'Fast', recovery: 'Easy' };
@@ -166,45 +182,136 @@ function labelsFor(kind: 'intervals' | 'fartlek' | 'tempo'): { work: string; rec
 }
 
 /**
- * Compile a structured spec into the flat step list the engine runs.
+ * Compile an authoring plan into the flat step list the engine runs.
  *
- * Order: warm-up (if any), the repeat block (each rep = work + recovery), then
- * cool-down (if any). Tempo is a single-rep block with no recovery, so it is
- * warm-up → work → cool-down.
+ * Order: warm-up (if any), each set (each rep = work + recovery), then
+ * cool-down (if any). A set is tagged only when there is more than one set or
+ * more than one rep, so a plain tempo stays a single untagged work step.
  */
-export function compileStructured(
-  kind: 'intervals' | 'fartlek' | 'tempo',
-  spec: StructuredSpec,
-): WorkoutStep[] {
+export function compilePlan(kind: StructuredKind, plan: WorkoutPlan): WorkoutStep[] {
   const labels = labelsFor(kind);
-  const reps = Math.max(1, Math.round(spec.reps));
   const steps: WorkoutStep[] = [];
 
-  if (spec.warmupMinutes > 0) {
-    steps.push(step(`${kind}-warmup`, 'warmup', 'Warm up', toTarget({ kind: 'duration', minutes: spec.warmupMinutes })));
-  }
-
-  const repeated = reps > 1;
-  for (let rep = 1; rep <= reps; rep += 1) {
+  if (plan.warmupMinutes > 0) {
     steps.push(
-      step(`${kind}-work-${rep}`, 'work', labels.work, toTarget(spec.work), repeated ? { repIndex: rep, repCount: reps } : undefined),
+      step(`${kind}-warmup`, 'warmup', 'Warm up', toTarget({ kind: 'duration', minutes: plan.warmupMinutes })),
     );
-    if (repeated) {
-      steps.push(
-        step(`${kind}-recovery-${rep}`, 'recovery', labels.recovery, toTarget(spec.recovery), { repIndex: rep, repCount: reps }),
-      );
-    }
   }
 
-  if (spec.cooldownMinutes > 0) {
-    steps.push(step(`${kind}-cooldown`, 'cooldown', 'Cool down', toTarget({ kind: 'duration', minutes: spec.cooldownMinutes })));
+  const tag = plan.sets.length > 1 || plan.sets.some((set) => set.reps > 1);
+  plan.sets.forEach((set, setIndex) => {
+    const reps = Math.max(1, Math.round(set.reps));
+    const repeated = reps > 1;
+    const group = `set-${setIndex}`;
+    for (let rep = 1; rep <= reps; rep += 1) {
+      steps.push(
+        step(
+          `${kind}-s${setIndex}-work-${rep}`,
+          'work',
+          labels.work,
+          toTarget(set.work),
+          tag ? { repeatGroupId: group, repIndex: rep, repCount: reps } : undefined,
+        ),
+      );
+      if (repeated) {
+        steps.push(
+          step(
+            `${kind}-s${setIndex}-recovery-${rep}`,
+            'recovery',
+            labels.recovery,
+            toTarget(set.recovery),
+            tag ? { repeatGroupId: group, repIndex: rep, repCount: reps } : undefined,
+          ),
+        );
+      }
+    }
+  });
+
+  if (plan.cooldownMinutes > 0) {
+    steps.push(
+      step(`${kind}-cooldown`, 'cooldown', 'Cool down', toTarget({ kind: 'duration', minutes: plan.cooldownMinutes })),
+    );
   }
 
   return steps;
 }
 
+/** A one-set plan from a single-set spec. */
+export function planFromSpec(spec: StructuredSpec): WorkoutPlan {
+  return {
+    warmupMinutes: spec.warmupMinutes,
+    sets: [{ reps: spec.reps, work: spec.work, recovery: spec.recovery }],
+    cooldownMinutes: spec.cooldownMinutes,
+  };
+}
+
+/** Compile a single-set spec. Kept for the plan generator and older callers. */
+export function compileStructured(kind: StructuredKind, spec: StructuredSpec): WorkoutStep[] {
+  return compilePlan(kind, planFromSpec(spec));
+}
+
+/**
+ * Reconstruct an authoring plan from a flat step list, so a recent workout can
+ * be repeated. Returns null when the steps are not a recognisable plan.
+ */
+export function planFromSteps(steps: readonly WorkoutStep[]): WorkoutPlan | null {
+  if (steps.length === 0) {
+    return null;
+  }
+
+  let body = steps;
+  let warmupMinutes = 0;
+  let cooldownMinutes = 0;
+
+  const first = body[0];
+  if (first.kind === 'warmup' && first.target.kind === 'duration') {
+    warmupMinutes = first.target.seconds / 60;
+    body = body.slice(1);
+  }
+  const last = body[body.length - 1];
+  if (last && last.kind === 'cooldown' && last.target.kind === 'duration') {
+    cooldownMinutes = last.target.seconds / 60;
+    body = body.slice(0, -1);
+  }
+
+  const sets: SetSpec[] = [];
+  let currentGroup: string | null | undefined;
+  let work: StepTargetSpec | null = null;
+  let recovery: StepTargetSpec | null = null;
+  let reps = 1;
+
+  const flush = () => {
+    if (work) {
+      sets.push({ reps, work, recovery: recovery ?? { kind: 'duration', minutes: 1 } });
+    }
+  };
+
+  for (const entry of body) {
+    const group = entry.repeatGroupId ?? null;
+    if (group !== currentGroup) {
+      flush();
+      currentGroup = group;
+      work = null;
+      recovery = null;
+      reps = 1;
+    }
+    if (entry.kind === 'work') {
+      work = specFromTarget(entry.target);
+      reps = entry.repCount ?? 1;
+    } else if (entry.kind === 'recovery') {
+      recovery = specFromTarget(entry.target);
+    }
+  }
+  flush();
+
+  if (sets.length === 0) {
+    return null;
+  }
+  return { warmupMinutes, sets, cooldownMinutes };
+}
+
 export type WorkoutSummary = {
-  /** Reps in the repeated block, when there is one. */
+  /** Total reps across every repeated set, when there is one. */
   reps: number | null;
   /** Total distance of the work steps, when they are distance-based. */
   fastDistanceMeters: number | null;
@@ -230,7 +337,7 @@ export function summarizeSteps(steps: readonly WorkoutStep[]): WorkoutSummary {
   let fastDistanceMeters = 0;
   let hasDistance = false;
   let hasFastDistance = false;
-  let reps: number | null = null;
+  const groups = new Map<string, number>();
 
   for (const entry of steps) {
     if (entry.target.kind === 'duration') {
@@ -244,21 +351,36 @@ export function summarizeSteps(steps: readonly WorkoutStep[]): WorkoutSummary {
         fastDistanceMeters += entry.target.meters;
       }
     }
-    if (reps === null && entry.repeatGroupId && entry.repCount) {
-      reps = entry.repCount;
+    if (entry.repeatGroupId && entry.repCount) {
+      groups.set(entry.repeatGroupId, entry.repCount);
     }
   }
 
+  const totalReps = groups.size > 0 ? [...groups.values()].reduce((sum, value) => sum + value, 0) : null;
+
   return {
-    reps,
+    reps: totalReps,
     fastDistanceMeters: hasFastDistance ? fastDistanceMeters : null,
     totalDistanceMeters: hasDistance ? totalDistanceMeters : null,
     totalDurationSeconds: allDuration ? totalDurationSeconds : null,
   };
 }
 
-/** The work target's kind for a structured kind, for the builder's default UI. */
-export function defaultSpec(kind: 'intervals' | 'fartlek' | 'tempo'): StructuredSpec {
+/** The default authoring plan for a structured kind. */
+export function defaultPlan(kind: StructuredKind): WorkoutPlan {
+  switch (kind) {
+    case 'fartlek':
+      return planFromSpec(DEFAULT_FARTLEK);
+    case 'tempo':
+      return planFromSpec(DEFAULT_TEMPO);
+    case 'intervals':
+    default:
+      return planFromSpec(DEFAULT_INTERVALS);
+  }
+}
+
+/** Kept for callers that want a single-set default spec. */
+export function defaultSpec(kind: StructuredKind): StructuredSpec {
   switch (kind) {
     case 'fartlek':
       return { ...DEFAULT_FARTLEK };
@@ -268,4 +390,49 @@ export function defaultSpec(kind: 'intervals' | 'fartlek' | 'tempo'): Structured
     default:
       return { ...DEFAULT_INTERVALS };
   }
+}
+
+/** A stable identity for a structured workout, for de-duplicating recents. */
+export function workoutSignature(kind: StructuredKind, plan: WorkoutPlan): string {
+  return JSON.stringify([kind, plan]);
+}
+
+export type RecentWorkout = {
+  /** Stable identity of the structure, for keys and de-duplication. */
+  key: string;
+  kind: StructuredKind;
+  plan: WorkoutPlan;
+  /** When it was last run. */
+  startedAt: number;
+};
+
+/**
+ * The most recent distinct structured workouts, newest first, for quick repeat
+ * (#151). Derived from saved runs' own steps; a run with no steps is skipped.
+ */
+export function recentWorkoutTemplates(runs: readonly SavedRun[], limit = 3): RecentWorkout[] {
+  const seen = new Set<string>();
+  const result: RecentWorkout[] = [];
+
+  for (const run of runs) {
+    const kind = run.workoutType;
+    if (!run.steps || (kind !== 'intervals' && kind !== 'fartlek' && kind !== 'tempo')) {
+      continue;
+    }
+    const plan = planFromSteps(run.steps);
+    if (!plan) {
+      continue;
+    }
+    const key = workoutSignature(kind, plan);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push({ key, kind, plan, startedAt: run.startedAt });
+    if (result.length >= limit) {
+      break;
+    }
+  }
+
+  return result;
 }

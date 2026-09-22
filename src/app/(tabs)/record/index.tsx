@@ -14,14 +14,12 @@ import { ValueSheet, type ValuePreset } from '@/components/value-sheet';
 import { selectionFeedback } from '@/lib/haptics';
 import { useLocation } from '@/services/location-context';
 import { useRun } from '@/services/run-context';
-import { formatDuration } from '@/services/run-session';
+import { formatDuration, type SavedRun } from '@/services/run-session';
 import { listRoutes } from '@/services/route-storage';
+import { listRuns } from '@/services/run-storage';
 import { displayToKm, distancePresets, kmToDisplay, type DistanceUnit } from '@/services/settings';
 import { useFormatters, useSettings } from '@/services/settings-context';
 import {
-  DEFAULT_INTERVALS,
-  DEFAULT_FARTLEK,
-  DEFAULT_TEMPO,
   LIMITS,
   RECOVERY_SECOND_PRESETS,
   REP_PRESETS,
@@ -29,13 +27,17 @@ import {
   RUN_KINDS,
   WARMUP_MINUTE_PRESETS,
   WORK_TIME_MINUTE_PRESETS,
-  compileStructured,
+  compilePlan,
+  defaultPlan,
+  recentWorkoutTemplates,
   runKindWorkoutType,
   startLabel,
   summarizeSteps,
+  type RecentWorkout,
   type RunKind,
   type StepTargetSpec,
-  type StructuredSpec,
+  type StructuredKind,
+  type WorkoutPlan,
 } from '@/services/workout-builder';
 import { layout, radii, spacing, useTheme } from '@/theme';
 
@@ -56,16 +58,18 @@ const KIND_SYMBOLS: Record<RunKind, SymbolName> = {
   tempo: 'stopwatch',
 };
 
-type StructuredKind = 'intervals' | 'fartlek' | 'tempo';
+const WORK_LABELS: Record<StructuredKind, { work: string; recovery: string }> = {
+  intervals: { work: 'Run', recovery: 'Recovery' },
+  fartlek: { work: 'Fast', recovery: 'Easy' },
+  tempo: { work: 'Tempo', recovery: 'Recovery' },
+};
 
-type SheetKey =
-  | 'distance'
-  | 'minutes'
-  | 'warmup'
-  | 'cooldown'
-  | 'reps'
-  | 'work'
-  | 'recovery';
+type SheetState =
+  | { key: 'distance' }
+  | { key: 'minutes' }
+  | { key: 'warmup' }
+  | { key: 'cooldown' }
+  | { key: 'reps' | 'work' | 'recovery'; setIndex: number };
 
 /** `90` → "90 sec", `120` → "2 min". */
 function formatSeconds(seconds: number): string {
@@ -106,18 +110,18 @@ function workDistancePresets(unit: DistanceUnit): ValuePreset[] {
       ];
 }
 
-const WORK_LABELS: Record<StructuredKind, { work: string; recovery: string }> = {
-  intervals: { work: 'Run', recovery: 'Recovery' },
-  fartlek: { work: 'Fast', recovery: 'Easy' },
-  tempo: { work: 'Tempo', recovery: 'Recovery' },
-};
+/** "6 × 400 m" or "4 × 400 m + 3 × 800 m". */
+function planLabel(plan: WorkoutPlan, unit: DistanceUnit): string {
+  return plan.sets.map((set) => `${set.reps} × ${formatTarget(set.work, unit)}`).join(' + ');
+}
 
 /**
  * Record — the run launcher (#151).
  *
  * One question first: what kind of run? Free run is one tap; every other kind
  * reveals only its own controls, presets always alongside a way past them, and
- * structured sessions show exactly what they will do before Start.
+ * structured sessions show exactly what they will do before Start. Recent
+ * structured sessions can be repeated in one tap.
  */
 export default function RecordScreen() {
   const theme = useTheme();
@@ -131,12 +135,13 @@ export default function RecordScreen() {
   const [kind, setKind] = useState<RunKind>('free');
   const [distanceKm, setDistanceKm] = useState(settings.defaultDistanceKm ?? DEFAULT_DISTANCE_KM);
   const [minutes, setMinutes] = useState(30);
-  const [intervals, setIntervals] = useState<StructuredSpec>(() => ({ ...DEFAULT_INTERVALS }));
-  const [fartlek, setFartlek] = useState<StructuredSpec>(() => ({ ...DEFAULT_FARTLEK }));
-  const [tempo, setTempo] = useState<StructuredSpec>(() => ({ ...DEFAULT_TEMPO }));
-  const [sheet, setSheet] = useState<SheetKey | null>(null);
+  const [intervals, setIntervals] = useState<WorkoutPlan>(() => defaultPlan('intervals'));
+  const [fartlek, setFartlek] = useState<WorkoutPlan>(() => defaultPlan('fartlek'));
+  const [tempo, setTempo] = useState<WorkoutPlan>(() => defaultPlan('tempo'));
+  const [sheet, setSheet] = useState<SheetState | null>(null);
   const [recenterSignal, setRecenterSignal] = useState(0);
   const [savedRouteCount, setSavedRouteCount] = useState(0);
+  const [recentRuns, setRecentRuns] = useState<SavedRun[]>([]);
 
   const unit = fmt.unit;
   const distanceDisplay = kmToDisplay(distanceKm, unit);
@@ -144,8 +149,13 @@ export default function RecordScreen() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      void listRoutes()
-        .then((stored) => active && setSavedRouteCount(stored.length))
+      void Promise.all([listRoutes(), listRuns()])
+        .then(([routes, runs]) => {
+          if (active) {
+            setSavedRouteCount(routes.length);
+            setRecentRuns(runs);
+          }
+        })
         .catch(() => {});
       return () => {
         active = false;
@@ -153,21 +163,70 @@ export default function RecordScreen() {
     }, []),
   );
 
-  const structuredSpec: StructuredSpec | null =
+  const recents = useMemo(() => recentWorkoutTemplates(recentRuns), [recentRuns]);
+
+  const structuredPlan: WorkoutPlan | null =
     kind === 'intervals' ? intervals : kind === 'fartlek' ? fartlek : kind === 'tempo' ? tempo : null;
 
-  const updateSpec = useCallback(
-    (patch: Partial<StructuredSpec>) => {
-      if (kind === 'intervals') setIntervals((current) => ({ ...current, ...patch }));
-      else if (kind === 'fartlek') setFartlek((current) => ({ ...current, ...patch }));
-      else if (kind === 'tempo') setTempo((current) => ({ ...current, ...patch }));
+  const setPlan = useCallback(
+    (next: WorkoutPlan) => {
+      if (kind === 'intervals') setIntervals(next);
+      else if (kind === 'fartlek') setFartlek(next);
+      else if (kind === 'tempo') setTempo(next);
     },
     [kind],
   );
 
+  const updatePlan = useCallback(
+    (patch: Partial<WorkoutPlan>) => {
+      if (structuredPlan) setPlan({ ...structuredPlan, ...patch });
+    },
+    [setPlan, structuredPlan],
+  );
+
+  const updateSet = useCallback(
+    (index: number, patch: Partial<WorkoutPlan['sets'][number]>) => {
+      if (!structuredPlan) return;
+      setPlan({
+        ...structuredPlan,
+        sets: structuredPlan.sets.map((set, i) => (i === index ? { ...set, ...patch } : set)),
+      });
+    },
+    [setPlan, structuredPlan],
+  );
+
+  const addSet = useCallback(() => {
+    if (!structuredPlan) return;
+    const last = structuredPlan.sets[structuredPlan.sets.length - 1];
+    const next = last
+      ? { ...last }
+      : { reps: 4, work: { kind: 'distance' as const, km: 0.4 }, recovery: { kind: 'duration' as const, minutes: 1.5 } };
+    setPlan({ ...structuredPlan, sets: [...structuredPlan.sets, next] });
+  }, [setPlan, structuredPlan]);
+
+  const removeSet = useCallback(
+    (index: number) => {
+      if (!structuredPlan || structuredPlan.sets.length <= 1) return;
+      setPlan({ ...structuredPlan, sets: structuredPlan.sets.filter((_, i) => i !== index) });
+    },
+    [setPlan, structuredPlan],
+  );
+
+  const loadRecent = useCallback(
+    (recent: RecentWorkout) => {
+      selectionFeedback();
+      setKind(recent.kind);
+      setSheet(null);
+      if (recent.kind === 'intervals') setIntervals(recent.plan);
+      else if (recent.kind === 'fartlek') setFartlek(recent.plan);
+      else setTempo(recent.plan);
+    },
+    [],
+  );
+
   const steps = useMemo(
-    () => (structuredSpec ? compileStructured(kind as StructuredKind, structuredSpec) : []),
-    [kind, structuredSpec],
+    () => (structuredPlan ? compilePlan(kind as StructuredKind, structuredPlan) : []),
+    [kind, structuredPlan],
   );
   const summary = useMemo(() => summarizeSteps(steps), [steps]);
 
@@ -183,13 +242,13 @@ export default function RecordScreen() {
       start(null, distanceKm, null, null, 0, []);
     } else if (kind === 'time') {
       start(null, estimatedKm, null, null, Math.round(minutes * 60), []);
-    } else if (structuredSpec) {
+    } else if (structuredPlan) {
       // No target distance is claimed: warm-up/cool-down are time-based, so a
       // total would be invented. Completion is driven by the steps (#151).
       start(null, 0, null, runKindWorkoutType(kind), 0, steps);
     }
     router.push('/run');
-  }, [coordinate, kind, distanceKm, estimatedKm, minutes, start, structuredSpec, steps]);
+  }, [coordinate, kind, distanceKm, estimatedKm, minutes, start, structuredPlan, steps]);
 
   const summaryBits: string[] = [];
   if (summary.reps) summaryBits.push(`${summary.reps} reps`);
@@ -200,10 +259,12 @@ export default function RecordScreen() {
     summaryBits.push(`${formatDuration(summary.totalDurationSeconds)} total`);
   }
 
-  const open = useCallback((next: SheetKey) => {
+  const open = useCallback((next: SheetState) => {
     selectionFeedback();
     setSheet(next);
   }, []);
+
+  const workLabels = kind === 'fartlek' || kind === 'tempo' || kind === 'intervals' ? WORK_LABELS[kind] : null;
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -244,6 +305,38 @@ export default function RecordScreen() {
             styles.panelContent,
             { paddingBottom: insets.bottom + spacing.lg },
           ]}>
+          {recents.length > 0 ? (
+            <>
+              <Text variant="micro" color="textSecondary">
+                RECENT
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chips}>
+                {recents.map((recent) => (
+                  <Pressable
+                    key={recent.key}
+                    onPress={() => loadRecent(recent)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Repeat ${RUN_KIND_LABELS[recent.kind]}, ${planLabel(recent.plan, unit)}`}
+                    style={({ pressed }) => [
+                      styles.recent,
+                      { backgroundColor: theme.fill },
+                      pressed && styles.pressed,
+                    ]}>
+                    <Text variant="micro" color="accentText">
+                      {RUN_KIND_LABELS[recent.kind]}
+                    </Text>
+                    <Text variant="body" tabular>
+                      {planLabel(recent.plan, unit)}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </>
+          ) : null}
+
           <Text variant="title">What kind of run?</Text>
 
           <ScrollView
@@ -309,7 +402,7 @@ export default function RecordScreen() {
                   selected={
                     !distancePresets(unit).some((preset) => Math.abs(preset - distanceDisplay) < 0.05)
                   }
-                  onPress={() => open('distance')}
+                  onPress={() => open({ key: 'distance' })}
                 />
               </ChipRow>
               <Text variant="caption" color="textSecondary">
@@ -336,7 +429,7 @@ export default function RecordScreen() {
                 <ValueChip
                   label={TIME_PRESETS.includes(minutes) ? 'Custom' : `${minutes}`}
                   selected={!TIME_PRESETS.includes(minutes)}
-                  onPress={() => open('minutes')}
+                  onPress={() => open({ key: 'minutes' })}
                 />
               </ChipRow>
               <Text variant="caption" color="textSecondary" tabular>
@@ -345,38 +438,82 @@ export default function RecordScreen() {
             </>
           ) : null}
 
-          {structuredSpec && kind !== 'free' ? (
+          {structuredPlan && workLabels ? (
             <>
               <View style={styles.builder}>
                 <BuilderRow
                   label="Warm up"
-                  value={structuredSpec.warmupMinutes > 0 ? `${structuredSpec.warmupMinutes} min` : 'None'}
-                  onPress={() => open('warmup')}
+                  value={structuredPlan.warmupMinutes > 0 ? `${structuredPlan.warmupMinutes} min` : 'None'}
+                  onPress={() => open({ key: 'warmup' })}
                 />
-                {structuredSpec.reps > 1 ? (
-                  <BuilderRow label="Repeat" value={`× ${structuredSpec.reps}`} onPress={() => open('reps')} />
+
+                {structuredPlan.sets.map((set, index) => (
+                  <View key={index}>
+                    {structuredPlan.sets.length > 1 ? (
+                      <View style={styles.setHeader}>
+                        <Text variant="micro" color="textSecondary">
+                          {`SET ${index + 1}`}
+                        </Text>
+                        <Pressable
+                          onPress={() => removeSet(index)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove set ${index + 1}`}
+                          hitSlop={8}>
+                          <SymbolView
+                            name="minus.circle"
+                            size={layout.iconSizeSmall}
+                            tintColor={theme.textSecondary}
+                          />
+                        </Pressable>
+                      </View>
+                    ) : null}
+                    {kind !== 'tempo' ? (
+                      <BuilderRow
+                        label="Repeat"
+                        value={`× ${set.reps}`}
+                        onPress={() => open({ key: 'reps', setIndex: index })}
+                      />
+                    ) : null}
+                    <BuilderRow
+                      label={workLabels.work}
+                      value={formatTarget(set.work, unit)}
+                      onPress={() => open({ key: 'work', setIndex: index })}
+                    />
+                    {set.reps > 1 ? (
+                      <BuilderRow
+                        label={workLabels.recovery}
+                        value={formatTarget(set.recovery, unit)}
+                        onPress={() => open({ key: 'recovery', setIndex: index })}
+                      />
+                    ) : null}
+                  </View>
+                ))}
+
+                {kind !== 'tempo' ? (
+                  <Pressable
+                    onPress={() => {
+                      selectionFeedback();
+                      addSet();
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add another set"
+                    style={({ pressed }) => [styles.addSet, pressed && styles.pressed]}>
+                    <SymbolView name="plus" size={layout.iconSizeSmall} tintColor={theme.accentText} />
+                    <Text variant="body" color="accentText">
+                      Add set
+                    </Text>
+                  </Pressable>
                 ) : null}
-                <BuilderRow
-                  label={WORK_LABELS[kind as StructuredKind].work}
-                  value={formatTarget(structuredSpec.work, unit)}
-                  onPress={() => open('work')}
-                />
-                {structuredSpec.reps > 1 ? (
-                  <BuilderRow
-                    label={WORK_LABELS[kind as StructuredKind].recovery}
-                    value={formatTarget(structuredSpec.recovery, unit)}
-                    onPress={() => open('recovery')}
-                  />
-                ) : null}
+
                 <BuilderRow
                   label="Cool down"
-                  value={structuredSpec.cooldownMinutes > 0 ? `${structuredSpec.cooldownMinutes} min` : 'None'}
-                  onPress={() => open('cooldown')}
+                  value={structuredPlan.cooldownMinutes > 0 ? `${structuredPlan.cooldownMinutes} min` : 'None'}
+                  onPress={() => open({ key: 'cooldown' })}
                 />
               </View>
 
               <Text variant="caption" color="textSecondary" accessibilityLabel="Workout preview">
-                {previewLine(kind as StructuredKind, structuredSpec, unit)}
+                {previewLine(kind as StructuredKind, structuredPlan, unit)}
               </Text>
               {summaryBits.length > 0 ? (
                 <Text variant="micro" color="textSecondary" tabular>
@@ -416,7 +553,7 @@ export default function RecordScreen() {
       return null;
     }
 
-    if (sheet === 'distance') {
+    if (sheet.key === 'distance') {
       const limits = DISTANCE_LIMITS[unit];
       return (
         <ValueSheet
@@ -435,7 +572,7 @@ export default function RecordScreen() {
       );
     }
 
-    if (sheet === 'minutes') {
+    if (sheet.key === 'minutes') {
       return (
         <ValueSheet
           visible
@@ -453,17 +590,13 @@ export default function RecordScreen() {
       );
     }
 
-    if (!structuredSpec) {
-      return null;
-    }
-
-    if (sheet === 'warmup' || sheet === 'cooldown') {
-      const key = sheet === 'warmup' ? 'warmupMinutes' : 'cooldownMinutes';
-      const current = structuredSpec[key];
+    if (sheet.key === 'warmup' || sheet.key === 'cooldown') {
+      if (!structuredPlan) return null;
+      const current = sheet.key === 'warmup' ? structuredPlan.warmupMinutes : structuredPlan.cooldownMinutes;
       return (
         <ValueSheet
           visible
-          title={sheet === 'warmup' ? 'Warm up' : 'Cool down'}
+          title={sheet.key === 'warmup' ? 'Warm up' : 'Cool down'}
           valueLabel={current > 0 ? `${current}` : 'None'}
           unit="min"
           presets={WARMUP_MINUTE_PRESETS.map((preset) => ({ label: `${preset}`, value: preset }))}
@@ -472,42 +605,56 @@ export default function RecordScreen() {
           max={LIMITS.warmupMinutes.max}
           step={LIMITS.warmupMinutes.step}
           allowNone
-          onChange={(value) => updateSpec({ [key]: value })}
+          onChange={(value) =>
+            updatePlan(sheet.key === 'warmup' ? { warmupMinutes: value } : { cooldownMinutes: value })
+          }
           onClose={() => setSheet(null)}
         />
       );
     }
 
-    if (sheet === 'reps') {
+    if (!structuredPlan || !workLabels) {
+      return null;
+    }
+    if (sheet.key !== 'reps' && sheet.key !== 'work' && sheet.key !== 'recovery') {
+      return null;
+    }
+    const setIndex = sheet.setIndex;
+    const set = structuredPlan.sets[setIndex];
+    if (!set) {
+      return null;
+    }
+
+    if (sheet.key === 'reps') {
       return (
         <ValueSheet
           visible
           title="Repeat"
-          valueLabel={`${structuredSpec.reps}`}
+          valueLabel={`${set.reps}`}
           unit="×"
           presets={REP_PRESETS.map((preset) => ({ label: `${preset}`, value: preset }))}
-          current={structuredSpec.reps}
+          current={set.reps}
           min={LIMITS.reps.min}
           max={LIMITS.reps.max}
           step={LIMITS.reps.step}
-          onChange={(value) => updateSpec({ reps: Math.round(value) })}
+          onChange={(value) => updateSet(setIndex, { reps: Math.round(value) })}
           onClose={() => setSheet(null)}
         />
       );
     }
 
-    if (sheet === 'work') {
-      return targetSheet('work');
-    }
-    return targetSheet('recovery');
+    return targetSheet(sheet.key, setIndex);
   }
 
-  function targetSheet(which: 'work' | 'recovery') {
-    if (!structuredSpec) {
+  function targetSheet(which: 'work' | 'recovery', setIndex: number) {
+    if (!structuredPlan || !workLabels) {
       return null;
     }
-    const target = structuredSpec[which];
-    const title = which === 'work' ? WORK_LABELS[kind as StructuredKind].work : WORK_LABELS[kind as StructuredKind].recovery;
+    const target = structuredPlan.sets[setIndex]?.[which];
+    if (!target) {
+      return null;
+    }
+    const title = workLabels[which];
 
     if (target.kind === 'duration') {
       const seconds = target.minutes * 60;
@@ -523,7 +670,7 @@ export default function RecordScreen() {
           segment="duration"
           onSegmentChange={(key) => {
             if (key === 'distance') {
-              updateSpec({ [which]: { kind: 'distance', km: 0.4 } });
+              updateSet(setIndex, { [which]: { kind: 'distance', km: 0.4 } });
             }
           }}
           presets={
@@ -535,7 +682,7 @@ export default function RecordScreen() {
           min={which === 'work' ? LIMITS.workMinutes.min * 60 : LIMITS.recoverySeconds.min}
           max={which === 'work' ? LIMITS.workMinutes.max * 60 : LIMITS.recoverySeconds.max}
           step={which === 'work' ? LIMITS.workMinutes.step * 60 : LIMITS.recoverySeconds.step}
-          onChange={(value) => updateSpec({ [which]: { kind: 'duration', minutes: value / 60 } })}
+          onChange={(value) => updateSet(setIndex, { [which]: { kind: 'duration', minutes: value / 60 } })}
           onClose={() => setSheet(null)}
         />
       );
@@ -555,7 +702,7 @@ export default function RecordScreen() {
         segment="distance"
         onSegmentChange={(key) => {
           if (key === 'duration') {
-            updateSpec({ [which]: { kind: 'duration', minutes: which === 'work' ? 2 : 1.5 } });
+            updateSet(setIndex, { [which]: { kind: 'duration', minutes: which === 'work' ? 2 : 1.5 } });
           }
         }}
         presets={workDistancePresets(unit)}
@@ -563,23 +710,26 @@ export default function RecordScreen() {
         min={0.1}
         max={limits.max}
         step={0.1}
-        onChange={(value) => updateSpec({ [which]: { kind: 'distance', km: displayToKm(value, unit) } })}
+        onChange={(value) => updateSet(setIndex, { [which]: { kind: 'distance', km: displayToKm(value, unit) } })}
         onClose={() => setSheet(null)}
       />
     );
   }
 }
 
-function previewLine(kind: StructuredKind, spec: StructuredSpec, unit: DistanceUnit): string {
+function previewLine(kind: StructuredKind, plan: WorkoutPlan, unit: DistanceUnit): string {
+  const labels = WORK_LABELS[kind];
   const parts: string[] = [];
-  if (spec.warmupMinutes > 0) parts.push(`${spec.warmupMinutes} min warm-up`);
-  const work = `${formatTarget(spec.work, unit)} ${WORK_LABELS[kind].work}`;
-  if (spec.reps > 1) {
-    parts.push(`${spec.reps} × (${work} / ${formatTarget(spec.recovery, unit)} ${WORK_LABELS[kind].recovery})`);
-  } else {
-    parts.push(work);
+  if (plan.warmupMinutes > 0) parts.push(`${plan.warmupMinutes} min warm-up`);
+  for (const set of plan.sets) {
+    const work = `${formatTarget(set.work, unit)} ${labels.work}`;
+    if (set.reps > 1) {
+      parts.push(`${set.reps} × (${work} / ${formatTarget(set.recovery, unit)} ${labels.recovery})`);
+    } else {
+      parts.push(work);
+    }
   }
-  if (spec.cooldownMinutes > 0) parts.push(`${spec.cooldownMinutes} min cool-down`);
+  if (plan.cooldownMinutes > 0) parts.push(`${plan.cooldownMinutes} min cool-down`);
   return parts.join(' · ');
 }
 
@@ -693,6 +843,15 @@ const styles = StyleSheet.create({
     borderRadius: radii.small,
     borderCurve: 'continuous',
   },
+  recent: {
+    gap: 2,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.small,
+    borderCurve: 'continuous',
+    minHeight: 52,
+    justifyContent: 'center',
+  },
   valueChip: {
     minWidth: 56,
     alignItems: 'center',
@@ -703,6 +862,13 @@ const styles = StyleSheet.create({
   },
   builder: {
     gap: 0,
+  },
+  setHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 32,
+    marginTop: spacing.xs,
   },
   builderRow: {
     flexDirection: 'row',
@@ -715,6 +881,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
+  },
+  addSet: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xxs,
+    minHeight: layout.minTouchTarget,
   },
   pressed: {
     opacity: 0.6,
