@@ -1,9 +1,8 @@
-import type { LiveActivity } from 'expo-widgets';
+import { requireNativeModule } from 'expo-modules-core';
 import { useEffect, useMemo, useRef } from 'react';
 import { Platform } from 'react-native';
 
 import { useRun } from '@/services/run-context';
-import { RunLiveActivity, type RunActivityProps } from '@/services/run-live-activity';
 import { useFormatters } from '@/services/settings-context';
 import { WORKOUT_LABELS } from '@/services/training';
 import { useTraining } from '@/services/training-context';
@@ -11,81 +10,134 @@ import { useTraining } from '@/services/training-context';
 /**
  * Drives the active-run Live Activity from the run engine (#149).
  *
- * The run engine stays the single source of truth: this only translates its
- * snapshot into activity props. It starts one activity per run, pushes content
- * on a bounded cadence (and immediately on pause/resume/finish), ends it when
- * the run ends, and cleans up leftovers so duplicates cannot accumulate.
+ * The run engine stays the single source of truth: this only reflects its
+ * snapshot through the native ActivityKit module — start one activity per run,
+ * push content on a bounded cadence (and immediately on pause/resume/finish),
+ * end it when the run ends, and clear leftovers so duplicates cannot stack.
  *
- * Every call is guarded: a device without Live Activities, or one where they
- * are disabled, simply does nothing — tracking is never affected.
+ * Guarded throughout: on a device without the native module, or with Live
+ * Activities unsupported or disabled, it does nothing and tracking is normal.
  */
 const UPDATE_INTERVAL_MS = 15_000;
-const DEEP_LINK = 'roam://run';
+
+type NativeLiveActivity = {
+  start: (
+    distanceKm: number,
+    durationSeconds: number,
+    paceLabel: string,
+    state: string,
+    workoutLabel: string,
+  ) => string | null;
+  update: (
+    id: string,
+    distanceKm: number,
+    durationSeconds: number,
+    paceLabel: string,
+    state: string,
+    workoutLabel: string,
+  ) => Promise<void>;
+  end: (id: string) => Promise<void>;
+  endAll: () => Promise<void>;
+};
+
+/** Resolved once. Absent on non-iOS or when the module is not linked. */
+const native: NativeLiveActivity | null = (() => {
+  if (Platform.OS !== 'ios') {
+    return null;
+  }
+  try {
+    return requireNativeModule<NativeLiveActivity>('RoamLiveActivity');
+  } catch {
+    return null;
+  }
+})();
 
 export function RunLiveActivityBridge() {
   const run = useRun();
   const fmt = useFormatters();
   const { state: training } = useTraining();
-  const instance = useRef<LiveActivity<RunActivityProps> | null>(null);
+  const activityId = useRef<string | null>(null);
   const lastUpdate = useRef(0);
 
   const workout = run.plannedWorkoutId
     ? (training.workouts.find((entry) => entry.id === run.plannedWorkoutId) ?? null)
     : null;
 
-  const props = useMemo<RunActivityProps>(
+  const content = useMemo(
     () => ({
       distanceKm: run.distanceMeters / 1000,
-      durationSeconds: run.activeSeconds,
+      durationSeconds: Math.max(0, Math.round(run.activeSeconds)),
       paceLabel: fmt.paceWithUnit(run.paceMinPerKm),
       state: run.status === 'paused' ? 'paused' : 'active',
-      workoutLabel: workout ? WORKOUT_LABELS[workout.type] : null,
+      workoutLabel: workout ? WORKOUT_LABELS[workout.type] : '',
     }),
-    // Recompute when any displayed value changes.
     [run.distanceMeters, run.activeSeconds, run.paceMinPerKm, run.status, workout, fmt],
   );
 
   const running = run.status === 'active' || run.status === 'paused';
 
+  // Start / end with the run lifecycle.
   useEffect(() => {
-    if (Platform.OS !== 'ios') {
+    if (!native) {
       return;
     }
-    try {
-      if (running && !instance.current) {
-        // A previous session may have left an activity behind (a kill, a crash);
-        // end those before starting a fresh one so only one ever exists.
-        for (const stale of RunLiveActivity.getInstances()) {
-          void stale.end('immediate');
+    let cancelled = false;
+    void (async () => {
+      if (running) {
+        if (activityId.current === null) {
+          // End anything left over from an earlier session before starting.
+          await native.endAll().catch(() => {});
+          if (cancelled) {
+            return;
+          }
+          const id = native.start(
+            content.distanceKm,
+            content.durationSeconds,
+            content.paceLabel,
+            content.state,
+            content.workoutLabel,
+          );
+          if (!cancelled) {
+            activityId.current = id;
+            lastUpdate.current = Date.now();
+          }
         }
-        instance.current = RunLiveActivity.start(props, DEEP_LINK);
-        lastUpdate.current = Date.now();
-      } else if (!running && instance.current) {
-        const current = instance.current;
-        instance.current = null;
-        void current.end('immediate', props);
+      } else if (activityId.current !== null) {
+        const id = activityId.current;
+        activityId.current = null;
+        await native.end(id).catch(() => {});
       }
-    } catch {
-      // Live Activities unsupported or disabled: track normally.
-      instance.current = null;
-    }
-    // Lifecycle is keyed on `running`; content is pushed in the effect below.
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Lifecycle only: content is pushed in the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running]);
 
+  // Push content on a bounded cadence, and immediately on a state change.
   useEffect(() => {
-    const current = instance.current;
-    if (!current) {
+    if (!native || activityId.current === null) {
       return;
     }
     const now = Date.now();
-    const isStateChange = run.status !== 'active';
+    const isStateChange = content.state === 'paused';
     if (!isStateChange && now - lastUpdate.current < UPDATE_INTERVAL_MS) {
       return;
     }
     lastUpdate.current = now;
-    current.update(props).catch(() => {});
-  }, [props, run.status]);
+    const id = activityId.current;
+    void native
+      .update(
+        id,
+        content.distanceKm,
+        content.durationSeconds,
+        content.paceLabel,
+        content.state,
+        content.workoutLabel,
+      )
+      .catch(() => {});
+  }, [content]);
 
   return null;
 }

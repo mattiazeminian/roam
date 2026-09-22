@@ -9,6 +9,11 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.mattiazeminian.roam",
+      "appleTeamId": "SZV79GWL87",
+      "infoPlist": {
+        "NSSupportsLiveActivities": true,
+        "NSSupportsLiveActivitiesFrequentUpdates": true
+      },
       "icon": {
         "light": "./assets/images/icon-light.png",
         "dark": "./assets/images/icon.png",
@@ -63,13 +68,7 @@
           "isIosBackgroundLocationEnabled": true
         }
       ],
-      [
-        "expo-widgets",
-        {
-          "enablePushNotifications": false,
-          "frequentUpdates": true
-        }
-      ]
+      "@bacons/apple-targets"
     ],
     "experiments": {
       "typedRoutes": true,
