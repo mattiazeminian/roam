@@ -276,10 +276,13 @@ const CANDIDATE_COUNT = 3;
  * — consistent with how ORS's round-trip algorithm works: each point is a
  * real via-point the router must physically reach through the street network,
  * so more points means more real-world detours compounding on top of each
- * other, not just a more circular *shape*. 8 was cut entirely; 4–7 keeps
- * meaningful variety while capping the worst of this effect.
+ * other, not just a more circular *shape*. Higher point counts are no longer
+ * requested; 2–3 makes a simple out-and-back available and 4–5 keeps limited
+ * loop variety.
  */
-const POINT_COUNT_RANGE = [4, 5, 6, 7] as const;
+// Low point counts keep generated runs simple: 2–3 points commonly produce
+// a readable out-and-back, while 4–5 preserve limited loop variety.
+const POINT_COUNT_RANGE = [2, 3, 4, 5] as const;
 
 const REQUEST_TIMEOUT_MS = 20_000;
 
@@ -444,14 +447,32 @@ function rankByQuality(candidates: RawCandidate[], targetM: number): RawCandidat
   return [...candidates]
     .map((candidate) => ({
       candidate,
-      score: scoreRoute(
-        analyzeRoute(candidate.geometry),
-        candidate.distanceM,
-        targetM,
-        tolerance,
-        candidate.attributes,
-        candidate.ascentM,
-      ).total,
+      score: (() => {
+        const metrics = analyzeRoute(candidate.geometry);
+        const quality = scoreRoute(
+          metrics,
+          candidate.distanceM,
+          targetM,
+          tolerance,
+          candidate.attributes,
+          candidate.ascentM,
+        );
+        // Prefer a coherent route shape without forcing every run into an
+        // out-and-back. A compact loop and a clear out-and-back are both good;
+        // fragmented, highly crossing geometry is not. The existing quality
+        // score still decides distance, pedestrian access, roads and climb.
+        const loopCoherence = Math.max(
+          0,
+          Math.min(1, metrics.shape.compactness) * 0.65 +
+            Math.min(1, 2 / Math.max(1, metrics.shape.elongation)) * 0.35 -
+            metrics.shape.selfIntersections * 0.2,
+        );
+        const outAndBackCoherence =
+          Math.max(0, 1 - Math.abs(metrics.backtracking.ratio - 0.5) / 0.5) * 0.6 +
+          quality.components.turns * 0.4;
+        const coherence = Math.max(loopCoherence, outAndBackCoherence);
+        return quality.total * 0.7 + coherence * 0.3;
+      })(),
     }))
     .sort(
       (a, b) =>

@@ -231,15 +231,13 @@ describe('randomVariants', () => {
     expect(new Set(variants.map((v) => v.points)).size).toBe(3);
   });
 
-  test('point counts stay within the bounded range', () => {
+  test('point counts include simple out-and-back candidates', () => {
     const { randomVariants } = loadRouting('test-key');
-    // The full range has 4 values ([4,5,6,7] — 8 was cut after measurement,
-    // see the comment on POINT_COUNT_RANGE); requesting more than that would
-    // silently return fewer than asked, so this asks for exactly the range size.
-    for (const variant of randomVariants(4)) {
-      expect(variant.points).toBeGreaterThanOrEqual(4);
-      expect(variant.points).toBeLessThanOrEqual(7);
-    }
+    const variants = randomVariants(4);
+    expect(variants.map((variant) => variant.points)).toEqual(
+      expect.arrayContaining([2, 3]),
+    );
+    expect(variants.every((variant) => variant.points >= 2 && variant.points <= 5)).toBe(true);
   });
 
   test('seeds are positive integers', () => {
@@ -551,7 +549,7 @@ describe('findRoutes', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test('ranks a clean loop above an equal-distance route that doubles back (#52)', async () => {
+  test('keeps both coherent loops and out-and-backs eligible at equal distance', async () => {
     const { findRoutes } = loadRouting('test-key');
 
     // Straight north and straight back: half its length retraces the other half.
@@ -583,10 +581,10 @@ describe('findRoutes', () => {
     const routes = await findRoutes({ origin: ORIGIN, targetKm: 5 });
     const ratios = routes.map((route) => analyzeRoute(route.geometry).backtracking.ratio);
 
-    // All three are "on target"; quality decides, so the clean loops come first
-    // and the out-and-back is last despite matching the distance exactly.
-    expect(ratios[0]).toBeLessThan(0.1);
-    expect(ratios[ratios.length - 1]).toBeGreaterThan(0.3);
+    // A full loop and a clear out-and-back are both intentional route shapes;
+    // neither should be rejected merely because it is not the other shape.
+    expect(ratios.some((ratio) => ratio > 0.3)).toBe(true);
+    expect(ratios.some((ratio) => ratio < 0.1)).toBe(true);
   });
 
   test('prefers the more pedestrian-friendly route at equal distance and shape (#55)', async () => {
