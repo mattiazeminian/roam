@@ -105,12 +105,15 @@ struct RoamRunLiveActivityWidget: Widget {
             }
           }
         }
+      // The compact island sits beside the camera, so it stays deliberately
+      // small: a state symbol and the distance to one decimal. The clock and
+      // pace live in the expanded island and the Lock Screen banner.
       } compactLeading: {
         Image(systemName: state.state == "paused" ? "pause.fill" : "figure.run")
           .foregroundStyle(brandLime)
       } compactTrailing: {
-        RunClock(state: state)
-          .font(.system(size: 14, weight: .semibold, design: .rounded))
+        Text(String(format: "%.1f", state.distanceKm))
+          .font(.system(size: 14, weight: .bold, design: .rounded))
           .monospacedDigit()
           .foregroundStyle(brandLime)
       } minimal: {
