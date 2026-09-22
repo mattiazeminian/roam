@@ -62,6 +62,13 @@
           "locationAlwaysAndWhenInUsePermission": "ROAM keeps recording your run when the screen is off or ROAM is in the background.",
           "isIosBackgroundLocationEnabled": true
         }
+      ],
+      [
+        "expo-widgets",
+        {
+          "enablePushNotifications": false,
+          "frequentUpdates": true
+        }
       ]
     ],
     "experiments": {

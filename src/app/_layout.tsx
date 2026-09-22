@@ -9,6 +9,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 // TaskManager, which must happen at the bundle's global scope so the task
 // exists when the OS wakes the app in the background (#30).
 import '@/services/background-location';
+import { RunLiveActivityBridge } from '@/components/run-live-activity-bridge';
 import { AccountProvider } from '@/services/account-context';
 import { LocationProvider } from '@/services/location-context';
 import { RouteProvider } from '@/services/route-context';
@@ -52,6 +53,7 @@ export default function RootLayout() {
             <LocationProvider>
               <RouteProvider>
                 <RunProvider>
+                  <RunLiveActivityBridge />
                   <AppShell />
                 </RunProvider>
               </RouteProvider>
