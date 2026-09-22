@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AccessibilityInfo, Modal, StyleSheet } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import Animated, {
   Easing,
+  Extrapolation,
+  interpolate,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
@@ -10,13 +13,16 @@ import Animated, {
 
 import { Text } from '@/components/text';
 import { impactLight, impactMedium } from '@/lib/haptics';
-import { motion, radii, spacing, useTheme } from '@/theme';
+import { palette, spacing } from '@/theme';
+import { useSettings } from '@/services/settings-context';
 
 /** One second per step, then a short beat on GO before the run actually begins. */
 const STEP_MS = 1000;
 const GO_HOLD_MS = 550;
-
-const SEQUENCE = ['3', '2', '1', 'GO'] as const;
+/** How long the takeover fades out over the run screen's own fade-in. */
+const HANDOVER_MS = 300;
+/** A hair beyond the fade, so removal happens while it is already invisible. */
+const HANDOVER_REMOVE_MS = 340;
 
 /**
  * A 3-2-1-GO countdown shown over the screen a run starts from.
@@ -27,14 +33,27 @@ const SEQUENCE = ['3', '2', '1', 'GO'] as const;
  * The countdown gives the GPS a moment to converge and the runner an
  * unambiguous start signal.
  *
- * The timing is functional, not decorative — it still counts down under Reduce
- * Motion; only the pop is switched off.
+ * A full-screen brand-black takeover, like Nike's. It is a modal, so it covers
+ * the tab bar and the whole screen. On GO it does not just disappear: it hands
+ * over to the run screen by fading out *while* that screen fades in, so the
+ * screen the run was started from is never shown in between.
  */
 export function StartCountdown({ onComplete }: { onComplete: () => void }) {
-  const theme = useTheme();
   const reduceMotion = useReducedMotion();
-  const [label, setLabel] = useState<string>(SEQUENCE[0]);
-  const enter = useSharedValue(reduceMotion ? 1 : 0);
+  const { settings } = useSettings();
+  const duration = settings.startCountdownSeconds;
+  const sequence = useMemo(
+    () => [...Array.from({ length: duration }, (_, index) => String(duration - index)), 'GO'],
+    [duration],
+  );
+  const [label, setLabel] = useState<string>(sequence[0] ?? 'GO');
+
+  /** 0 → 1 across one step. Drives both the grow and the dissolve. */
+  const progress = useSharedValue(reduceMotion ? 1 : 0);
+  /** 0 while counting a number, 1 on GO (which holds instead of dissolving). */
+  const goPhase = useSharedValue(0);
+  /** The whole takeover's opacity, so GO can hand over rather than cut. */
+  const overlay = useSharedValue(1);
 
   // The countdown must not restart if the parent re-creates its callback, so
   // the latest one is read from a ref rather than being an effect dependency.
@@ -47,39 +66,52 @@ export function StartCountdown({ onComplete }: { onComplete: () => void }) {
     let cancelled = false;
     const timers: ReturnType<typeof setTimeout>[] = [];
 
+    // Navigate now and fade the takeover out with it: the run screen fades in
+    // underneath, so the runner goes straight from GO to the run.
+    const handOver = () => {
+      if (cancelled) {
+        return;
+      }
+      if (!reduceMotion) {
+        overlay.value = withTiming(0, {
+          duration: HANDOVER_MS,
+          easing: Easing.out(Easing.quad),
+        });
+      }
+      onCompleteRef.current();
+    };
+
     const show = (index: number) => {
       if (cancelled) {
         return;
       }
-      const next = SEQUENCE[index];
+      const next = sequence[index];
+      const isGo = next === 'GO';
       setLabel(next);
-      if (next === 'GO') {
+      goPhase.value = isGo ? 1 : 0;
+
+      if (isGo) {
         impactMedium();
       } else {
         impactLight();
       }
-      if (!reduceMotion) {
-        enter.value = 0;
-        enter.value = withTiming(1, {
-          duration: motion.fastDuration,
-          easing: Easing.out(Easing.cubic),
-        });
-      }
-      // VoiceOver: the number is the only signal, so it is announced rather
-      // than left to be discovered on screen.
-      AccessibilityInfo.announceForAccessibility(next === 'GO' ? 'Go' : next);
+      AccessibilityInfo.announceForAccessibility(isGo ? 'Go' : next);
 
-      if (index + 1 < SEQUENCE.length) {
-        timers.push(setTimeout(() => show(index + 1), STEP_MS));
-      } else {
-        timers.push(
-          setTimeout(() => {
-            if (!cancelled) {
-              onCompleteRef.current();
-            }
-          }, GO_HOLD_MS),
-        );
+      if (isGo) {
+        // GO eases in, then holds until the hand-over.
+        if (!reduceMotion) {
+          progress.value = 0;
+          progress.value = withTiming(1, { duration: 300, easing: Easing.out(Easing.cubic) });
+        }
+        timers.push(setTimeout(handOver, GO_HOLD_MS));
+        return;
       }
+
+      if (!reduceMotion) {
+        progress.value = 0;
+        progress.value = withTiming(1, { duration: STEP_MS, easing: Easing.linear });
+      }
+      timers.push(setTimeout(() => show(index + 1), STEP_MS));
     };
 
     show(0);
@@ -87,34 +119,55 @@ export function StartCountdown({ onComplete }: { onComplete: () => void }) {
       cancelled = true;
       timers.forEach(clearTimeout);
     };
-  }, [enter, reduceMotion]);
+  }, [goPhase, overlay, progress, reduceMotion, sequence]);
 
-  const numberStyle = useAnimatedStyle(() => ({
-    opacity: enter.value,
-    transform: [{ scale: 0.72 + enter.value * 0.28 }],
-  }));
+  const overlayStyle = useAnimatedStyle(() => ({ opacity: overlay.value }));
 
-  const isGo = label === 'GO';
+  const numberStyle = useAnimatedStyle(() => {
+    if (reduceMotion) {
+      return { opacity: 1, transform: [{ scale: 1 }] };
+    }
+    const p = progress.value;
+    if (goPhase.value === 1) {
+      // GO arrives and stays put.
+      return {
+        opacity: interpolate(p, [0, 0.5], [0, 1], Extrapolation.CLAMP),
+        transform: [{ scale: interpolate(p, [0, 1], [0.9, 1], Extrapolation.CLAMP) }],
+      };
+    }
+    // A number: fade up, grow past its size, then dissolve upward.
+    return {
+      opacity: interpolate(p, [0, 0.16, 0.68, 1], [0, 1, 1, 0], Extrapolation.CLAMP),
+      transform: [{ scale: interpolate(p, [0, 0.55, 1], [0.72, 1, 1.42], Extrapolation.CLAMP) }],
+    };
+  });
 
   return (
-    <View style={[styles.root, { backgroundColor: theme.background }]} accessibilityViewIsModal>
-      <Text variant="micro" color="textSecondary">
-        GET READY
-      </Text>
-      <Animated.View style={numberStyle}>
-        {isGo ? (
-          <View style={[styles.goPill, { backgroundColor: theme.accent }]}>
-            <Text variant="metric" color="accentForeground">
-              GO
-            </Text>
-          </View>
-        ) : (
-          <Text variant="metric" tabular accessibilityLiveRegion="assertive">
+    <Modal
+      visible
+      transparent
+      animationType="none"
+      presentationStyle="overFullScreen"
+      statusBarTranslucent
+      onRequestClose={() => {}}>
+      <Animated.View style={[styles.root, overlayStyle]} accessibilityViewIsModal>
+        {/* The takeover is always dark, so the status bar must read light on it
+            even in the light appearance. */}
+        <StatusBar style="light" />
+        <Animated.View style={numberStyle}>
+          <Text
+            variant="metric"
+            color="accent"
+            tabular
+            maxFontSizeMultiplier={1}
+            numberOfLines={1}
+            accessibilityLiveRegion="assertive"
+            style={styles.countdownNumber}>
             {label}
           </Text>
-        )}
+        </Animated.View>
       </Animated.View>
-    </View>
+    </Modal>
   );
 }
 
@@ -124,38 +177,66 @@ export function StartCountdown({ onComplete }: { onComplete: () => void }) {
  * `complete` is its `onComplete`.
  */
 export function useStartCountdown() {
+  const { settings } = useSettings();
   const [counting, setCounting] = useState(false);
   const pending = useRef<(() => void) | null>(null);
+  const removing = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const begin = useCallback((action: () => void) => {
     pending.current = action;
+    if (settings.startCountdownSeconds === 0) {
+      pending.current = null;
+      action();
+      return;
+    }
     setCounting(true);
-  }, []);
+  }, [settings.startCountdownSeconds]);
 
   const complete = useCallback(() => {
-    setCounting(false);
     const action = pending.current;
     pending.current = null;
+    // Start the run first, then drop the (now invisible) takeover once the run
+    // screen's own transition has finished. Removing it immediately would flash
+    // the screen the run was started from.
     action?.();
+    if (removing.current) {
+      clearTimeout(removing.current);
+    }
+    removing.current = setTimeout(() => {
+      removing.current = null;
+      setCounting(false);
+    }, HANDOVER_REMOVE_MS);
   }, []);
+
+  useEffect(
+    () => () => {
+      if (removing.current) {
+        clearTimeout(removing.current);
+      }
+    },
+    [],
+  );
 
   return { counting, begin, complete };
 }
 
 const styles = StyleSheet.create({
   root: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    // The brand ground, always: a deliberate black takeover before the run.
+    backgroundColor: palette.nearBlack,
   },
-  goPill: {
-    borderRadius: radii.pill,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.xs,
+  countdownNumber: {
+    // Full width so the numeral centres with room either side. The tracking is
+    // reset here so a single glyph cannot clip on its right edge; the tall line
+    // box gives the same room vertically.
+    width: '100%',
+    minHeight: 110,
+    lineHeight: 110,
+    letterSpacing: 0,
+    textAlign: 'center',
   },
 });

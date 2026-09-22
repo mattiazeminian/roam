@@ -23,6 +23,7 @@ import {
   MIN_PACE_MIN_PER_KM,
   paceToDisplay,
   type DistanceUnit,
+  type StartCountdownSeconds,
 } from '@/services/settings';
 import { deleteRun, listRuns } from '@/services/run-storage';
 import { layout, radii, spacing, useTheme } from '@/theme';
@@ -30,6 +31,12 @@ import { layout, radii, spacing, useTheme } from '@/theme';
 const PACE_STEP = 0.1;
 
 const APPEARANCE_LABELS = { system: 'System', light: 'Light', dark: 'Dark' } as const;
+const COUNTDOWN_OPTIONS: { value: StartCountdownSeconds; label: string }[] = [
+  { value: 0, label: 'Off' },
+  { value: 3, label: '3 seconds' },
+  { value: 6, label: '6 seconds' },
+  { value: 9, label: '9 seconds' },
+];
 
 /**
  * Settings — only things that change what Roam does.
@@ -47,6 +54,7 @@ export default function SettingsScreen() {
   const [exporting, setExporting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [countdownPicker, setCountdownPicker] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -135,6 +143,19 @@ export default function SettingsScreen() {
         actions={[{ label: 'Delete', destructive: true, onPress: () => { void listRuns().then((runs) => Promise.all(runs.map((run) => deleteRun(run.id)))).then(() => setRunCount(0)).catch(() => setNotice('The saved runs could not be removed.')); } }]}
         onClose={() => setDeleteConfirm(false)}
       />
+      <ActionSheet
+        visible={countdownPicker}
+        title="Start countdown"
+        message="A short pause before tracking begins."
+        actions={COUNTDOWN_OPTIONS.map((option) => ({
+          label: option.value === settings.startCountdownSeconds ? `${option.label} ✓` : option.label,
+          onPress: () => {
+            selectionFeedback();
+            update({ startCountdownSeconds: option.value });
+          },
+        }))}
+        onClose={() => setCountdownPicker(false)}
+      />
       {notice ? <Text variant="body" color="danger">{notice}</Text> : null}
       <ScrollView
         contentContainerStyle={[
@@ -214,6 +235,18 @@ export default function SettingsScreen() {
               );
             })}
           </View>
+          <Divider />
+          <Row
+            label="Start countdown"
+            trailing={
+              <Text variant="caption" color="textSecondary">
+                {COUNTDOWN_OPTIONS.find((option) => option.value === settings.startCountdownSeconds)?.label}
+              </Text>
+            }
+            showChevron
+            onPress={() => setCountdownPicker(true)}
+            accessibilityLabel={`Start countdown, ${COUNTDOWN_OPTIONS.find((option) => option.value === settings.startCountdownSeconds)?.label}`}
+          />
           <Divider />
           <Row
             accessibilityLabel={`Typical pace, ${formatters.paceSpoken(settings.typicalPaceMinPerKm)}`}

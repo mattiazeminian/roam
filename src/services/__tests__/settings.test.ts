@@ -116,4 +116,20 @@ describe('settings', () => {
     );
     expect((await loadSettings()).appearance).toBe('system');
   });
+
+  test('start countdown preference round-trips and legacy settings keep 3 seconds (#153)', async () => {
+    await saveSettings({ ...DEFAULT_SETTINGS, startCountdownSeconds: 9 });
+    expect((await loadSettings()).startCountdownSeconds).toBe(9);
+
+    mockFiles.set(
+      'doc/settings.json',
+      JSON.stringify({ unit: 'km', typicalPaceMinPerKm: 6, defaultDistanceKm: 5 }),
+    );
+    expect((await loadSettings()).startCountdownSeconds).toBe(3);
+  });
+
+  test('invalid start countdown values fall back to 3 seconds', async () => {
+    mockFiles.set('doc/settings.json', JSON.stringify({ ...DEFAULT_SETTINGS, startCountdownSeconds: 4 }));
+    expect((await loadSettings()).startCountdownSeconds).toBe(3);
+  });
 });

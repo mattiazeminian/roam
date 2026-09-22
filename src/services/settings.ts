@@ -10,6 +10,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import type { AppearancePreference } from '@/theme';
 
 export type DistanceUnit = 'km' | 'mi';
+export type StartCountdownSeconds = 0 | 3 | 6 | 9;
 
 export type Settings = {
   unit: DistanceUnit;
@@ -26,6 +27,8 @@ export type Settings = {
   typicalPaceMinPerKm: number;
   /** Distance Home opens with. */
   defaultDistanceKm: number;
+  /** Global delay before a run starts; zero starts immediately. */
+  startCountdownSeconds: StartCountdownSeconds;
   /**
    * Whether the one-time introduction has been seen. Until it has, Roam does
    * not ask for location, so the system dialog is never the first thing a new
@@ -39,6 +42,7 @@ export const DEFAULT_SETTINGS: Settings = {
   appearance: 'system',
   typicalPaceMinPerKm: 6.6,
   defaultDistanceKm: 5,
+  startCountdownSeconds: 3,
   hasCompletedOnboarding: false,
 };
 
@@ -75,6 +79,13 @@ function parseSettings(value: unknown): Settings {
     defaultDistanceKm: Number.isFinite(raw.defaultDistanceKm)
       ? clamp(raw.defaultDistanceKm as number, 1, 42)
       : DEFAULT_SETTINGS.defaultDistanceKm,
+    startCountdownSeconds:
+      raw.startCountdownSeconds === 0 ||
+      raw.startCountdownSeconds === 3 ||
+      raw.startCountdownSeconds === 6 ||
+      raw.startCountdownSeconds === 9
+        ? raw.startCountdownSeconds
+        : DEFAULT_SETTINGS.startCountdownSeconds,
     hasCompletedOnboarding: raw.hasCompletedOnboarding === true,
   };
 }
