@@ -3,6 +3,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 // Imported for its side effect: it registers the background location task with
 // TaskManager, which must happen at the bundle's global scope so the task
@@ -74,6 +75,7 @@ function AppShell() {
   const scheme = useAppearance();
 
   return (
+    <GestureHandlerRootView style={styles.root}>
     <ThemeProvider value={scheme === 'dark' ? DarkTheme : DefaultTheme}>
     <View style={[styles.root, { backgroundColor: theme.background }]}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
@@ -125,9 +127,12 @@ function AppShell() {
         <Stack.Screen name="shared-route" />
         {/* Choosing a start place is a modal decision, not a destination. */}
         <Stack.Screen name="location-search" options={{ presentation: 'modal' }} />
+        {/* Adding a shoe is a short, self-contained pick. */}
+        <Stack.Screen name="add-shoe" options={{ presentation: 'modal' }} />
       </Stack>
     </View>
     </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }
 

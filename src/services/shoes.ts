@@ -39,27 +39,14 @@ export const SHOE_TYPES: { key: ShoeType; label: string }[] = [
   { key: 'other', label: 'Other' },
 ];
 
-export const SHOE_CATALOG = [
-  { key: 'nike', name: 'Nike', models: ['Pegasus 41', 'Vomero 18', 'Structure 25', 'Alphafly 3'] },
-  { key: 'adidas', name: 'adidas', models: ['Supernova Rise', 'Adizero Boston 13', 'Adizero Adios Pro 4'] },
-  { key: 'asics', name: 'ASICS', models: ['Gel-Nimbus 27', 'Novablast 5', 'Gel-Kayano 31', 'Metaspeed Sky Paris'] },
-  { key: 'new-balance', name: 'New Balance', models: ['1080v14', 'FuelCell Rebel v5', 'Fresh Foam X 860v14'] },
-  { key: 'hoka', name: 'HOKA', models: ['Clifton 10', 'Bondi 9', 'Mach 6', 'Speedgoat 6'] },
-  { key: 'brooks', name: 'Brooks', models: ['Ghost 17', 'Glycerin 22', 'Adrenaline GTS 24'] },
-  { key: 'saucony', name: 'Saucony', models: ['Ride 18', 'Endorphin Speed 4', 'Triumph 22'] },
-  { key: 'on', name: 'On', models: ['Cloudsurfer 2', 'Cloudmonster 2', 'Cloudboom Strike'] },
-  { key: 'mizuno', name: 'Mizuno', models: ['Wave Rider 29', 'Neo Vista', 'Wave Rebellion Pro 3'] },
-  { key: 'puma', name: 'PUMA', models: ['Velocity Nitro 3', 'Deviate Nitro 3', 'Fast-R Nitro Elite 3'] },
-] as const;
-
-export function shoeBrandInitials(shoe: Pick<Shoe, 'brand'>): string {
-  return shoe.brand.trim().split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'S';
-}
-
-export function catalogBrandKey(brand: string): string | null {
-  const normalized = brand.trim().toLocaleLowerCase();
-  return SHOE_CATALOG.find((entry) => entry.name.toLocaleLowerCase() === normalized)?.key ?? null;
-}
+export {
+  SHOE_BRANDS,
+  SHOE_CATALOG,
+  brandInitials,
+  catalogBrandKey,
+  findBrand,
+  type ShoeBrand,
+} from './shoe-catalog';
 
 export const EMPTY_SHOES: Shoe[] = [];
 

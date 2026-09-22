@@ -10,7 +10,8 @@
     "ios": {
       "bundleIdentifier": "com.mattiazeminian.roam",
       "icon": {
-        "light": "./assets/images/icon.png",
+        "light": "./assets/images/icon-light.png",
+        "dark": "./assets/images/icon.png",
         "tinted": "./assets/images/icon-tinted.png"
       }
     },
@@ -37,9 +38,14 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#0E0F0C",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200
+          "backgroundColor": "#FFFFFF",
+          "image": "./assets/images/splash-lockup-light.png",
+          "imageWidth": 200,
+          "dark": {
+            "backgroundColor": "#0E0F0C",
+            "image": "./assets/images/splash-icon.png",
+            "imageWidth": 200
+          }
         }
       ],
       "@rnmapbox/maps",
