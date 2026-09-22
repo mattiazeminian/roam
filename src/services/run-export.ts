@@ -16,6 +16,14 @@ import { formatRunDate, type SavedRun } from './run-session';
 
 const EXPORT_FILE = 'roam-runs.gpx';
 
+/** Escapes text for XML character data. GPX is strict; a stray `&` breaks it. */
+export function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function isoOrNull(ms: number | null | undefined): string | null {
   return typeof ms === 'number' && Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
@@ -38,7 +46,7 @@ export function runToTrack(run: SavedRun): string | null {
 
   return [
     '  <trk>',
-    `    <name>${formatRunDate(run.startedAt)}</name>`,
+    `    <name>${escapeXml(formatRunDate(run.startedAt))}</name>`,
     '    <trkseg>',
     ...points,
     '    </trkseg>',

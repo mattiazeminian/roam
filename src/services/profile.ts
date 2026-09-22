@@ -170,7 +170,10 @@ export async function pickAvatar(): Promise<string | null> {
       file.create();
     }
     file.write(result.assets[0].base64, { encoding: 'base64' });
-    return file.uri;
+    // The file keeps a fixed name, so its URI is stable across changes and
+    // React Native's image cache would keep showing the previous photo. A
+    // version query makes each pick a new URI without leaving orphan files.
+    return `${file.uri}?v=${Date.now()}`;
   } catch {
     // A missing or failing native picker must never take the profile down.
     return null;

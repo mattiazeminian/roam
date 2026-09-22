@@ -8,7 +8,7 @@
  */
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 
-import { runToTrack, toGpxDocument, writeRunsGpx } from '../run-export';
+import { escapeXml, runToTrack, toGpxDocument, writeRunsGpx } from '../run-export';
 import type { SavedRun } from '../run-session';
 
 const mockFiles = new Map<string, string>();
@@ -107,6 +107,10 @@ describe('runToTrack (#45)', () => {
   test('refuses to export a run with no usable track', () => {
     expect(runToTrack(run({ coordinates: [] }))).toBeNull();
     expect(runToTrack(run({ coordinates: [{ latitude: 1, longitude: 2 }] }))).toBeNull();
+  });
+
+  test('escapes XML special characters so a name cannot break the document', () => {
+    expect(escapeXml('a & b < c > d')).toBe('a &amp; b &lt; c &gt; d');
   });
 });
 
