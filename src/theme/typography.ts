@@ -32,14 +32,16 @@ export const typography = {
   metric: {
     fontFamily: fontFamilies.display,
     fontSize: 64,
-    lineHeight: 66,
+    // Helvetica Neue Condensed Black's ascent + descent is ~1.17em. A line box
+    // tighter than that clips the glyphs, so every display tier keeps slack.
+    lineHeight: 76,
     fontWeight: '700',
     letterSpacing: -2.5,
   },
   hero: {
     fontFamily: fontFamilies.display,
     fontSize: 56,
-    lineHeight: 58,
+    lineHeight: 66,
     fontWeight: '700',
     letterSpacing: -2,
   },
@@ -47,7 +49,7 @@ export const typography = {
   display: {
     fontFamily: fontFamilies.display,
     fontSize: 34,
-    lineHeight: 38,
+    lineHeight: 40,
     fontWeight: '700',
     letterSpacing: -1,
   },
@@ -111,3 +113,14 @@ export type TypographyVariant = keyof typeof typography;
 export const tabularFigures: TextStyle = {
   fontVariant: ['tabular-nums'],
 };
+
+/**
+ * The trailing room a negative-tracking line needs so its last glyph cannot
+ * clip on the right. Tracking trims the *advance* of the final character but not
+ * its ink, so the ink overhangs the measured width; `Text` gives it back as
+ * `paddingRight`. Zero for non-negative tracking, so this is safe to apply
+ * everywhere. See docs/design-system.md.
+ */
+export function trackingSlack(letterSpacing: number | undefined): number {
+  return typeof letterSpacing === 'number' && letterSpacing < 0 ? -letterSpacing + 1 : 0;
+}

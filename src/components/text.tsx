@@ -1,8 +1,14 @@
-import { Text as RNText, type TextProps as RNTextProps } from 'react-native';
+import {
+  StyleSheet,
+  Text as RNText,
+  type TextProps as RNTextProps,
+  type TextStyle,
+} from 'react-native';
 
 import {
   fontFamilies,
   tabularFigures,
+  trackingSlack,
   typography,
   useTheme,
   type ColorToken,
@@ -15,6 +21,19 @@ export type TextProps = RNTextProps & {
   mono?: boolean;
   tabular?: boolean;
 };
+
+/**
+ * The tracking a variant ends up with, given a caller's style override.
+ * Negative tracking trims the *advance* of the last glyph but not its ink, so
+ * the ink overhangs the measured width and the glyph clips on the right — most
+ * visibly on a big numeral or a trailing unit. See docs/design-system.md.
+ */
+function slackFor(variant: TypographyVariant, style: TextProps['style']): number {
+  const flat = StyleSheet.flatten(style) as TextStyle | undefined;
+  const tracking =
+    flat?.letterSpacing ?? (typography[variant] as { letterSpacing?: number }).letterSpacing;
+  return trackingSlack(tracking);
+}
 
 export function Text({
   variant = 'body',
@@ -34,6 +53,8 @@ export function Text({
     maxFontSizeMultiplier ??
     (fontSize && lineHeight ? Math.min(1.4, lineHeight / fontSize) : 1.4);
 
+  const slack = slackFor(variant, style);
+
   return (
     <RNText
       maxFontSizeMultiplier={fontScaleCap}
@@ -48,6 +69,11 @@ export function Text({
             : ((typography[variant] as { fontFamily?: string }).fontFamily ??
               fontFamilies.sans),
         },
+        // Padding protects the glyph inside the text box; the margin also
+        // gives the parent layout room for the final glyph's ink overhang.
+        // This matters for large values such as `12.50`, where the last zero
+        // can otherwise be clipped even though the measured text width fits.
+        slack > 0 && { paddingRight: slack, marginRight: slack },
         tabular && tabularFigures,
         style,
       ]}

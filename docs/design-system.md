@@ -123,9 +123,9 @@ colour token and optional `mono` / `tabular` modifiers.
 
 | Variant | Size | Line height | Weight | Tracking | Use |
 | --- | --- | --- | --- | --- | --- |
-| `metric` | 64 | 66 | 700 | -2.5 | the one number a screen is about |
-| `hero` | 56 | 58 | 700 | -2 | a screen's single heading |
-| `display` | 34 | 38 | 700 | -1 | secondary metrics under a `metric` |
+| `metric` | 64 | 76 | 700 | -2.5 | the one number a screen is about |
+| `hero` | 56 | 66 | 700 | -2 | a screen's single heading |
+| `display` | 34 | 40 | 700 | -1 | secondary metrics under a `metric` |
 | `large` | 30 | 36 | 700 | -0.6 | a section or sheet heading |
 | `title` | 22 | 28 | 600 | -0.4 | row and block titles |
 | `heading` | 17 | 22 | 600 | -0.2 | small headings |
@@ -136,6 +136,23 @@ colour token and optional `mono` / `tabular` modifiers.
 
 - Display sizes carry negative tracking so they read as one shape, not loose
   digits.
+- **Negative tracking clips the last glyph — never let it.** Tracking trims the
+  *advance* of the final character, not its ink, so the ink overhangs the text
+  box and is cut on the right (most visible on a big numeral or a trailing
+  unit, e.g. the `0` in `5.0 km`). Two rules follow, and both are load-bearing:
+  1. `Text` gives the overhang back as trailing padding automatically
+     (`trackingSlack` in `src/components/text.tsx`). Render text through
+     `<Text>`; do not use raw `RNText` for anything with a display variant.
+  2. A big number and its unit must keep room to the right, and the unit is the
+     most fragile part. Never put `overflow: 'hidden'` on a number's container.
+     Prefer a baseline-aligned sibling unit; if the unit is nested inside a
+     value that uses `adjustsFontSizeToFit` (as the hero `Metric` does), the
+     outer text must clear the slack above or the unit is what clips. If a
+     single glyph is the whole value (the start countdown), reset its tracking
+     (`letterSpacing: 0`) instead of relying on the padding.
+- Every display line box is taller than the face's ascent + descent (~1.17em),
+  so a numeral can never clip vertically; the same is **not** true if you set a
+  tighter `lineHeight` at a point of use.
 - Use `tabular` for every distance, time and pace value so columns align and a
   running clock does not shift width.
 - `mono` is for technical values only, sparingly.

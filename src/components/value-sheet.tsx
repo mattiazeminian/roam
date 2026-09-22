@@ -171,11 +171,18 @@ export function ValueSheet({
                 disabled={current <= min}
               />
               <View style={styles.valueCenter}>
-                <Text variant="metric" color="accentText" tabular>
+                <Text
+                  variant="metric"
+                  color="accentText"
+                  tabular
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.5}
+                  style={styles.value}>
                   {valueLabel}
                 </Text>
                 {unit ? (
-                  <Text variant="title" color="textSecondary">
+                  <Text variant="title" color="textSecondary" style={styles.unit}>
                     {unit}
                   </Text>
                 ) : null}
@@ -324,6 +331,12 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     justifyContent: 'center',
     gap: spacing.xs,
+  },
+  value: {
+    flexShrink: 1,
+  },
+  unit: {
+    flexShrink: 0,
   },
   step: {
     width: 52,

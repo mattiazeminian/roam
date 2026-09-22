@@ -21,6 +21,7 @@ export { spacing, type SpacingToken } from './spacing';
 export {
   fontFamilies,
   tabularFigures,
+  trackingSlack,
   typography,
   type TypographyVariant,
 } from './typography';

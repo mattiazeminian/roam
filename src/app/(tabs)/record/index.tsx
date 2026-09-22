@@ -145,6 +145,11 @@ export default function RecordScreen() {
 
   const unit = fmt.unit;
   const distanceDisplay = kmToDisplay(distanceKm, unit);
+  const distanceOptions = distancePresets(unit);
+  const isPresetDistance = distanceOptions.some(
+    (preset) => Math.abs(preset - distanceDisplay) < 0.05,
+  );
+  const isPresetTime = TIME_PRESETS.includes(minutes);
 
   useFocusEffect(
     useCallback(() => {
@@ -382,26 +387,20 @@ export default function RecordScreen() {
           {kind === 'distance' ? (
             <>
               <ChipRow>
-                {distancePresets(unit).map((preset) => {
+                {distanceOptions.map((preset) => {
                   const selected = Math.abs(preset - distanceDisplay) < 0.05;
                   return (
                     <ValueChip
                       key={preset}
-                      label={`${preset}`}
+                      label={`${preset} ${fmt.unitLabel}`}
                       selected={selected}
                       onPress={() => setDistanceKm(displayToKm(preset, unit))}
                     />
                   );
                 })}
                 <ValueChip
-                  label={
-                    distancePresets(unit).some((preset) => Math.abs(preset - distanceDisplay) < 0.05)
-                      ? 'Custom'
-                      : `${distanceDisplay.toFixed(1)}`
-                  }
-                  selected={
-                    !distancePresets(unit).some((preset) => Math.abs(preset - distanceDisplay) < 0.05)
-                  }
+                  label={isPresetDistance ? 'Custom' : `${distanceDisplay.toFixed(1)} ${fmt.unitLabel}`}
+                  selected={!isPresetDistance}
                   onPress={() => open({ key: 'distance' })}
                 />
               </ChipRow>
@@ -421,14 +420,14 @@ export default function RecordScreen() {
                 {TIME_PRESETS.map((preset) => (
                   <ValueChip
                     key={preset}
-                    label={`${preset}`}
+                    label={`${preset} min`}
                     selected={minutes === preset}
                     onPress={() => setMinutes(preset)}
                   />
                 ))}
                 <ValueChip
-                  label={TIME_PRESETS.includes(minutes) ? 'Custom' : `${minutes}`}
-                  selected={!TIME_PRESETS.includes(minutes)}
+                  label={isPresetTime ? 'Custom' : `${minutes} min`}
+                  selected={!isPresetTime}
                   onPress={() => open({ key: 'minutes' })}
                 />
               </ChipRow>

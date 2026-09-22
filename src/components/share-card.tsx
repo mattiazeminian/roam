@@ -9,7 +9,8 @@ import type { Formatters } from '@/services/settings-context';
 import { colors, radii, spacing } from '@/theme';
 
 const CARD_WIDTH = 390;
-const CARD_HEIGHT = 488;
+const CARD_HEIGHT = 560;
+const MAP_HEIGHT = 300;
 
 export type ShareCardProps = {
   run: SavedRun;
@@ -83,7 +84,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.medium,
   },
   map: {
-    height: CARD_HEIGHT * 0.6,
+    height: MAP_HEIGHT,
     backgroundColor: colors.surface,
   },
   panel: {

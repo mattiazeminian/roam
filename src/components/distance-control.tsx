@@ -14,7 +14,16 @@ import { usePressScale } from '@/hooks/use-press-scale';
 import { impactLight, selectionFeedback } from '@/lib/haptics';
 import { distancePresets, displayToKm, kmToDisplay } from '@/services/settings';
 import { useFormatters } from '@/services/settings-context';
-import { layout, motion, radii, spacing, typography, useAppearance, useTheme } from '@/theme';
+import {
+  layout,
+  motion,
+  radii,
+  spacing,
+  trackingSlack,
+  typography,
+  useAppearance,
+  useTheme,
+} from '@/theme';
 
 export const MIN_DISTANCE_KM = 1;
 export const MAX_DISTANCE_KM = 42;
@@ -385,6 +394,10 @@ const styles = StyleSheet.create({
   input: {
     ...typography.metric,
     padding: 0,
+    // A raw TextInput bypasses `<Text>`'s tracking slack, so the condensed
+    // face's negative tracking would clip the edited value on the right.
+    paddingRight: trackingSlack(typography.metric.letterSpacing),
+    marginRight: trackingSlack(typography.metric.letterSpacing),
     minWidth: 150,
   },
   unit: {
