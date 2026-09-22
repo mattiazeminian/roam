@@ -322,8 +322,9 @@ export function RunProvider({ children }: { children: ReactNode }) {
       status: pausedAt.current === null ? 'active' : 'paused',
       plannedWorkoutId: plannedWorkoutId ?? undefined,
       workoutType: workoutType ?? undefined,
+      steps: workoutSteps.length > 0 ? workoutSteps : undefined,
     });
-  }, [activeSecondsNow, plannedWorkoutId, route, targetDurationSeconds, targetKm, workoutType]);
+  }, [activeSecondsNow, plannedWorkoutId, route, targetDurationSeconds, targetKm, workoutType, workoutSteps]);
 
   // One timer drives the clock, flushes any accumulated GPS movement, and
   // periodically checkpoints — not on every tick; see CHECKPOINT_EVERY_N_PUBLISHES.
@@ -470,8 +471,9 @@ export function RunProvider({ children }: { children: ReactNode }) {
       status: 'finished',
       plannedWorkoutId: plannedWorkoutId ?? undefined,
       workoutType: workoutType ?? undefined,
+      steps: workoutSteps.length > 0 ? workoutSteps : undefined,
     });
-  }, [activeSecondsNow, plannedWorkoutId, publish, route, status, stopWatching, targetDurationSeconds, targetKm, workoutType]);
+  }, [activeSecondsNow, plannedWorkoutId, publish, route, status, stopWatching, targetDurationSeconds, targetKm, workoutType, workoutSteps]);
 
   const reset = useCallback(() => {
     tracker.current = createTrackerState();
@@ -535,10 +537,20 @@ export function RunProvider({ children }: { children: ReactNode }) {
     setTargetDurationSeconds(run.targetDurationSeconds ?? 0);
     setPlannedWorkoutId(run.plannedWorkoutId ?? null);
     setWorkoutType(run.workoutType ?? null);
-    // Steps are not persisted, so a recovered run continues without phases
-    // rather than inventing a position within a structure it cannot recall.
-    setWorkoutSteps([]);
-    workoutExecution.current = createWorkoutExecutionState();
+    // A recovered run keeps its phases (#151). The execution state is not
+    // persisted, but it is a pure fold of the monotonic totals, so replaying
+    // the steps from zero reconstructs which step the runner is actually in —
+    // no invented position.
+    const recoveredSteps = run.steps ?? [];
+    setWorkoutSteps(recoveredSteps);
+    const recoveredExecution = advanceWorkoutExecution(
+      recoveredSteps,
+      createWorkoutExecutionState(),
+      run.durationSeconds,
+      tracker.current.distanceMeters,
+    );
+    workoutExecution.current = recoveredExecution;
+    const recoveredStep = currentWorkoutStep(recoveredSteps, recoveredExecution);
     setCompletedRun(null);
     setSnapshot({
       distanceMeters: tracker.current.distanceMeters,
@@ -547,11 +559,15 @@ export function RunProvider({ children }: { children: ReactNode }) {
       currentPaceMinPerKm: null,
       track: tracker.current.coordinates,
       progressMeters: 0,
-      workoutStep: null,
-      workoutSteps: [],
-      workoutStepProgress: 0,
-      workoutStepRemaining: 0,
-      workoutStepsComplete: false,
+      workoutStep: recoveredStep,
+      workoutSteps: recoveredSteps,
+      workoutStepProgress: recoveredStep
+        ? workoutStepProgress(recoveredStep, recoveredExecution, run.durationSeconds, tracker.current.distanceMeters)
+        : 0,
+      workoutStepRemaining: recoveredStep
+        ? workoutStepRemaining(recoveredStep, recoveredExecution, run.durationSeconds, tracker.current.distanceMeters)
+        : 0,
+      workoutStepsComplete: recoveredExecution.completed,
       degradedSignal: false,
       autoPaused: false,
       position: tracker.current.coordinates.at(-1) ?? null,

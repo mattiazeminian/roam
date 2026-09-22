@@ -149,6 +149,17 @@ export type WorkoutStep = {
   kind: WorkoutStepKind;
   label: string;
   target: WorkoutStepTarget;
+  /**
+   * Grouping for a repeated block (#151). Intervals and fartlek compile to a
+   * flat step list where each rep is a work + recovery pair; these fields let
+   * the preview and the in-run UI say "rep 3 of 6" without a second engine.
+   * Absent on a plan workout's own steps and on single work steps.
+   */
+  repeatGroupId?: string;
+  /** 1-based position within the repeat group. */
+  repIndex?: number;
+  /** Total reps in the group. */
+  repCount?: number;
 };
 
 /**
@@ -1032,7 +1043,7 @@ function parseWorkout(value: unknown): PlannedWorkout | null {
   };
 }
 
-function parseWorkoutSteps(value: unknown): WorkoutStep[] | undefined {
+export function parseWorkoutSteps(value: unknown): WorkoutStep[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const steps = value.flatMap((entry, index) => {
     if (typeof entry !== 'object' || entry === null) return [];
@@ -1043,11 +1054,16 @@ function parseWorkoutSteps(value: unknown): WorkoutStep[] | undefined {
       typeof raw.label !== 'string' || typeof target !== 'object' || target === null
     ) return [];
     const targetRaw = target as Record<string, unknown>;
+    const grouping = {
+      repeatGroupId: typeof raw.repeatGroupId === 'string' ? raw.repeatGroupId : undefined,
+      repIndex: Number.isFinite(raw.repIndex) ? (raw.repIndex as number) : undefined,
+      repCount: Number.isFinite(raw.repCount) ? (raw.repCount as number) : undefined,
+    };
     if (targetRaw.kind === 'duration' && Number.isFinite(targetRaw.seconds) && (targetRaw.seconds as number) > 0) {
-      return [{ id: typeof raw.id === 'string' ? raw.id : `step-${index}`, kind: raw.kind, label: raw.label, target: { kind: 'duration', seconds: targetRaw.seconds as number } } as WorkoutStep];
+      return [{ id: typeof raw.id === 'string' ? raw.id : `step-${index}`, kind: raw.kind, label: raw.label, target: { kind: 'duration', seconds: targetRaw.seconds as number }, ...grouping } as WorkoutStep];
     }
     if (targetRaw.kind === 'distance' && Number.isFinite(targetRaw.meters) && (targetRaw.meters as number) > 0) {
-      return [{ id: typeof raw.id === 'string' ? raw.id : `step-${index}`, kind: raw.kind, label: raw.label, target: { kind: 'distance', meters: targetRaw.meters as number } } as WorkoutStep];
+      return [{ id: typeof raw.id === 'string' ? raw.id : `step-${index}`, kind: raw.kind, label: raw.label, target: { kind: 'distance', meters: targetRaw.meters as number }, ...grouping } as WorkoutStep];
     }
     return [];
   });

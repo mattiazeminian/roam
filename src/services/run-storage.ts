@@ -13,7 +13,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 
 import type { Coordinate, RouteCandidate } from './routing';
 import type { RunStatus, SavedRun } from './run-session';
-import { WORKOUT_TYPES, type WorkoutType } from './training';
+import { WORKOUT_TYPES, parseWorkoutSteps, type WorkoutType } from './training';
 
 const RUNS_DIRECTORY = 'runs';
 
@@ -135,6 +135,7 @@ function parseRun(value: unknown): SavedRun | null {
       (WORKOUT_TYPES as readonly string[]).includes(run.workoutType)
         ? (run.workoutType as WorkoutType)
         : undefined,
+    steps: parseWorkoutSteps(run.steps),
   };
 }
 

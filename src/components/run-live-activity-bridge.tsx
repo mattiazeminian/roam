@@ -72,9 +72,15 @@ export function RunLiveActivityBridge() {
       durationSeconds: Math.max(0, Math.round(run.activeSeconds)),
       paceLabel: fmt.paceWithUnit(run.paceMinPerKm),
       state: run.status === 'paused' ? 'paused' : 'active',
-      workoutLabel: workout ? WORKOUT_LABELS[workout.type] : '',
+      // A planned workout's label, else the kind chosen in the launcher (#151),
+      // else empty so the widget falls back to its own title.
+      workoutLabel: workout
+        ? WORKOUT_LABELS[workout.type]
+        : run.workoutType
+          ? WORKOUT_LABELS[run.workoutType]
+          : '',
     }),
-    [run.distanceMeters, run.activeSeconds, run.paceMinPerKm, run.status, workout, fmt],
+    [run.distanceMeters, run.activeSeconds, run.paceMinPerKm, run.status, run.workoutType, workout, fmt],
   );
 
 

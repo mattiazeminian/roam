@@ -109,7 +109,16 @@ export default function HomeScreen() {
   const weekSummary = weeklyRunSummary(allRuns, week);
   const next = workoutsFrom(state, addDays(today, 1))[0] ?? null;
 
+  // The primary action starts a free run immediately (with the countdown);
+  // configuring anything structured is a deliberate second choice (#151).
   const startRun = useCallback(() => {
+    begin(() => {
+      start(null, 0, null, null, 0, []);
+      router.push('/run');
+    });
+  }, [begin, start]);
+
+  const chooseRun = useCallback(() => {
     impactMedium();
     router.push('/record');
   }, []);
@@ -182,7 +191,7 @@ export default function HomeScreen() {
         {workout ? (
           <Today workout={workout} fmt={fmt} onStart={() => begin(startWorkout)} onFreeRun={startRun} />
         ) : (
-          <FreeRun onStart={startRun} />
+          <FreeRun onStart={startRun} onChoose={chooseRun} />
         )}
 
         {state.plan ? (
@@ -320,7 +329,7 @@ function Today({
 }
 
 /** A day with nothing planned — Start Run is still the primary action. */
-function FreeRun({ onStart }: { onStart: () => void }) {
+function FreeRun({ onStart, onChoose }: { onStart: () => void; onChoose: () => void }) {
   const theme = useTheme();
   return (
     <View style={[styles.section, { borderBottomColor: theme.divider }]}>
@@ -332,6 +341,7 @@ function FreeRun({ onStart }: { onStart: () => void }) {
         A free run from your current location.
       </Text>
       <Button label="Start run" variant="accent" onPress={onStart} style={styles.startRunButton} />
+      <Button label="Choose a run" variant="secondary" onPress={onChoose} />
     </View>
   );
 }

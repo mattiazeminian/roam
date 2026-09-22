@@ -212,8 +212,43 @@ describe('workout type (#116)', () => {
   });
 });
 
-describe('timed track (#32)', () => {
-  test('fix times round-trip with the track', async () => {
+describe('structured steps (#151)', () => {
+  test('a structured run keeps its steps and grouping', async () => {
+    await saveRun(
+      run({
+        workoutType: 'intervals',
+        steps: [
+          { id: 'w', kind: 'warmup', label: 'Warm up', target: { kind: 'duration', seconds: 600 } },
+          {
+            id: 'r1',
+            kind: 'work',
+            label: 'Run',
+            target: { kind: 'distance', meters: 400 },
+            repeatGroupId: 'main',
+            repIndex: 1,
+            repCount: 6,
+          },
+        ],
+      }),
+    );
+    const loaded = await getRun('run-1');
+    expect(loaded?.steps).toHaveLength(2);
+    expect(loaded?.steps?.[1]).toMatchObject({
+      kind: 'work',
+      label: 'Run',
+      target: { kind: 'distance', meters: 400 },
+      repIndex: 1,
+      repCount: 6,
+    });
+  });
+
+  test('a run with no steps loads without them', async () => {
+    await saveRun(run());
+    expect((await getRun('run-1'))?.steps).toBeUndefined();
+  });
+});
+
+describe('timed track (#32)', () => {  test('fix times round-trip with the track', async () => {
     const timestamps = [1_700_000_000_000, 1_700_000_010_000];
     await saveRun(run({ timestamps }));
     const loaded = await getRun('run-1');

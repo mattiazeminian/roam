@@ -23,7 +23,6 @@ import { useFormatters } from '@/services/settings-context';
 import { WORKOUT_LABELS } from '@/services/training';
 import { remainingDurationSeconds, runExecutionMode } from '@/services/run-execution';
 import { useTraining } from '@/services/training-context';
-import { WORKOUT_STEP_LABELS } from '@/services/workout-execution';
 import { layout, radii, spacing, useTheme } from '@/theme';
 
 /**
@@ -316,7 +315,9 @@ export default function ActiveRunScreen() {
             <>
               <View style={styles.phaseRow}>
                 <Text variant="micro" color="accentText" accessibilityLiveRegion="polite">
-                  {WORKOUT_STEP_LABELS[workoutStep.kind]}
+                  {workoutStep.repeatGroupId && workoutStep.repIndex && workoutStep.repCount
+                    ? `${workoutStep.label} · rep ${workoutStep.repIndex} of ${workoutStep.repCount}`
+                    : workoutStep.label}
                 </Text>
                 <Text variant="caption" color="textSecondary" tabular>
                   {workoutStep.target.kind === 'duration'
@@ -326,7 +327,7 @@ export default function ActiveRunScreen() {
               </View>
               <View
                 style={[styles.workoutProgress, { backgroundColor: theme.track }]}
-                accessibilityLabel={`${WORKOUT_STEP_LABELS[workoutStep.kind]}, ${Math.round(
+                accessibilityLabel={`${workoutStep.label}, ${Math.round(
                   workoutStepProgress * 100,
                 )} percent`}>
                 <View

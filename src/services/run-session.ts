@@ -9,7 +9,7 @@
 import { bearingDegrees, cumulativeDistances, haversineMeters, projectOntoPath } from './geo';
 import type { LocationSample } from './location';
 import { isValidCoordinate, type Coordinate, type RouteCandidate } from './routing';
-import type { WorkoutType } from './training';
+import type { WorkoutStep, WorkoutType } from './training';
 
 export type RunStatus = 'active' | 'paused' | 'finished';
 
@@ -54,6 +54,12 @@ export type SavedRun = {
    * run. Optional so older runs load.
    */
   workoutType?: WorkoutType;
+  /**
+   * The structured steps this run was started with, when it was a structured
+   * workout (#151). Stored so a recovered run keeps its phases and so a recent
+   * workout can be repeated. Optional: plain runs and older runs have none.
+   */
+  steps?: WorkoutStep[];
 };
 
 /**
