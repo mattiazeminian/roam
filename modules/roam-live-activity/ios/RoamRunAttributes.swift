@@ -12,6 +12,12 @@ public struct RoamRunAttributes: ActivityAttributes {
   public struct ContentState: Codable, Hashable {
     public var distanceKm: Double
     public var durationSeconds: Int
+    /**
+     * The anchor for the live clock: `Date.now() - durationSeconds`, computed by
+     * the app on each push. The widget renders an elapsed timer from it, so the
+     * clock ticks every second without a per-second update.
+     */
+    public var startedAtMs: Double
     public var paceLabel: String
     public var state: String
     public var workoutLabel: String
@@ -19,12 +25,14 @@ public struct RoamRunAttributes: ActivityAttributes {
     public init(
       distanceKm: Double,
       durationSeconds: Int,
+      startedAtMs: Double,
       paceLabel: String,
       state: String,
       workoutLabel: String
     ) {
       self.distanceKm = distanceKm
       self.durationSeconds = durationSeconds
+      self.startedAtMs = startedAtMs
       self.paceLabel = paceLabel
       self.state = state
       self.workoutLabel = workoutLabel

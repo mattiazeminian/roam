@@ -24,6 +24,7 @@ type NativeLiveActivity = {
   start: (
     distanceKm: number,
     durationSeconds: number,
+    startedAtMs: number,
     paceLabel: string,
     state: string,
     workoutLabel: string,
@@ -32,6 +33,7 @@ type NativeLiveActivity = {
     id: string,
     distanceKm: number,
     durationSeconds: number,
+    startedAtMs: number,
     paceLabel: string,
     state: string,
     workoutLabel: string,
@@ -74,6 +76,8 @@ export function RunLiveActivityBridge() {
     [run.distanceMeters, run.activeSeconds, run.paceMinPerKm, run.status, workout, fmt],
   );
 
+
+
   const running = run.status === 'active' || run.status === 'paused';
 
   // Start / end with the run lifecycle.
@@ -90,9 +94,12 @@ export function RunLiveActivityBridge() {
           if (cancelled) {
             return;
           }
+          // Anchor the system clock so the elapsed time ticks live: the widget
+          // counts up from this instant, and each push re-anchors it slightly.
           const id = native.start(
             content.distanceKm,
             content.durationSeconds,
+            Date.now() - content.durationSeconds * 1000,
             content.paceLabel,
             content.state,
             content.workoutLabel,
@@ -132,6 +139,7 @@ export function RunLiveActivityBridge() {
         id,
         content.distanceKm,
         content.durationSeconds,
+        Date.now() - content.durationSeconds * 1000,
         content.paceLabel,
         content.state,
         content.workoutLabel,

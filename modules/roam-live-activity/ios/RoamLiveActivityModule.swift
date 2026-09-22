@@ -13,13 +13,21 @@ public class RoamLiveActivityModule: Module {
     Name("RoamLiveActivity")
 
     Function("start") {
-      (distanceKm: Double, durationSeconds: Int, paceLabel: String, state: String, workoutLabel: String) -> String? in
+      (
+        distanceKm: Double,
+        durationSeconds: Int,
+        startedAtMs: Double,
+        paceLabel: String,
+        state: String,
+        workoutLabel: String
+      ) -> String? in
       guard #available(iOS 16.1, *) else {
         return nil
       }
       let contentState = RoamRunAttributes.ContentState(
         distanceKm: distanceKm,
         durationSeconds: durationSeconds,
+        startedAtMs: startedAtMs,
         paceLabel: paceLabel,
         state: state,
         workoutLabel: workoutLabel
@@ -38,7 +46,15 @@ public class RoamLiveActivityModule: Module {
     }
 
     AsyncFunction("update") {
-      (id: String, distanceKm: Double, durationSeconds: Int, paceLabel: String, state: String, workoutLabel: String) in
+      (
+        id: String,
+        distanceKm: Double,
+        durationSeconds: Int,
+        startedAtMs: Double,
+        paceLabel: String,
+        state: String,
+        workoutLabel: String
+      ) in
       guard #available(iOS 16.1, *) else {
         return
       }
@@ -48,6 +64,7 @@ public class RoamLiveActivityModule: Module {
       let contentState = RoamRunAttributes.ContentState(
         distanceKm: distanceKm,
         durationSeconds: durationSeconds,
+        startedAtMs: startedAtMs,
         paceLabel: paceLabel,
         state: state,
         workoutLabel: workoutLabel
