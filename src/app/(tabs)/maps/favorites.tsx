@@ -8,8 +8,9 @@ import { Divider } from '@/components/divider';
 import { ActionSheet } from '@/components/action-sheet';
 import { EmptyState } from '@/components/empty-state';
 import { MapControl } from '@/components/map-control';
+import { StartCountdown, useStartCountdown } from '@/components/start-countdown';
 import { Text } from '@/components/text';
-import { impactLight, impactMedium, selectionFeedback } from '@/lib/haptics';
+import { impactLight, selectionFeedback } from '@/lib/haptics';
 import { useRoutes } from '@/services/route-context';
 import { useRun } from '@/services/run-context';
 import { deleteRoute, listRoutes, type SavedRoute } from '@/services/route-storage';
@@ -30,6 +31,7 @@ export default function FavoritesScreen() {
   const fmt = useFormatters();
   const { loadSaved } = useRoutes();
   const { start } = useRun();
+  const { counting, begin, complete } = useStartCountdown();
   // Opened from Home to choose a route for a run, rather than to browse them
   // (#109). Same screen, same list; the tap does the obvious thing in context.
   const { mode } = useLocalSearchParams<{ mode?: string }>();
@@ -62,15 +64,16 @@ export default function FavoritesScreen() {
       selectionFeedback();
       if (runMode) {
         // Go straight to the run: the runner already chose this route.
-        impactMedium();
-        start(saved.route, saved.route.distanceKm);
-        router.push('/run');
+        begin(() => {
+          start(saved.route, saved.route.distanceKm);
+          router.push('/run');
+        });
         return;
       }
       loadSaved(saved.route, saved.route.distanceKm);
       router.push('/routes');
     },
-    [runMode, start, loadSaved],
+    [runMode, start, loadSaved, begin],
   );
 
   const handleRemove = useCallback((saved: SavedRoute) => {
@@ -136,6 +139,8 @@ export default function FavoritesScreen() {
           ) : null
         }
       />
+
+      {counting ? <StartCountdown onComplete={complete} /> : null}
     </View>
   );
 }
