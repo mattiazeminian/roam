@@ -5,9 +5,10 @@ import type { Camera as MapboxCamera } from '@rnmapbox/maps';
 
 import { Text } from '@/components/text';
 import type { Coordinate, RouteCandidate } from '@/services/routing';
-import { useAppearance, useTheme } from '@/theme';
+import { useTheme } from '@/theme';
 
 import { useMapPalette } from './map-palette';
+import { buildMinimalMapStyle } from './map-style';
 import { boundsOf, type MapInsets } from './projection';
 import { SearchPulse } from './search-pulse';
 
@@ -20,10 +21,6 @@ type MapboxModule = typeof import('@rnmapbox/maps');
 const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? '';
 /** Optional custom monochrome style, authored in Mapbox Studio. */
 const MAPBOX_STYLE_URL = process.env.EXPO_PUBLIC_MAPBOX_STYLE_URL ?? '';
-
-/** The map is quiet, and follows the appearance so the route carries contrast. */
-const FALLBACK_STYLE_LIGHT = 'mapbox://styles/mapbox/light-v11';
-const FALLBACK_STYLE_DARK = 'mapbox://styles/mapbox/dark-v11';
 
 /**
  * Mapbox is required lazily, and only when a token is configured. The native
@@ -151,7 +148,6 @@ function MapboxCanvas({
   autoFit = true,
 }: MapCanvasProps & { mapbox: MapboxModule }) {
   const map = useMapPalette();
-  const scheme = useAppearance();
   const cameraRef = useRef<MapboxCamera | null>(null);
   const didInitialCenter = useRef(false);
   const lastRecenterSignal = useRef(recenterSignal);
@@ -166,8 +162,9 @@ function MapboxCanvas({
   const [mapReady, setMapReady] = useState(false);
 
   const insets = useMemo<MapInsets>(() => ({ ...DEFAULT_INSETS, ...padding }), [padding]);
-  const styleURL =
-    MAPBOX_STYLE_URL || (scheme === 'dark' ? FALLBACK_STYLE_DARK : FALLBACK_STYLE_LIGHT);
+  // A Studio style wins if configured; otherwise the app draws its own Minimal
+  // basemap, generated from the same palette as the route and markers (#152).
+  const styleJSON = useMemo(() => buildMinimalMapStyle(map), [map]);
 
   // Frame every route, plus the origin. Runs only when the route set changes,
   // so selecting a different route never moves the camera.
@@ -247,7 +244,8 @@ function MapboxCanvas({
   return (
     <mapbox.MapView
       style={[StyleSheet.absoluteFill, { backgroundColor: map.land }]}
-      styleURL={styleURL}
+      styleURL={MAPBOX_STYLE_URL || undefined}
+      styleJSON={MAPBOX_STYLE_URL ? undefined : styleJSON}
       compassEnabled={false}
       scaleBarEnabled={false}
       pitchEnabled={false}

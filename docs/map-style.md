@@ -1,9 +1,11 @@
 # ROAM — Map Style
 
-Status: **current** (#47). Mapbox (`@rnmapbox/maps`) is the provider; the
-palette, route hierarchy, marker and camera behaviour below are what the app
-renders. Values live in `src/components/map/map-palette.ts` (map neutrals) and
-`src/theme` (route and marker colour), and the drawing is in
+Status: **current** (#47, Minimal variant per #152). Mapbox
+(`@rnmapbox/maps`) is the provider; the palette, route hierarchy, marker and
+camera behaviour below are what the app renders. Values live in
+`src/components/map/map-palette.ts` (map neutrals) and `src/theme` (route and
+marker colour), the basemap style is generated in
+`src/components/map/map-style.ts`, and the drawing is in
 `src/components/map/map-canvas.tsx`. A dependency-free placeholder surface
 remains for builds without a token.
 
@@ -13,19 +15,28 @@ route is the only thing in colour.
 
 ## Base map
 
-A custom monochrome style, not a default navigation style.
+A custom monochrome style, generated from the palette per appearance — not a
+default navigation style, and not the Mapbox default Light/Dark. The selected
+direction is the **Minimal** variant from `docs/map-style-redesign.md`: the
+quietest basemap, so the route is the only object. A Mapbox Studio style URL
+(`EXPO_PUBLIC_MAPBOX_STYLE_URL`) still overrides it if one is configured.
 
-| Element | Value | Notes |
-| --- | --- | --- |
-| Land | `#F1F1EE` | a touch below the page canvas, so the map reads as a surface, not a hole |
-| Building | `#E6E7E3` | texture, not objects |
-| Minor road | `#DCDDD8` | thin, quiet |
-| Major road | `#C4C5BF` | a clear step above minor roads, still below the route |
-| Label | `#6E706C` | small, neutral, minimal set |
+| Element | Light | Dark | Notes |
+| --- | --- | --- | --- |
+| Land | `#F2F2EF` | `#111310` | a touch below the page canvas, so the map reads as a surface, not a hole |
+| Water | `#EDEDE9` | `#0D0F0C` | a neutral, never blue; land and water stay near-identical |
+| Park | `#ECEDE7` | `#141710` | a neutral green tint, not a colour block |
+| Building | `#E7E8E4` | `#1A1E17` | texture, not objects; fades in from z13 |
+| Minor road | `#E0E1DC` | `#23271F` | thin, quiet |
+| Major road | `#CFD0CA` | `#30352B` | a clear step above minor roads |
+| Motorway | `#C4C5BF` | `#3A4034` | the top of the three-step road ramp |
+| Label | `#777972` | `#8B9184` | place names and major streets only, with a land-coloured halo |
 
-- Water is a neutral, never blue. Land and water stay near-identical.
-- POIs are minimal to none — no restaurant/shop icon decoration.
+- Roads form a three-step neutral ramp (minor / major / motorway).
+- POIs are excluded at the style level — no restaurant/shop icon decoration.
 - No saturated landuse colours, transit overlays or generic navigation styling.
+- Minimal hides terrain/hillshade; the Outdoor variant's zoom-gated terrain is
+  deliberately not part of this direction.
 
 The map must read as a quiet instrument, not a colourful product screenshot.
 

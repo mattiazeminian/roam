@@ -1,9 +1,11 @@
 # ROAM — Map Style Redesign (#152)
 
-Status: **proposal — audit + variants, not yet implemented.** This document is
-the gate the issue asks for: no map visual code changes until a direction is
-chosen from the variants below. `docs/map-style.md` describes what the app
-renders *today*; this describes where it should go and why.
+Status: **direction chosen — Minimal.** The audit and variants below are the
+gate #152 asked for. The Minimal basemap is implemented as a generated Mapbox
+style in `src/components/map/map-style.ts`, driven by
+`src/components/map/map-palette.ts`; see `docs/map-style.md` for the current
+system. Remaining items (start/finish markers, selected-only framing, trace
+hue) are tracked in the implementation plan below and are not yet done.
 
 Mapbox stays the provider. ORS, route generation, GPS tracking and route
 accuracy logic are untouched.
@@ -213,20 +215,20 @@ Rationale: the product's whole thesis is "grayscale map, lime route." Minimal is
 that thesis executed honestly; Outdoor risks context competing with activity on
 the screens (Active Run, Route Discovery) where glanceability matters most.
 
-## 7. Implementation plan (after direction is chosen)
+## 7. Implementation plan (direction: Minimal)
 
-1. Author the Studio styles (light + dark) for the chosen variant; wire through
-   `EXPO_PUBLIC_MAPBOX_STYLE_URL` per appearance (replace the single env with
-   `_LIGHT`/`_DARK`, keeping the default fallback for unconfigured builds).
-2. Extend `map-palette.ts` to the full semantic set (context ramp, park/water,
-   start/finish, trace/remaining/completed) for both appearances.
-3. Add `start`/`finish` markers to `MapCanvas`; collapse to one for loops.
-4. Frame `fit` on the **selected** route + origin only; clamp max zoom.
-5. Draw trace in the activity hue when there is no plan.
-6. Tune `center` to zoom 15; keep `follow` 16.
-7. Audit each surface's padding against its overlay (Home readout covers the
+1. ✅ Author the Minimal basemap in code (`map-style.ts`), light + dark,
+   generated from the palette; keep `EXPO_PUBLIC_MAPBOX_STYLE_URL` as a Studio
+   override.
+2. ✅ Extend `map-palette.ts` with the context ramp (water, park, motorway,
+   label halo) for both appearances.
+3. ⬜ Add `start`/`finish` markers to `MapCanvas`; collapse to one for loops.
+4. ⬜ Frame `fit` on the **selected** route + origin only; clamp max zoom.
+5. ⬜ Draw trace in the activity hue when there is no plan.
+6. ⬜ Tune `center` to zoom 15; keep `follow` 16.
+7. ⬜ Audit each surface's padding against its overlay (Home readout covers the
    route today).
-8. Keep the map decorative in the a11y tree; ensure start/finish/location
+8. ⬜ Keep the map decorative in the a11y tree; ensure start/finish/location
    labels exist and colour is never the only differentiator.
 
 ## 8. Performance & accessibility constraints

@@ -15,11 +15,18 @@ import { useAppearance } from '@/theme';
 
 export const lightMapPalette = {
   /** Sits a touch below the canvas so the map reads as a distinct surface. */
-  land: '#F1F1EE',
-  building: '#E6E7E3',
-  minorRoad: '#DCDDD8',
-  majorRoad: '#C4C5BF',
-  label: '#6E706C',
+  land: '#F2F2EF',
+  /** Water is a neutral, never blue: land and water stay near-identical. */
+  water: '#EDEDE9',
+  /** Parks are a neutral green tint, not a colour block. */
+  park: '#ECEDE7',
+  building: '#E7E8E4',
+  minorRoad: '#E0E1DC',
+  majorRoad: '#CFD0CA',
+  motorway: '#C4C5BF',
+  label: '#777972',
+  /** The halo a label sits in, so it stays legible over roads and water. */
+  labelHalo: '#F2F2EF',
   routeSecondary: '#8C9189',
   routeActive: '#B9F52B',
   track: '#163300',
@@ -34,11 +41,15 @@ export const lightMapPalette = {
 } as const;
 
 export const darkMapPalette = {
-  land: '#141612',
-  building: '#1D201A',
-  minorRoad: '#2A2E26',
-  majorRoad: '#3A3F35',
-  label: '#9AA094',
+  land: '#111310',
+  water: '#0D0F0C',
+  park: '#141710',
+  building: '#1A1E17',
+  minorRoad: '#23271F',
+  majorRoad: '#30352B',
+  motorway: '#3A4034',
+  label: '#8B9184',
+  labelHalo: '#111310',
   routeSecondary: '#70796A',
   routeActive: '#C5FF38',
   track: '#F2F5EB',
