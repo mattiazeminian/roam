@@ -13,12 +13,15 @@ import Animated, {
 
 import { Text } from '@/components/text';
 import { impactLight, impactMedium } from '@/lib/haptics';
+import {
+  COUNTDOWN_GO_HOLD_MS as GO_HOLD_MS,
+  COUNTDOWN_STEP_MS as STEP_MS,
+  countdownSequence,
+  shouldCountdown,
+} from '@/lib/start-countdown';
 import { palette, spacing } from '@/theme';
 import { useSettings } from '@/services/settings-context';
 
-/** One second per step, then a short beat on GO before the run actually begins. */
-const STEP_MS = 1000;
-const GO_HOLD_MS = 550;
 /** How long the takeover fades out over the run screen's own fade-in. */
 const HANDOVER_MS = 300;
 /** A hair beyond the fade, so removal happens while it is already invisible. */
@@ -42,10 +45,7 @@ export function StartCountdown({ onComplete }: { onComplete: () => void }) {
   const reduceMotion = useReducedMotion();
   const { settings } = useSettings();
   const duration = settings.startCountdownSeconds;
-  const sequence = useMemo(
-    () => [...Array.from({ length: duration }, (_, index) => String(duration - index)), 'GO'],
-    [duration],
-  );
+  const sequence = useMemo(() => countdownSequence(duration), [duration]);
   const [label, setLabel] = useState<string>(sequence[0] ?? 'GO');
 
   /** 0 → 1 across one step. Drives both the grow and the dissolve. */
@@ -184,7 +184,7 @@ export function useStartCountdown() {
 
   const begin = useCallback((action: () => void) => {
     pending.current = action;
-    if (settings.startCountdownSeconds === 0) {
+    if (!shouldCountdown(settings.startCountdownSeconds)) {
       pending.current = null;
       action();
       return;
@@ -230,12 +230,14 @@ const styles = StyleSheet.create({
     backgroundColor: palette.nearBlack,
   },
   countdownNumber: {
-    // Full width so the numeral centres with room either side. The tracking is
-    // reset here so a single glyph cannot clip on its right edge; the tall line
-    // box gives the same room vertically.
+    // Full width so the numeral centres with room either side. The `metric`
+    // variant's own line box is already taller than the display face's
+    // ascent + descent (~1.17em), so the numeral cannot clip vertically — the
+    // countdown deliberately does not set a tighter `lineHeight` or a fixed
+    // height to "protect" it (see docs/design-system.md). Tracking is reset
+    // because a lone glyph is the whole value, and negative tracking would
+    // otherwise overhang its box.
     width: '100%',
-    minHeight: 110,
-    lineHeight: 110,
     letterSpacing: 0,
     textAlign: 'center',
   },
