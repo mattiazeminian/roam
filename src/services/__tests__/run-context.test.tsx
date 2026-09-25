@@ -640,6 +640,84 @@ describe('state machine guards (#35)', () => {
   });
 });
 
+describe('structured recovery (#147)', () => {
+  test('a recovered structured run keeps its phases and lands on the right step', async () => {
+    // 320 active seconds past a 300s warm up, 500 m covered into a 400 m work
+    // step: the execution state is not persisted, so recovery must replay the
+    // steps from the monotonic totals rather than inventing a position.
+    const steps = [
+      {
+        id: 'warmup',
+        kind: 'warmup',
+        label: 'Warm up',
+        target: { kind: 'duration', seconds: 300 },
+      },
+      {
+        id: 'work',
+        kind: 'work',
+        label: '400 m',
+        target: { kind: 'distance', meters: 400 },
+      },
+    ];
+    getInProgressRunMock.mockResolvedValue({
+      id: 'run-structured',
+      startedAt: 1,
+      endedAt: 1,
+      route: null,
+      targetDistanceKm: 0,
+      distanceKm: 0.5,
+      durationSeconds: 320,
+      averagePaceMinPerKm: null,
+      coordinates: [],
+      status: 'active',
+      workoutType: 'intervals',
+      steps,
+    });
+
+    const harness = renderRun();
+    // The recovery offer comes from an async `getInProgressRun()` on mount, so
+    // it needs a real async act to settle — `flush()` alone does not commit it.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(harness.value.recoverable).not.toBeNull();
+
+    act(() => harness.value.resumeRecovered());
+    expect(harness.value.workoutSteps).toHaveLength(2);
+    expect(harness.value.workoutStep?.id).toBe('work');
+    expect(harness.value.workoutStepsComplete).toBe(false);
+    expect(harness.value.distanceMeters).toBe(500);
+    expect(harness.value.activeSeconds).toBe(320);
+    harness.unmount();
+  });
+
+  test('a free run recovers with no steps and no target', async () => {
+    getInProgressRunMock.mockResolvedValue({
+      id: 'run-free',
+      startedAt: 1,
+      endedAt: 1,
+      route: null,
+      targetDistanceKm: 0,
+      distanceKm: 1.2,
+      durationSeconds: 600,
+      averagePaceMinPerKm: 8,
+      coordinates: [],
+      status: 'active',
+    });
+
+    const harness = renderRun();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(harness.value.recoverable).not.toBeNull();
+    act(() => harness.value.resumeRecovered());
+    expect(harness.value.workoutSteps).toEqual([]);
+    expect(harness.value.workoutStep).toBeNull();
+    expect(harness.value.workoutStepsComplete).toBe(false);
+    harness.unmount();
+  });
+});
+
 describe('reroute (#64)', () => {
   const planned = {
     id: 'planned',
