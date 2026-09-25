@@ -196,6 +196,16 @@ function MapboxCanvas({
       ...(completedGeometry ?? []),
     ];
     if (points.length === 0) {
+      // Nothing to frame yet. Rather than leave the map at the default world
+      // view — which reads as "the map is broken", especially when routing
+      // comes back empty — sit on the runner until there is geometry to fit.
+      if (origin) {
+        camera.setCamera({
+          centerCoordinate: [origin.longitude, origin.latitude],
+          zoomLevel: 14,
+          animationDuration: 500,
+        });
+      }
       return;
     }
     const bounds = boundsOf(origin ? [origin, ...points] : points);
