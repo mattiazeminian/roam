@@ -263,10 +263,10 @@ export default function RunDetailScreen() {
             {hasTrack ? (
               <View style={[styles.map, { borderColor: theme.borderSubtle }]}>
                 <MapCanvas
-                  origin={run.coordinates[run.coordinates.length - 1]}
                   routes={run.route ? [run.route] : []}
                   selectedRouteId={run.route?.id}
                   track={run.coordinates}
+                  showEndpoints
                   cameraMode="fit"
                   interactive={false}
                   padding={{ top: 32, bottom: 32, left: 32, right: 32 }}

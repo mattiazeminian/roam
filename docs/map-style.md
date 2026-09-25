@@ -77,6 +77,19 @@ well as colour**, so it survives without hue.
   around it.
 - No avatar and no heading cone.
 
+## Start and finish
+
+On a completed-run map (summary, run detail, share card) the track's first and
+last fixes are marked directly, rather than drawing a "current location" dot at
+the finish.
+
+- Start is a filled accent dot; finish is a hollow ink ring. They differ by
+  shape and fill, not colour alone.
+- A loop whose ends are within GPS drift (`LOOP_TOLERANCE_M`, 25 m) is marked
+  once, as "Start / finish".
+- The markers carry accessible labels ("Start", "Finish", "Start and finish.
+  Closed loop.").
+
 ## Camera behaviour
 
 `MapCanvas` has three modes, chosen per surface:

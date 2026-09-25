@@ -9,6 +9,7 @@ import { useTheme } from '@/theme';
 
 import { useMapPalette } from './map-palette';
 import { buildMinimalMapStyle } from './map-style';
+import { runEndpoints } from './endpoints';
 import { boundsOf, type MapInsets } from './projection';
 import { SearchPulse } from './search-pulse';
 
@@ -52,7 +53,7 @@ function getMapbox(): MapboxModule | null {
 
 export type MapCanvasProps = {
   /** The user's current location, or null while unavailable. */
-  origin: Coordinate | null;
+  origin?: Coordinate | null;
   routes: RouteCandidate[];
   selectedRouteId?: string;
   /** Show the restrained search radius while routes are being found. */
@@ -75,6 +76,12 @@ export type MapCanvasProps = {
   track?: Coordinate[];
   /** The portion of the planned route already covered, drawn in the accent. */
   completedGeometry?: Coordinate[];
+  /**
+   * Mark where the recorded track began and ended. A completed run's map is
+   * about the run, not about where the runner is standing now, so it shows
+   * start/finish instead of a "current location" dot.
+   */
+  showEndpoints?: boolean;
   /**
    * Called when the user pans away from the runner in `follow` mode, so the
    * screen can offer a recenter control instead of fighting the gesture.
@@ -130,7 +137,7 @@ function MapUnavailable() {
 
 function MapboxCanvas({
   mapbox,
-  origin,
+  origin = null,
   routes,
   selectedRouteId,
   searching = false,
@@ -140,6 +147,7 @@ function MapboxCanvas({
   interactive = true,
   track,
   completedGeometry,
+  showEndpoints = false,
   onFollowBroken,
   onOriginMoved,
   waypoints,
@@ -165,18 +173,31 @@ function MapboxCanvas({
   // A Studio style wins if configured; otherwise the app draws its own Minimal
   // basemap, generated from the same palette as the route and markers (#152).
   const styleJSON = useMemo(() => buildMinimalMapStyle(map), [map]);
+  const endpoints = useMemo(
+    () => (showEndpoints && track ? runEndpoints(track) : null),
+    [showEndpoints, track],
+  );
 
-  // Frame every route, plus the origin. Runs only when the route set changes,
-  // so selecting a different route never moves the camera.
+  // Frame the routes, the origin and any recorded track. Runs only when the
+  // route set changes, so selecting a different route never moves the camera.
+  // Including the track matters for a completed free run, which has no route
+  // and would otherwise be framed to its last fix alone.
   useEffect(() => {
-    if (cameraMode !== 'fit' || routes.length === 0 || !mapReady || !autoFit) {
+    if (cameraMode !== 'fit' || !mapReady || !autoFit) {
       return;
     }
     const camera = cameraRef.current;
     if (!camera) {
       return;
     }
-    const points = routes.flatMap((route) => route.geometry);
+    const points = [
+      ...routes.flatMap((route) => route.geometry),
+      ...(track ?? []),
+      ...(completedGeometry ?? []),
+    ];
+    if (points.length === 0) {
+      return;
+    }
     const bounds = boundsOf(origin ? [origin, ...points] : points);
     camera.fitBounds(
       [bounds.maxLon, bounds.maxLat],
@@ -184,7 +205,7 @@ function MapboxCanvas({
       [insets.top, insets.right, insets.bottom, insets.left],
       500,
     );
-  }, [cameraMode, routes, origin, insets, mapReady, autoFit]);
+  }, [cameraMode, routes, origin, insets, mapReady, autoFit, track, completedGeometry]);
 
   // Center on the location on first fix and when the locate control is used.
   // Later position updates never move the camera on their own.
@@ -348,6 +369,32 @@ function MapboxCanvas({
           width={5}
           opacity={1}
         />
+      ) : null}
+
+      {/* Where the run began and ended. A loop is one marker, not two stacked
+          on the same spot. */}
+      {endpoints?.loop ? (
+        <mapbox.MarkerView
+          coordinate={[endpoints.start.longitude, endpoints.start.latitude]}
+          anchor={{ x: 0.5, y: 0.5 }}
+          allowOverlap>
+          <StartFinishMarker role="loop" />
+        </mapbox.MarkerView>
+      ) : endpoints ? (
+        <>
+          <mapbox.MarkerView
+            coordinate={[endpoints.start.longitude, endpoints.start.latitude]}
+            anchor={{ x: 0.5, y: 0.5 }}
+            allowOverlap>
+            <StartFinishMarker role="start" />
+          </mapbox.MarkerView>
+          <mapbox.MarkerView
+            coordinate={[endpoints.finish.longitude, endpoints.finish.latitude]}
+            anchor={{ x: 0.5, y: 0.5 }}
+            allowOverlap>
+            <StartFinishMarker role="finish" />
+          </mapbox.MarkerView>
+        </>
       ) : null}
 
       {searching && origin ? (
@@ -560,6 +607,31 @@ function WaypointDot() {
   );
 }
 
+/**
+ * A completed run's start and finish. Start is a filled dot, finish is a hollow
+ * ring, so the two are distinct by shape and fill rather than colour alone; a
+ * loop is marked once, as both.
+ */
+function StartFinishMarker({ role }: { role: 'start' | 'finish' | 'loop' }) {
+  const theme = useTheme();
+  const label =
+    role === 'start' ? 'Start' : role === 'finish' ? 'Finish' : 'Start and finish. Closed loop.';
+  return (
+    <View accessible accessibilityLabel={label} style={styles.endpoint} pointerEvents="none">
+      <View style={[styles.endpointRing, { borderColor: theme.text }]} />
+      <View
+        style={[
+          role === 'finish' ? styles.endpointFinish : styles.endpointStart,
+          {
+            backgroundColor: role === 'finish' ? theme.background : theme.accent,
+            borderColor: theme.text,
+          },
+        ]}
+      />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   unavailable: {
     position: 'absolute',
@@ -625,5 +697,32 @@ const styles = StyleSheet.create({
     height: 14,
     borderRadius: 3,
     borderWidth: 2,
+  },
+  endpoint: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  endpointRing: {
+    position: 'absolute',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+  },
+  endpointStart: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+  },
+  // A hollow ring for the finish: same footprint, no fill, so it cannot be
+  // mistaken for the start at a glance.
+  endpointFinish: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 3,
   },
 });

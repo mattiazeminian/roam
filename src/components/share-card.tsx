@@ -39,10 +39,10 @@ export const ShareCard = forwardRef<View, ShareCardProps>(function ShareCard({ r
       <View style={styles.map}>
         {hasTrack ? (
           <MapCanvas
-            origin={run.coordinates[run.coordinates.length - 1]}
             routes={run.route ? [run.route] : []}
             selectedRouteId={run.route?.id}
             track={run.coordinates}
+            showEndpoints
             cameraMode="fit"
             interactive={false}
             padding={{ top: 24, bottom: 24, left: 24, right: 24 }}

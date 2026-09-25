@@ -203,10 +203,10 @@ export default function RunSummaryScreen() {
         {hasTrack ? (
           <View style={[styles.map, { borderColor: theme.borderSubtle }]}>
             <MapCanvas
-              origin={completedRun.coordinates[completedRun.coordinates.length - 1]}
               routes={completedRun.route ? [completedRun.route] : []}
               selectedRouteId={completedRun.route?.id}
               track={completedRun.coordinates}
+              showEndpoints
               cameraMode="fit"
               interactive={false}
               padding={{ top: 32, bottom: 32, left: 32, right: 32 }}

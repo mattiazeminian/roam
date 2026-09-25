@@ -222,14 +222,18 @@ the screens (Active Run, Route Discovery) where glanceability matters most.
    override.
 2. ✅ Extend `map-palette.ts` with the context ramp (water, park, motorway,
    label halo) for both appearances.
-3. ⬜ Add `start`/`finish` markers to `MapCanvas`; collapse to one for loops.
-4. ⬜ Frame `fit` on the **selected** route + origin only; clamp max zoom.
+3. ✅ Add start/finish markers (`endpoints.ts`, `StartFinishMarker`); a loop
+   collapses to one marker. Completed-run surfaces no longer pass `origin`,
+   which used to draw a "current location" dot at the finish.
+4. ◐ `fit` now includes the recorded track, fixing completed free runs that
+   were framed to their last fix; framing is still every route, not just the
+   selected one.
 5. ⬜ Draw trace in the activity hue when there is no plan.
 6. ⬜ Tune `center` to zoom 15; keep `follow` 16.
 7. ⬜ Audit each surface's padding against its overlay (Home readout covers the
    route today).
-8. ⬜ Keep the map decorative in the a11y tree; ensure start/finish/location
-   labels exist and colour is never the only differentiator.
+8. ✅ Start/finish/location markers keep accessible labels; start and finish
+   differ by shape and fill, not colour alone.
 
 ## 8. Performance & accessibility constraints
 
