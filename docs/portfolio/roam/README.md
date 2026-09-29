@@ -60,7 +60,8 @@ long paragraphs, exaggerated claims, fake metrics, or invented features.
 
 ## Recommended image order
 
-1. `home-today.png` — hero image. Home / Today with the active plan.
+1. `home-today.png` — hero image (dark). Home / Today with the active plan.
+   `home-today-light.png` is the same screen in light appearance.
 2. `start-run.png` — primary action and distance selection.
 3. `routes.png` — generated route geometry and options.
 4. `active-run.png` — live metrics and progress.
