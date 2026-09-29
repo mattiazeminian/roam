@@ -277,9 +277,13 @@ function Today({
       <Text variant="micro" color="textSecondary">
         TODAY
       </Text>
+      {/* The title owns the full width so a two-word workout name never wraps
+          against the distance beside it (e.g. "Easy run" on one line). */}
+      <Text variant="hero" numberOfLines={1}>
+        {WORKOUT_LABELS[workout.type]}
+      </Text>
       <View style={styles.row}>
         <View style={styles.flex}>
-          <Text variant="hero">{WORKOUT_LABELS[workout.type]}</Text>
           <Text variant="body" color="textSecondary">
             {WORKOUT_DESCRIPTIONS[workout.type]}
           </Text>
