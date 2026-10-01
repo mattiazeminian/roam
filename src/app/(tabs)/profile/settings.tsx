@@ -14,6 +14,7 @@ import { SectionHeader } from '@/components/section-header';
 import { Text } from '@/components/text';
 import { Wordmark } from '@/components/wordmark';
 import { errorFeedback, impactLight, selectionFeedback } from '@/lib/haptics';
+import { speakVoiceGuidanceTest } from '@/lib/workout-guidance';
 import { useAccount } from '@/services/account-context';
 import { writeRunsGpx } from '@/services/run-export';
 import { formatPace } from '@/services/run-session';
@@ -55,6 +56,7 @@ export default function SettingsScreen() {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [countdownPicker, setCountdownPicker] = useState(false);
+  const [voiceGuidancePicker, setVoiceGuidancePicker] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -156,6 +158,19 @@ export default function SettingsScreen() {
         }))}
         onClose={() => setCountdownPicker(false)}
       />
+      <ActionSheet
+        visible={voiceGuidancePicker}
+        title="Voice guidance"
+        message="Spoken cues announce each structured-workout phase."
+        actions={[true, false].map((enabled) => ({
+          label: settings.voiceGuidanceEnabled === enabled ? `${enabled ? 'On' : 'Off'} ✓` : enabled ? 'On' : 'Off',
+          onPress: () => {
+            selectionFeedback();
+            update({ voiceGuidanceEnabled: enabled });
+          },
+        }))}
+        onClose={() => setVoiceGuidancePicker(false)}
+      />
       {notice ? <Text variant="body" color="danger">{notice}</Text> : null}
       <ScrollView
         contentContainerStyle={[
@@ -246,6 +261,33 @@ export default function SettingsScreen() {
             showChevron
             onPress={() => setCountdownPicker(true)}
             accessibilityLabel={`Start countdown, ${COUNTDOWN_OPTIONS.find((option) => option.value === settings.startCountdownSeconds)?.label}`}
+          />
+          <Divider />
+          <Row
+            label="Voice guidance"
+            trailing={
+              <Text variant="caption" color="textSecondary">
+                {settings.voiceGuidanceEnabled ? 'On' : 'Off'}
+              </Text>
+            }
+            showChevron
+            onPress={() => setVoiceGuidancePicker(true)}
+            accessibilityLabel={`Voice guidance, ${settings.voiceGuidanceEnabled ? 'on' : 'off'}`}
+          />
+          <Divider />
+          <Row
+            label="Play test cue"
+            disabled={!settings.voiceGuidanceEnabled}
+            onPress={() => {
+              impactLight();
+              speakVoiceGuidanceTest();
+            }}
+            accessibilityLabel="Play voice guidance test cue"
+            accessibilityHint={
+              settings.voiceGuidanceEnabled
+                ? 'Plays a sample spoken workout cue.'
+                : 'Turn on Voice guidance to play a sample cue.'
+            }
           />
           <Divider />
           <Row

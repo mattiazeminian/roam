@@ -132,4 +132,15 @@ describe('settings', () => {
     mockFiles.set('doc/settings.json', JSON.stringify({ ...DEFAULT_SETTINGS, startCountdownSeconds: 4 }));
     expect((await loadSettings()).startCountdownSeconds).toBe(3);
   });
+
+  test('voice guidance round-trips and legacy settings keep it enabled', async () => {
+    await saveSettings({ ...DEFAULT_SETTINGS, voiceGuidanceEnabled: false });
+    expect((await loadSettings()).voiceGuidanceEnabled).toBe(false);
+
+    mockFiles.set(
+      'doc/settings.json',
+      JSON.stringify({ unit: 'km', typicalPaceMinPerKm: 6, defaultDistanceKm: 5 }),
+    );
+    expect((await loadSettings()).voiceGuidanceEnabled).toBe(true);
+  });
 });

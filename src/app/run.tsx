@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { useKeepAwake } from 'expo-keep-awake';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { AccessibilityInfo, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { GlassSurface } from '@/components/glass-surface';
@@ -15,11 +15,18 @@ import { ControlPanel } from '@/components/control-panel';
 import { SlideToConfirm } from '@/components/slide-to-confirm';
 import { Text } from '@/components/text';
 import { WorkoutIcon } from '@/components/workout-icon';
-import { selectionFeedback } from '@/lib/haptics';
+import { impactMedium } from '@/lib/haptics';
+import {
+  speakWorkoutComplete,
+  speakRunSplit,
+  speakWorkoutStep,
+  speakWorkoutWarning,
+  workoutStepCue,
+} from '@/lib/workout-guidance';
 import { cumulativeDistances, sliceAlongPath } from '@/services/geo';
 import { useRun } from '@/services/run-context';
 import { compassDirection, formatDuration, formatShortDistance } from '@/services/run-session';
-import { useFormatters } from '@/services/settings-context';
+import { useFormatters, useSettings } from '@/services/settings-context';
 import { WORKOUT_LABELS } from '@/services/training';
 import { remainingDurationSeconds, runExecutionMode } from '@/services/run-execution';
 import { useTraining } from '@/services/training-context';
@@ -33,6 +40,7 @@ import { layout, radii, spacing, useTheme } from '@/theme';
  * time.
  */
 export default function ActiveRunScreen() {
+  const { settings } = useSettings();
   const insets = useSafeAreaInsets();
   const theme = useTheme();
   const {
@@ -70,6 +78,7 @@ export default function ActiveRunScreen() {
   } = useRun();
 
   const fmt = useFormatters();
+  const { unit: distanceUnit } = fmt;
   const { state: training } = useTraining();
   const [recenterSignal, setRecenterSignal] = useState(0);
   const [followBroken, setFollowBroken] = useState(false);
@@ -97,17 +106,63 @@ export default function ActiveRunScreen() {
   }, [status]);
 
   // The run engine owns phase state (#148), so this screen only reacts to it.
-  // A phase change is a real state change, so it gets a selection haptic; the
-  // step objects are stable while the phase holds, so the id only changes on a
-  // transition.
+  // A phase change is a real state change, so it gets a haptic and a concise
+  // spoken cue. The first step is announced too: runners may miss the visual
+  // hand-off from GO or start with the screen locked.
   const lastStepId = useRef<string | null>(null);
   useEffect(() => {
-    const id = workoutStep?.id ?? null;
-    if (id !== null && lastStepId.current !== null && id !== lastStepId.current) {
-      selectionFeedback();
+    if (!workoutStep || workoutStep.id === lastStepId.current) {
+      return;
     }
-    lastStepId.current = id;
-  }, [workoutStep?.id]);
+    lastStepId.current = workoutStep.id;
+    impactMedium();
+    AccessibilityInfo.announceForAccessibility(workoutStepCue(workoutStep));
+    speakWorkoutStep(workoutStep, settings.voiceGuidanceEnabled);
+  }, [settings.voiceGuidanceEnabled, workoutStep]);
+
+  // One restrained time warning is more useful than a running commentary. It
+  // is keyed to the phase, so normal render updates cannot repeat it.
+  const warnedStepId = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      !workoutStep ||
+      workoutStep.target.kind !== 'duration' ||
+      workoutStepRemaining > 30 ||
+      warnedStepId.current === workoutStep.id
+    ) {
+      return;
+    }
+    warnedStepId.current = workoutStep.id;
+    speakWorkoutWarning(30, settings.voiceGuidanceEnabled);
+  }, [settings.voiceGuidanceEnabled, workoutStep, workoutStepRemaining]);
+
+  const completionAnnounced = useRef(false);
+  useEffect(() => {
+    if (!workoutStepsComplete || completionAnnounced.current) {
+      return;
+    }
+    completionAnnounced.current = true;
+    impactMedium();
+    speakWorkoutComplete(settings.voiceGuidanceEnabled);
+  }, [settings.voiceGuidanceEnabled, workoutStepsComplete]);
+
+  // Splits are announced only when a boundary is crossed while this screen is
+  // live. Initializing from the current distance avoids replaying old splits
+  // after the app returns from the background.
+  const lastSpokenSplit = useRef<number | null>(null);
+  useEffect(() => {
+    const splitMeters = distanceUnit === 'mi' ? 1609.344 : 1000;
+    const completedSplits = Math.floor(distanceMeters / splitMeters);
+    if (lastSpokenSplit.current === null) {
+      lastSpokenSplit.current = completedSplits;
+      return;
+    }
+    if (status !== 'active' || completedSplits <= lastSpokenSplit.current) {
+      return;
+    }
+    lastSpokenSplit.current = completedSplits;
+    speakRunSplit(completedSplits, distanceUnit, settings.voiceGuidanceEnabled);
+  }, [distanceMeters, distanceUnit, settings.voiceGuidanceEnabled, status]);
 
   const completedGeometry = useMemo(() => {
     if (!route || route.geometry.length < 2 || progressMeters <= 0) {

@@ -29,6 +29,8 @@ export type Settings = {
   defaultDistanceKm: number;
   /** Global delay before a run starts; zero starts immediately. */
   startCountdownSeconds: StartCountdownSeconds;
+  /** Spoken cues at structured-workout phase changes. */
+  voiceGuidanceEnabled: boolean;
   /**
    * Whether the one-time introduction has been seen. Until it has, Roam does
    * not ask for location, so the system dialog is never the first thing a new
@@ -43,6 +45,7 @@ export const DEFAULT_SETTINGS: Settings = {
   typicalPaceMinPerKm: 6.6,
   defaultDistanceKm: 5,
   startCountdownSeconds: 3,
+  voiceGuidanceEnabled: true,
   hasCompletedOnboarding: false,
 };
 
@@ -86,6 +89,9 @@ function parseSettings(value: unknown): Settings {
       raw.startCountdownSeconds === 9
         ? raw.startCountdownSeconds
         : DEFAULT_SETTINGS.startCountdownSeconds,
+    // Existing runners keep the guidance they already had when this preference
+    // was introduced; only an explicit false silences future cues.
+    voiceGuidanceEnabled: raw.voiceGuidanceEnabled !== false,
     hasCompletedOnboarding: raw.hasCompletedOnboarding === true,
   };
 }
