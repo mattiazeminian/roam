@@ -139,9 +139,14 @@ const ORS_API_KEY = process.env.EXPO_PUBLIC_ORS_API_KEY ?? '';
 const usingProxy = ORS_PROXY_URL.length > 0;
 const ORS_ENDPOINT = usingProxy ? `${ORS_PROXY_URL}${ORS_DIRECTIONS_PATH}` : ORS_DIRECT_ENDPOINT;
 
-/** True when the app has a way to reach routing: a proxy, or a direct key. */
+/**
+ * True when the app has a way to reach routing. Direct API keys are allowed
+ * only in development: EXPO_PUBLIC_* values are embedded in shipped bundles,
+ * so production builds must use the server-side proxy.
+ */
 function hasRoutingCredentials(): boolean {
-  return usingProxy || ORS_API_KEY.length > 0;
+  const directDevelopmentFallback = process.env.NODE_ENV !== 'production';
+  return usingProxy || (directDevelopmentFallback && ORS_API_KEY.length > 0);
 }
 
 const MISSING_CREDENTIALS_MESSAGE =
@@ -262,26 +267,11 @@ const PACE_MIN_PER_KM = 6.6;
 const CANDIDATE_COUNT = 3;
 
 /**
- * Point counts ORS's `round_trip` accepts without changing the loop's
- * character too much. Trimmed from an original `[4..8]` after measurement: a
- * live sweep at fixed request lengths (3 seeds per point count, 3 km and 5 km
- * targets) showed overshoot growing with point count —
- *
- *   points=4  → average +9%  over the requested length
- *   points=5  → average +10%
- *   points=6  → average +12%
- *   points=7  → average +19%
- *   points=8  → average +20%
- *
- * — consistent with how ORS's round-trip algorithm works: each point is a
- * real via-point the router must physically reach through the street network,
- * so more points means more real-world detours compounding on top of each
- * other, not just a more circular *shape*. Higher point counts are no longer
- * requested; 2–3 makes a simple out-and-back available and 4–5 keeps limited
- * loop variety.
+ * Low point counts keep an explicitly generated loop readable and bound its
+ * network detour. Two or three points make a simple, broad loop; four or five
+ * provide limited variety without turning one request into a long chain of
+ * via-points.
  */
-// Low point counts keep generated runs simple: 2–3 points commonly produce
-// a readable out-and-back, while 4–5 preserve limited loop variety.
 const POINT_COUNT_RANGE = [2, 3, 4, 5] as const;
 
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -295,85 +285,57 @@ const REQUEST_TIMEOUT_MS = 20_000;
 const REFINEMENT_ATTEMPTS = 2;
 
 /**
- * Build a fresh, randomised set of request variants for one search.
- *
- * This used to be a fixed constant (`seed: 1, 7, 13`), which meant the same
- * origin and distance always returned the exact same three loops — directly
- * against Roam's "run somewhere new" promise (see issue #7). Randomising the
- * seed and point count per call fixes that, while keeping point counts
- * bounded and distinct within the one request so the resulting candidates
- * stay comparable in quality to each other.
+ * Deterministic waypoint variants for a search (#57). Each uses a different
+ * number of evenly-spread points. The phase is derived from the request, so
+ * the same origin and distance always produces the same deliberate geometry.
  */
-export function randomVariants(count: number): { seed: number; points: number }[] {
-  const points = shuffle([...POINT_COUNT_RANGE]).slice(0, count);
-  return points.map((pointCount) => ({ seed: randomSeed(), points: pointCount }));
+type LoopVariant = { points: number; phaseDegrees: number };
+
+function requestPhase(origin: Coordinate, targetM: number): number {
+  const latitude = Math.round(origin.latitude * 100_000);
+  const longitude = Math.round(origin.longitude * 100_000);
+  return Math.abs((latitude * 31 + longitude * 17 + Math.round(targetM)) % 360);
 }
 
-/** ORS accepts any integer seed; this range is comfortably within it. */
-function randomSeed(): number {
-  return Math.floor(Math.random() * 1_000_000) + 1;
+export function loopVariants(origin: Coordinate, targetM: number, count: number): LoopVariant[] {
+  const phase = requestPhase(origin, targetM);
+  return POINT_COUNT_RANGE.slice(0, count).map((points, index) => ({
+    points,
+    phaseDegrees: (phase + index * 37) % 360,
+  }));
 }
 
-function shuffle<T>(items: T[]): T[] {
-  const copy = [...items];
-  for (let i = copy.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-  }
-  return copy;
+function destination(origin: Coordinate, bearingDegrees: number, distanceM: number): Coordinate {
+  const radius = 6_371_000;
+  const bearing = (bearingDegrees * Math.PI) / 180;
+  const latitude = (origin.latitude * Math.PI) / 180;
+  const longitude = (origin.longitude * Math.PI) / 180;
+  const angularDistance = distanceM / radius;
+  const nextLatitude = Math.asin(
+    Math.sin(latitude) * Math.cos(angularDistance) +
+      Math.cos(latitude) * Math.sin(angularDistance) * Math.cos(bearing),
+  );
+  const nextLongitude = longitude + Math.atan2(
+    Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(latitude),
+    Math.cos(angularDistance) - Math.sin(latitude) * Math.sin(nextLatitude),
+  );
+  return {
+    latitude: (nextLatitude * 180) / Math.PI,
+    longitude: ((((nextLongitude * 180) / Math.PI + 540) % 360) - 180),
+  };
 }
 
-/**
- * A variant for the second pass, distinct from ones already used this search
- * where possible. Bounded rather than looping until success: with 5 point
- * counts and normally 3 already used, an unused one is found almost
- * immediately, but nothing here should be able to hang the search.
- */
-function pickUnusedVariant(
-  usedSeeds: ReadonlySet<number>,
-  usedPoints: ReadonlySet<number>,
-  maxAttempts = 10,
-): { seed: number; points: number } {
-  let candidate = randomVariants(1)[0];
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    if (!usedSeeds.has(candidate.seed) && !usedPoints.has(candidate.points)) {
-      return candidate;
-    }
-    candidate = randomVariants(1)[0];
-  }
-  return candidate;
-}
-
-/**
- * ORS's `round_trip.length` is a *preferred* value, not a target it honours
- * closely — measured against the live API (27 requests: 3 locations of
- * different character — dense Manhattan grid, park-heavy London suburb,
- * sparse rural Tuscany network — × 3 distances × 3 seeds, see issue #7), the
- * returned distance overshot the request in 25 of 27 cases:
- *
- *   ~3 km target  → average +11.0% over
- *   ~5 km target  → average +8.9% over
- *   ~10 km target → average +18.1% over
- *
- * The bias grows with distance but not cleanly linearly on this sample, so
- * distance is bucketed into tiers rather than fit to a curve that would claim
- * more precision than 27 samples support. Each tier is one named, adjustable
- * constant — revisit with a larger sample before trusting it much beyond
- * these ranges. `factor` is what the *requested* length is multiplied by
- * before asking ORS, so a factor of 0.90 means "ask for 90% of what the
- * runner wants, because this provider tends to hand back more than it's given."
- */
-const DISTANCE_CORRECTION_TIERS = [
-  { maxKm: 4, factor: 0.9 },
-  { maxKm: 7, factor: 0.92 },
-  { maxKm: Infinity, factor: 0.85 },
-] as const;
-
-export function correctionFactorFor(targetKm: number): number {
-  const tier =
-    DISTANCE_CORRECTION_TIERS.find((candidate) => targetKm <= candidate.maxKm) ??
-    DISTANCE_CORRECTION_TIERS[DISTANCE_CORRECTION_TIERS.length - 1];
-  return tier.factor;
+/** A regular waypoint ring whose straight-line perimeter matches targetM. */
+export function loopWaypoints(
+  origin: Coordinate,
+  targetM: number,
+  variant: LoopVariant,
+): Coordinate[] {
+  const denominator = 2 + 2 * variant.points * Math.sin(Math.PI / variant.points);
+  const radiusM = targetM / denominator;
+  return Array.from({ length: variant.points }, (_, index) =>
+    destination(origin, variant.phaseDegrees + (360 / variant.points) * index, radiusM),
+  );
 }
 
 /**
@@ -582,15 +544,16 @@ type RawCandidate = {
   distanceM: number;
   ascentM?: number;
   attributes: RouteAttributes;
+  waypoints?: Coordinate[];
 };
 
 /** A loop closes on its start; a one-way is an open line (#17). */
 type GeometryShape = 'loop' | 'one-way';
 
 /**
- * @param requestedLengthM The length sent to ORS in the request — after the
- *   distance correction has already been applied. Never use this for ranking
- *   or tolerance checks; use the caller's original target for that.
+ * @param requestedLengthM The desired loop perimeter used to place the
+ *   generated waypoints. Never use this for ranking or tolerance checks; use
+ *   the caller's original target for that.
  */
 /**
  * The one place a directions request is actually sent and parsed. Both the
@@ -715,24 +678,22 @@ const REQUESTED_EXTRA_INFO = ['waytype', 'surface'];
 async function requestLoop(
   origin: Coordinate,
   requestedLengthM: number,
-  variant: { seed: number; points: number },
+  variant: LoopVariant,
 ): Promise<RawCandidate> {
+  const waypoints = loopWaypoints(origin, requestedLengthM, variant);
   const [candidate] = await sendDirections(
     {
-      coordinates: [[origin.longitude, origin.latitude]],
+      coordinates: [
+        [origin.longitude, origin.latitude],
+        ...waypoints.map((point) => [point.longitude, point.latitude]),
+        [origin.longitude, origin.latitude],
+      ],
       elevation: true,
       extra_info: REQUESTED_EXTRA_INFO,
-      options: {
-        round_trip: {
-          length: Math.round(requestedLengthM),
-          points: variant.points,
-          seed: variant.seed,
-        },
-      },
     },
     'loop',
   );
-  return candidate;
+  return { ...candidate, waypoints };
 }
 
 export type WaypointsRequest = {
@@ -1091,8 +1052,8 @@ function safeOf(candidates: RawCandidate[], targetM: number): RawCandidate[] {
  * is issued using that candidate's own observed ratio — safe, because it was
  * itself already sanity-checked. If the first pass produces *no* usable
  * candidate at all, adapting off it would mean dividing by a meaningless
- * ratio, so instead a fresh, unadapted retry batch is issued at the original
- * corrected length. If even that produces nothing usable, the search fails
+ * ratio, so instead a fresh, slightly expanded deterministic retry batch is
+ * issued. If even that produces nothing usable, the search fails
  * explicitly (`no-close-route`) rather than ever presenting a wildly wrong
  * distance as a choice.
  *
@@ -1128,11 +1089,14 @@ export async function findRoutes({
   }
 
   const targetM = targetKm * 1000;
-  const correctedLengthM = targetM * correctionFactorFor(targetKm);
+  // Explicit waypoint placement has its own geometric distance budget. The
+  // old ORS round-trip correction is deliberately not applied here: it was
+  // measured for `round_trip.length`, a different provider algorithm.
+  const requestedLengthM = targetM;
 
-  const firstPassVariants = randomVariants(CANDIDATE_COUNT);
+  const firstPassVariants = loopVariants(origin, requestedLengthM, CANDIDATE_COUNT);
   const firstPass = await Promise.allSettled(
-    firstPassVariants.map((variant) => requestLoop(origin, correctedLengthM, variant)),
+    firstPassVariants.map((variant) => requestLoop(origin, requestedLengthM, variant)),
   );
 
   const firstPassAll = fulfilledOf(firstPass);
@@ -1147,12 +1111,13 @@ export async function findRoutes({
 
   if (safe.length === 0) {
     // Nothing from the first pass can be trusted — not even as a basis for
-    // adapting the next request. Retry cold, at the same tier-corrected
-    // length, with fresh variants, rather than dividing by a ratio computed
+    // adapting the next request. Retry cold, with a slightly expanded,
+    // deterministic ring rather than dividing by a ratio computed
     // from a result that was itself thrown out.
-    const retryVariants = randomVariants(CANDIDATE_COUNT);
+    const retryLengthM = requestedLengthM * 1.03;
+    const retryVariants = loopVariants(origin, retryLengthM, CANDIDATE_COUNT);
     const retryPass = await Promise.allSettled(
-      retryVariants.map((variant) => requestLoop(origin, correctedLengthM, variant)),
+      retryVariants.map((variant) => requestLoop(origin, retryLengthM, variant)),
     );
     safe = safeOf(fulfilledOf(retryPass), targetM);
 
@@ -1167,11 +1132,9 @@ export async function findRoutes({
     // tolerance. Refine against this origin's own behaviour rather than the
     // global tiers: ask for what the closest candidate says we should have
     // asked for, up to twice. A runner who asks for 5 km should not be shown
-    // 6.6 km because the provider's `round_trip.length` is only a preference.
-    let askedLengthM = correctedLengthM;
-    const usedSeeds = new Set(firstPassVariants.map((variant) => variant.seed));
-    const usedPoints = new Set(firstPassVariants.map((variant) => variant.points));
-
+    // 6.6 km because the street network's detours can differ from the
+    // waypoint ring's straight-line perimeter.
+    let askedLengthM = requestedLengthM;
     for (let attempt = 0; attempt < REFINEMENT_ATTEMPTS; attempt += 1) {
       const closest = rankByCloseness(safe, targetM)[0];
       const observedRatio = closest ? closest.distanceM / askedLengthM : NaN;
@@ -1180,9 +1143,9 @@ export async function findRoutes({
       }
 
       const nextLengthM = targetM / observedRatio;
-      const variant = pickUnusedVariant(usedSeeds, usedPoints);
-      usedSeeds.add(variant.seed);
-      usedPoints.add(variant.points);
+      const variant = loopVariants(origin, nextLengthM, POINT_COUNT_RANGE.length)[
+        (CANDIDATE_COUNT + attempt) % POINT_COUNT_RANGE.length
+      ];
 
       const refined = await requestLoop(origin, nextLengthM, variant).catch(() => null);
       // A refinement is sanity-checked like any other result: it can hit the
@@ -1213,6 +1176,7 @@ export async function findRoutes({
       characteristics: describe('loop', candidate.ascentM, candidate.distanceM, closestAvailable, candidate.attributes),
       ascentMeters: candidate.ascentM,
       attributes: candidate.attributes,
+      waypoints: candidate.waypoints,
     };
   });
 

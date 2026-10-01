@@ -1,8 +1,7 @@
 /**
- * Tests for the route generation behavior added in issue #7: seed variation
- * (routes must not be identical between searches), the distance correction
- * applied before asking ORS, tolerance/ranking of the actual returned
- * distance, and the adaptive second pass when the first batch misses.
+ * Tests for route generation: deterministic waypoint placement, tolerance and
+ * ranking of the actual returned distance, and the adaptive second pass when
+ * the first batch misses.
  *
  * `findRoutes` reads its API key from `process.env` once, at module load
  * time, so tests that need a specific key state load a fresh module instance
@@ -134,26 +133,6 @@ function orsMultiFixture(distancesM: number[], { open = false } = {}) {
   return { features };
 }
 
-describe('correctionFactorFor', () => {
-  test('applies the ≤4 km tier', () => {
-    const { correctionFactorFor } = loadRouting('test-key');
-    expect(correctionFactorFor(3)).toBeCloseTo(0.9);
-    expect(correctionFactorFor(4)).toBeCloseTo(0.9);
-  });
-
-  test('applies the 4–7 km tier', () => {
-    const { correctionFactorFor } = loadRouting('test-key');
-    expect(correctionFactorFor(5)).toBeCloseTo(0.92);
-    expect(correctionFactorFor(7)).toBeCloseTo(0.92);
-  });
-
-  test('applies the >7 km tier', () => {
-    const { correctionFactorFor } = loadRouting('test-key');
-    expect(correctionFactorFor(10)).toBeCloseTo(0.85);
-    expect(correctionFactorFor(42)).toBeCloseTo(0.85);
-  });
-});
-
 describe('toleranceMetersFor / isWithinTolerance', () => {
   test('uses the relative tolerance once 15% exceeds the absolute floor', () => {
     const { toleranceMetersFor } = loadRouting('test-key');
@@ -223,29 +202,30 @@ describe('rankByCloseness', () => {
   });
 });
 
-describe('randomVariants', () => {
-  test('returns the requested count with distinct point counts', () => {
-    const { randomVariants } = loadRouting('test-key');
-    const variants = randomVariants(3);
+describe('loopVariants and loopWaypoints', () => {
+  test('returns deterministic variants with distinct point counts', () => {
+    const { loopVariants } = loadRouting('test-key');
+    const variants = loopVariants(ORIGIN, 5000, 3);
     expect(variants).toHaveLength(3);
     expect(new Set(variants.map((v) => v.points)).size).toBe(3);
+    expect(loopVariants(ORIGIN, 5000, 3)).toEqual(variants);
   });
 
-  test('point counts include simple out-and-back candidates', () => {
-    const { randomVariants } = loadRouting('test-key');
-    const variants = randomVariants(4);
+  test('uses a small bounded spread of waypoint counts', () => {
+    const { loopVariants } = loadRouting('test-key');
+    const variants = loopVariants(ORIGIN, 5000, 4);
     expect(variants.map((variant) => variant.points)).toEqual(
       expect.arrayContaining([2, 3]),
     );
     expect(variants.every((variant) => variant.points >= 2 && variant.points <= 5)).toBe(true);
   });
 
-  test('seeds are positive integers', () => {
-    const { randomVariants } = loadRouting('test-key');
-    for (const variant of randomVariants(3)) {
-      expect(Number.isInteger(variant.seed)).toBe(true);
-      expect(variant.seed).toBeGreaterThan(0);
-    }
+  test('places evenly spread, finite waypoints', () => {
+    const { loopVariants, loopWaypoints } = loadRouting('test-key');
+    const waypoints = loopWaypoints(ORIGIN, 5000, loopVariants(ORIGIN, 5000, 3)[1]);
+    expect(waypoints).toHaveLength(3);
+    expect(new Set(waypoints.map((point) => `${point.latitude},${point.longitude}`)).size).toBe(3);
+    expect(waypoints.every((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude))).toBe(true);
   });
 });
 
@@ -269,38 +249,40 @@ describe('findRoutes', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test('sends the corrected length, not the raw target, to ORS', async () => {
-    const { findRoutes, correctionFactorFor } = loadRouting('test-key');
+  test('sends deterministic explicit waypoints derived from the target', async () => {
+    const { findRoutes } = loadRouting('test-key');
     fetchMock.mockResolvedValue(jsonResponse(orsFixture(5000)) as never);
 
     await findRoutes({ origin: ORIGIN, targetKm: 5 });
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    const expectedLength = Math.round(5000 * correctionFactorFor(5));
-    for (const call of fetchMock.mock.calls) {
+    for (const [index, call] of fetchMock.mock.calls.entries()) {
       const init = call[1] as RequestInit;
       const body = JSON.parse(init.body as string);
-      expect(body.options.round_trip.length).toBe(expectedLength);
+      expect(body.options?.round_trip).toBeUndefined();
+      expect(body.coordinates).toHaveLength(4 + index);
+      expect(body.coordinates[0]).toEqual([ORIGIN.longitude, ORIGIN.latitude]);
+      expect(body.coordinates.at(-1)).toEqual([ORIGIN.longitude, ORIGIN.latitude]);
     }
   });
 
-  test('seeds vary between separate searches', async () => {
+  test('waypoint placement is stable between separate searches', async () => {
     const { findRoutes } = loadRouting('test-key');
     fetchMock.mockResolvedValue(jsonResponse(orsFixture(5000)) as never);
 
     await findRoutes({ origin: ORIGIN, targetKm: 5 });
-    const firstSeeds = fetchMock.mock.calls.map(
-      (call) => JSON.parse((call[1] as RequestInit).body as string).options.round_trip.seed,
+    const firstCoordinates = fetchMock.mock.calls.map(
+      (call) => JSON.parse((call[1] as RequestInit).body as string).coordinates,
     );
 
     // Bypass the cache: this is about randomness, not caching (#62).
     fetchMock.mockClear();
     await findRoutes({ origin: ORIGIN, targetKm: 5, bypassCache: true });
-    const secondSeeds = fetchMock.mock.calls.map(
-      (call) => JSON.parse((call[1] as RequestInit).body as string).options.round_trip.seed,
+    const secondCoordinates = fetchMock.mock.calls.map(
+      (call) => JSON.parse((call[1] as RequestInit).body as string).coordinates,
     );
 
-    expect(firstSeeds).not.toEqual(secondSeeds);
+    expect(secondCoordinates).toEqual(firstCoordinates);
   });
 
   test('a repeated search within the window is served from cache (#62)', async () => {
@@ -1020,6 +1002,25 @@ describe('routing proxy (#63)', () => {
     const headers = (fetchMock.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
     expect(headers.Authorization).toBeUndefined();
     expect(fetchMock.mock.calls[0][0]).toContain('roam-routing.example.workers.dev');
+  });
+
+  test('does not use an embedded direct key in production', async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const { findRoutes } = loadRoutingWithEnv({ apiKey: 'embedded-production-key' });
+
+      await expect(findRoutes({ origin: ORIGIN, targetKm: 5 })).rejects.toMatchObject({
+        code: 'missing-key',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      if (originalNodeEnv === undefined) {
+        delete (process.env as Record<string, string | undefined>).NODE_ENV;
+      } else {
+        process.env.NODE_ENV = originalNodeEnv;
+      }
+    }
   });
 
   test('preserves a rate-limit from the proxy', async () => {
