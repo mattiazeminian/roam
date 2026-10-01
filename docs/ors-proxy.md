@@ -27,8 +27,10 @@ If neither is set, the client throws `missing-key` without calling out.
 
 - **Method / path** — `POST /directions/foot-walking/geojson`. Any other path is
   rejected.
-- **Request body** — the ORS directions body, unchanged. The proxy must not
-  alter it.
+- **Request body** — valid JSON with a `coordinates` array of 1–8
+  `[longitude, latitude]` pairs. Coordinates must be finite and within their
+  geographic bounds; malformed requests are rejected before they reach ORS.
+  Valid bodies are forwarded unchanged.
 - **Response** — the ORS GeoJSON, unchanged.
 - **Status codes are preserved.** The client maps them, so the proxy must pass
   them through rather than collapsing everything to 500:
