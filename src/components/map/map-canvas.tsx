@@ -437,14 +437,14 @@ function MapboxCanvas({
               onOriginMoved({ latitude, longitude });
             }
           }}>
-          <LocationDot draggable ringColor={map.locationRing} />
+          <LocationDot draggable />
         </mapbox.PointAnnotation>
       ) : origin ? (
         <mapbox.MarkerView
           coordinate={[origin.longitude, origin.latitude]}
           anchor={{ x: 0.5, y: 0.5 }}
           allowOverlap>
-          <LocationDot ringColor={map.locationRing} />
+          <LocationDot />
         </mapbox.MarkerView>
       ) : null}
     </mapbox.MapView>
@@ -572,23 +572,34 @@ function MapLine({
   );
 }
 
-function LocationDot({ draggable = false, ringColor }: { draggable?: boolean; ringColor?: string }) {
+function LocationDot({ draggable = false }: { draggable?: boolean }) {
   const theme = useTheme();
+  const map = useMapPalette();
   return (
     <View
       accessible
       accessibilityLabel={draggable ? 'Start point. Drag to move.' : 'Your current location'}
-      // A draggable pin is bigger and carries a ring in the accent, so it reads
-      // as something you can grab rather than as a read-only position dot.
+      // A position marker carries no heading or accuracy claim. Its white
+      // edge separates it from roads and the recorded track in either theme.
       style={draggable ? styles.markerDraggable : styles.marker}
       pointerEvents="none">
-      <View
-        style={[
-          draggable ? styles.markerRingDraggable : styles.markerRing,
-          { borderColor: draggable ? theme.accent : ringColor ?? theme.textSecondary },
-        ]}
-      />
-      <View style={[styles.markerDot, { backgroundColor: theme.accent, borderColor: theme.text }]} />
+      {draggable ? (
+        <>
+          <View style={[styles.markerRingDraggable, { borderColor: theme.accent }]} />
+          <View style={[styles.markerDot, { backgroundColor: theme.accent, borderColor: theme.text }]} />
+        </>
+      ) : (
+        <View
+          style={[
+            styles.locationMarker,
+            {
+              backgroundColor: map.locationCore,
+              borderColor: map.locationEdge,
+              shadowColor: map.locationCore,
+            },
+          ]}
+        />
+      )}
     </View>
   );
 }
@@ -669,12 +680,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  markerRing: {
-    position: 'absolute',
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    borderWidth: 1,
+  locationMarker: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 3,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.18,
+    shadowRadius: 2,
+    elevation: 2,
   },
   markerDraggable: {
     width: 44,

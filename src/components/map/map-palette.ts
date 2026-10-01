@@ -31,7 +31,8 @@ export const lightMapPalette = {
   routeActive: '#B9F52B',
   track: '#163300',
   completed: '#72A51A',
-  locationRing: '#163300',
+  locationCore: '#30352B',
+  locationEdge: '#FFFFFF',
   /**
    * Casing drawn under a route line. On light land the lime alone has too
    * little separation, so the selected route gets a dark green outline: the
@@ -54,7 +55,8 @@ export const darkMapPalette = {
   routeActive: '#C5FF38',
   track: '#F2F5EB',
   completed: '#9CCB2D',
-  locationRing: '#F2F5EB',
+  locationCore: '#30352B',
+  locationEdge: '#FFFFFF',
   /** On dark land the lime already separates; a light casing adds the edge. */
   routeCasing: '#0A0B08',
 } as const;
